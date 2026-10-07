@@ -3,6 +3,7 @@ package me.mesleksistemi.sistem;
 import me.mesleksistemi.MeslekSistemi;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.TextComponent;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
@@ -12,6 +13,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.UUID;
@@ -46,6 +48,7 @@ public class KimlikListener implements Listener {
 
     @EventHandler
     public void onNpcClick(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (event.getRightClicked() instanceof Villager) {
             Villager npc = (Villager) event.getRightClicked();
             Player player = event.getPlayer();
@@ -70,11 +73,21 @@ public class KimlikListener implements Listener {
         Player player = event.getPlayer();
         UUID pId = player.getUniqueId();
 
+        if (!plugin.kimlikAsama.containsKey(pId)) return;
+        event.setCancelled(true);
+        String gelenMesaj = event.getMessage().trim();
+        // Kimlik verileri ana thread'de güncellenir (chat olayı ayrı thread'den gelir)
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) kimlikAdimiIsle(player, gelenMesaj);
+        });
+    }
+
+    private void kimlikAdimiIsle(Player player, String mesaj) {
+        UUID pId = player.getUniqueId();
         if (plugin.kimlikAsama.containsKey(pId)) {
-            event.setCancelled(true);
             int asama = plugin.kimlikAsama.get(pId);
-            String mesaj = event.getMessage().trim();
             MeslekSistemi.GeciciKimlik veri = plugin.geciciKimlikler.get(pId);
+            if (veri == null) { plugin.kimlikAsama.remove(pId); return; }
 
             if (mesaj.equalsIgnoreCase("iptal")) {
                 plugin.kimlikAsama.remove(pId); plugin.geciciKimlikler.remove(pId);
@@ -107,8 +120,7 @@ public class KimlikListener implements Listener {
 
     private void biyomSecenekleriniGoster(Player player) {
         player.sendMessage(ChatColor.AQUA + "Memur: " + ChatColor.WHITE + "Son olarak kütüğünüzün bulunduğu biyomu seçin:");
-        String[] biyomlar = {"Orman", "Çöl", "Dağlar", "Ovalar", "Buzul", "Bataklık"};
-        for (String b : biyomlar) {
+        for (String b : me.mesleksistemi.Commands.KIMLIK_BIYOMLARI) {
             TextComponent btn = new TextComponent(ChatColor.DARK_AQUA + "➤ [" + b + "] ");
             btn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/kimlikbiyomsec " + b));
             player.spigot().sendMessage(btn);

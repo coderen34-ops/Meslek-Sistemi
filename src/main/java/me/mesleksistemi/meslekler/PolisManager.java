@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import net.md_5.bungee.api.chat.BaseComponent;
@@ -39,8 +40,11 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
@@ -78,6 +82,10 @@ public class PolisManager implements Listener, CommandExecutor {
     
     private final Random random = new Random();
 
+    // Dünyası şu an yüklü olmayan kayıtlar: kaydederken silinmesinler diye ham haliyle saklanır
+    private final Map<String, Map<String, Object>> yuklenemeyenHucreler = new HashMap<>();
+    private final Map<String, Map<String, Object>> yuklenemeyenDonusKonumlari = new HashMap<>();
+
     // Hapisteyken kullanılabilecek komutlar (beyaz liste). Config: hapis.izinli_komutlar
     private static final String IZINLI_KOMUTLAR_YOLU = "hapis.izinli_komutlar";
     private static final List<String> VARSAYILAN_IZINLI_KOMUTLAR = Arrays.asList(
@@ -111,6 +119,8 @@ public class PolisManager implements Listener, CommandExecutor {
             if (args.length == 0) { player.sendMessage(ChatColor.RED + "Kullanım: /hucreolustur <hücre_adı>"); return true; }
             String cellName = args[0].toLowerCase();
             jailCells.put(cellName, player.getLocation());
+            yuklenemeyenHucreler.remove(cellName);
+            plugin.veriKaydet();
             player.sendMessage(ChatColor.GREEN + "Hücre '" + cellName + "' oluşturuldu!");
             return true;
         }
@@ -119,7 +129,10 @@ public class PolisManager implements Listener, CommandExecutor {
             if (!player.hasPermission("polis.admin")) return true;
             if (args.length == 0) return true;
             String cellName = args[0].toLowerCase();
-            if (jailCells.remove(cellName) != null) {
+            boolean silindi = jailCells.remove(cellName) != null;
+            silindi |= yuklenemeyenHucreler.remove(cellName) != null;
+            if (silindi) {
+                plugin.veriKaydet();
                 player.sendMessage(ChatColor.GREEN + "Hücre silindi!");
             }
             return true;
@@ -153,6 +166,7 @@ public class PolisManager implements Listener, CommandExecutor {
             Block targetBlock = player.getTargetBlockExact(5);
             if (targetBlock != null && targetBlock.getType() == Material.LECTERN) {
                 amirKursuKonumu = targetBlock.getLocation();
+                plugin.veriKaydet();
                 player.sendMessage(ChatColor.GREEN + "Amir Masası başarıyla ayarlandı!");
             } else {
                 player.sendMessage(ChatColor.RED + "Lütfen bir kürsüye bakarak komutu girin.");
@@ -190,7 +204,9 @@ public class PolisManager implements Listener, CommandExecutor {
             String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
             if (!meslek.equalsIgnoreCase("polis")) return true;
             if (args.length < 2) return true;
-            UUID sikayetId = UUID.fromString(args[0]);
+            UUID sikayetId;
+            try { sikayetId = UUID.fromString(args[0]); }
+            catch (IllegalArgumentException e) { player.sendMessage(ChatColor.RED + "Bu şikayet dosyası kapanmış veya bulunamadı."); return true; }
             String karar = args[1];
             
             if (!aktifSikayetler.containsKey(sikayetId)) {
@@ -200,6 +216,7 @@ public class PolisManager implements Listener, CommandExecutor {
             
             Sikayet sikayet = aktifSikayetler.get(sikayetId);
             aktifSikayetler.remove(sikayetId);
+            plugin.veriKaydet();
             
             if (karar.equalsIgnoreCase("kapat")) {
                 player.sendMessage(ChatColor.YELLOW + "Şikayet dosyası kapatıldı ve arşivlendi.");
@@ -228,6 +245,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
     @EventHandler
     public void onEntityInteract(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         Player player = event.getPlayer();
         if (event.getRightClicked() instanceof Villager) {
             Villager npc = (Villager) event.getRightClicked();
@@ -313,6 +331,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
     @EventHandler
     public void onLecternInteract(PlayerInteractEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
             Block clickedBlock = event.getClickedBlock();
             if (clickedBlock != null && clickedBlock.getType() == Material.LECTERN) {
@@ -363,6 +382,7 @@ public class PolisManager implements Listener, CommandExecutor {
         
         if (title.equals(ChatColor.DARK_RED + "Şüpheli Seçimi")) {
             event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             ItemStack clicked = event.getCurrentItem();
             if (clicked == null || clicked.getType() != Material.PLAYER_HEAD) return;
             
@@ -381,6 +401,7 @@ public class PolisManager implements Listener, CommandExecutor {
         
         if (title.equals(ChatColor.DARK_BLUE + "Bekleyen Şikayetler")) {
             event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             ItemStack clicked = event.getCurrentItem();
             if (clicked == null || clicked.getType() != Material.PLAYER_HEAD) return;
             
@@ -397,6 +418,7 @@ public class PolisManager implements Listener, CommandExecutor {
         
         if (title.startsWith(ChatColor.DARK_RED + "Soruşturma: ")) {
             event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             ItemStack clicked = event.getCurrentItem();
             if (clicked == null || !clicked.hasItemMeta()) return;
             
@@ -500,36 +522,42 @@ public class PolisManager implements Listener, CommandExecutor {
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
+        if (!sikayetAdimi.containsKey(player.getUniqueId())) return;
+        event.setCancelled(true);
+        String msg = event.getMessage().trim();
+        // Şikayet kaydı ana thread'de oluşturulur (chat olayı ayrı thread'den gelir)
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) sikayetMesajiIsle(player, msg);
+        });
+    }
+
+    private void sikayetMesajiIsle(Player player, String msg) {
         UUID pId = player.getUniqueId();
-        
-        if (sikayetAdimi.containsKey(pId)) {
-            event.setCancelled(true);
-            String msg = event.getMessage().trim();
-            
-            if (msg.equalsIgnoreCase("iptal")) {
-                sikayetAdimi.remove(pId);
-                geciciSikayetHedef.remove(pId);
-                player.sendMessage(ChatColor.YELLOW + "Şikayet işlemi iptal edildi.");
-                return;
-            }
-            
-            int adim = sikayetAdimi.get(pId);
-            if (adim == 2) {
-                String hedef = geciciSikayetHedef.get(pId);
-                String sebep = msg;
-                Sikayet yeniSikayet = new Sikayet(UUID.randomUUID(), player.getName(), hedef, sebep);
-                aktifSikayetler.put(yeniSikayet.id, yeniSikayet);
-                
-                sikayetAdimi.remove(pId);
-                geciciSikayetHedef.remove(pId);
-                
-                player.sendMessage(ChatColor.GREEN + "Tutanak başarıyla karakola iletildi.");
-                
-                for (Player p : Bukkit.getOnlinePlayers()) {
-                    String pMeslek = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
-                    if (pMeslek.equalsIgnoreCase("polis")) {
-                        p.sendMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + "Karakola yeni bir ihbar/şikayet ulaştı! Amir Masasını kontrol edin.");
-                    }
+        if (!sikayetAdimi.containsKey(pId)) return;
+
+        if (msg.equalsIgnoreCase("iptal")) {
+            sikayetAdimi.remove(pId);
+            geciciSikayetHedef.remove(pId);
+            player.sendMessage(ChatColor.YELLOW + "Şikayet işlemi iptal edildi.");
+            return;
+        }
+
+        int adim = sikayetAdimi.get(pId);
+        if (adim == 2) {
+            String hedef = geciciSikayetHedef.get(pId);
+            Sikayet yeniSikayet = new Sikayet(UUID.randomUUID(), player.getName(), hedef, msg);
+            aktifSikayetler.put(yeniSikayet.id, yeniSikayet);
+
+            sikayetAdimi.remove(pId);
+            geciciSikayetHedef.remove(pId);
+            plugin.veriKaydet();
+
+            player.sendMessage(ChatColor.GREEN + "Tutanak başarıyla karakola iletildi.");
+
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                String pMeslek = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
+                if (pMeslek.equalsIgnoreCase("polis")) {
+                    p.sendMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + "Karakola yeni bir ihbar/şikayet ulaştı! Amir Masasını kontrol edin.");
                 }
             }
         }
@@ -620,6 +648,7 @@ public class PolisManager implements Listener, CommandExecutor {
         if (jailedPlayers.containsKey(player.getUniqueId())) {
             int timeLeft = jailedPlayers.get(player.getUniqueId());
             startJailTimer(player, timeLeft); 
+            player.sendMessage(ChatColor.DARK_RED + "Cezanız devam ediyor! Kalan süre: " + Math.max(1, timeLeft / 60) + " dakika.");
             
             if (!jailCells.isEmpty()) {
                 boolean isNearCell = false;
@@ -630,6 +659,16 @@ public class PolisManager implements Listener, CommandExecutor {
                 }
                 if (!isNearCell) player.teleport(getBestCell());
             }
+        }
+    }
+
+    @EventHandler
+    public void onRespawn(PlayerRespawnEvent event) {
+        if (!jailedPlayers.containsKey(event.getPlayer().getUniqueId())) return;
+        Location cell = getBestCell();
+        if (cell != null) {
+            event.setRespawnLocation(cell);
+            event.getPlayer().sendMessage(ChatColor.RED + "Cezanız devam ediyor, hücrenize geri döndünüz.");
         }
     }
 
@@ -666,9 +705,7 @@ public class PolisManager implements Listener, CommandExecutor {
         if (!jailedPlayers.containsKey(player.getUniqueId())) return;
         if (player.hasPermission("polis.admin")) return;
 
-        String komut = event.getMessage().substring(1).trim().split("\\s+")[0].toLowerCase();
-        int onekSonu = komut.lastIndexOf(':');
-        if (onekSonu >= 0) komut = komut.substring(onekSonu + 1);
+        String komut = MeslekSistemi.komutAdi(event.getMessage());
 
         List<String> izinli = plugin.getConfig().getStringList(IZINLI_KOMUTLAR_YOLU);
         for (String izin : izinli) {
@@ -690,6 +727,46 @@ public class PolisManager implements Listener, CommandExecutor {
         }
     }
 
+    // Mahkeme kararı gibi dış sistemler için: oyuncu çevrimdışı olsa da ceza işlenir,
+    // oyuna girdiğinde hücreye alınır. Zaten hapisteyse süre mevcut cezaya eklenir.
+    public boolean hapseGonder(UUID uuid, String isim, int saniye) {
+        if (saniye <= 0) return false;
+        if (jailCells.isEmpty()) return false;
+
+        if (jailedPlayers.containsKey(uuid)) {
+            jailedPlayers.put(uuid, jailedPlayers.get(uuid) + saniye);
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) p.sendMessage(ChatColor.DARK_RED + "Cezanıza " + (saniye / 60) + " dakika eklendi!");
+            plugin.veriKaydet();
+            return true;
+        }
+
+        Player online = Bukkit.getPlayer(uuid);
+        if (online != null) {
+            preJailLocations.put(uuid, online.getLocation());
+            jailPlayer(online, saniye);
+        } else {
+            String eskiMeslek = plugin.oyuncuMeslekCache.getOrDefault(uuid, "vatandas");
+            if (!eskiMeslek.equalsIgnoreCase("mahkum")) preJailRoles.put(uuid, eskiMeslek);
+            jailedPlayers.put(uuid, saniye);
+            plugin.oyuncuMeslekCache.put(uuid, "mahkum");
+            if (isim != null) {
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent clear");
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent add mahkum");
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag remove " + isim);
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + isim + " Mahkum");
+            }
+        }
+        plugin.veriKaydet();
+        return true;
+    }
+
+    // Hapisteki oyuncuyu hücresine geri gönderir (örn. duruşma bittikten sonra)
+    public void hucreyeGonder(Player player) {
+        Location cell = getBestCell();
+        if (cell != null) player.teleport(cell);
+    }
+
     private void jailPlayer(Player player, int seconds) {
         // İŞTE BURASI: Oyuncu hapse girmeden hemen önce eski mesleğini hafızaya alıyoruz.
         String eskiMeslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
@@ -709,6 +786,7 @@ public class PolisManager implements Listener, CommandExecutor {
         
         player.sendMessage(ChatColor.DARK_RED + "Hapse atıldınız! Yeni Statünüz: Mahkum. Ceza süreniz: " + (seconds / 60) + " dakika.");
         startJailTimer(player, seconds);
+        plugin.veriKaydet();
     }
 
     private void releasePlayer(Player player) {
@@ -738,6 +816,7 @@ public class PolisManager implements Listener, CommandExecutor {
         
         player.sendMessage(ChatColor.GREEN + "Cezanız doldu! Eski sivil hayatınıza ve [" + tagAd + "] unvanınıza geri döndünüz!");
         
+        yuklenemeyenDonusKonumlari.remove(player.getUniqueId().toString());
         if (preJailLocations.containsKey(player.getUniqueId())) {
             Location returnLoc = preJailLocations.get(player.getUniqueId());
             player.teleport(returnLoc);
@@ -745,14 +824,19 @@ public class PolisManager implements Listener, CommandExecutor {
         } else {
             player.teleport(player.getWorld().getSpawnLocation()); 
         }
+        plugin.veriKaydet();
     }
 
     private void startJailTimer(Player player, int initialSeconds) {
+        BukkitRunnable eski = jailTasks.remove(player.getUniqueId());
+        if (eski != null) eski.cancel();
         BukkitRunnable task = new BukkitRunnable() {
             @Override
             public void run() {
                 if (!player.isOnline()) { this.cancel(); return; }
-                int currentLeft = jailedPlayers.get(player.getUniqueId());
+                Integer kalan = jailedPlayers.get(player.getUniqueId());
+                if (kalan == null) { this.cancel(); jailTasks.remove(player.getUniqueId()); return; }
+                int currentLeft = kalan;
                 if (currentLeft <= 0) {
                     releasePlayer(player);
                     this.cancel();
@@ -818,8 +902,12 @@ public class PolisManager implements Listener, CommandExecutor {
         }
         
         plugin.getConfig().set("pre_jail_locations", null);
+        for (Map.Entry<String, Map<String, Object>> ham : yuklenemeyenDonusKonumlari.entrySet()) {
+            plugin.getConfig().createSection("pre_jail_locations." + ham.getKey(), ham.getValue());
+        }
         for (UUID uuid : preJailLocations.keySet()) {
             Location loc = preJailLocations.get(uuid);
+            if (loc.getWorld() == null) continue;
             plugin.getConfig().set("pre_jail_locations." + uuid.toString() + ".world", loc.getWorld().getName());
             plugin.getConfig().set("pre_jail_locations." + uuid.toString() + ".x", loc.getX());
             plugin.getConfig().set("pre_jail_locations." + uuid.toString() + ".y", loc.getY());
@@ -833,8 +921,12 @@ public class PolisManager implements Listener, CommandExecutor {
         }
 
         plugin.getConfig().set("jail.cells", null);
+        for (Map.Entry<String, Map<String, Object>> ham : yuklenemeyenHucreler.entrySet()) {
+            if (!jailCells.containsKey(ham.getKey())) plugin.getConfig().createSection("jail.cells." + ham.getKey(), ham.getValue());
+        }
         for (String cellName : jailCells.keySet()) {
             Location loc = jailCells.get(cellName);
+            if (loc.getWorld() == null) continue;
             plugin.getConfig().set("jail.cells." + cellName + ".world", loc.getWorld().getName());
             plugin.getConfig().set("jail.cells." + cellName + ".x", loc.getX());
             plugin.getConfig().set("jail.cells." + cellName + ".y", loc.getY());
@@ -865,8 +957,15 @@ public class PolisManager implements Listener, CommandExecutor {
     public void veriYukle() {
         if (plugin.getConfig().contains("jail.cells")) {
             for (String cellName : plugin.getConfig().getConfigurationSection("jail.cells").getKeys(false)) {
+                ConfigurationSection hucre = plugin.getConfig().getConfigurationSection("jail.cells." + cellName);
+                org.bukkit.World dunya = hucre == null ? null : Bukkit.getWorld(hucre.getString("world", ""));
+                if (dunya == null) {
+                    if (hucre != null) yuklenemeyenHucreler.put(cellName, hucre.getValues(false));
+                    plugin.getLogger().warning("[Polis] '" + cellName + "' hücresinin dünyası yüklü değil, hücre şimdilik kullanılmayacak.");
+                    continue;
+                }
                 Location loc = new Location(
-                    Bukkit.getWorld(plugin.getConfig().getString("jail.cells." + cellName + ".world")),
+                    dunya,
                     plugin.getConfig().getDouble("jail.cells." + cellName + ".x"),
                     plugin.getConfig().getDouble("jail.cells." + cellName + ".y"),
                     plugin.getConfig().getDouble("jail.cells." + cellName + ".z"),
@@ -885,8 +984,14 @@ public class PolisManager implements Listener, CommandExecutor {
         
         if (plugin.getConfig().contains("pre_jail_locations")) {
              for (String uuidStr : plugin.getConfig().getConfigurationSection("pre_jail_locations").getKeys(false)) {
+                 ConfigurationSection konum = plugin.getConfig().getConfigurationSection("pre_jail_locations." + uuidStr);
+                 org.bukkit.World dunya = konum == null ? null : Bukkit.getWorld(konum.getString("world", ""));
+                 if (dunya == null) {
+                     if (konum != null) yuklenemeyenDonusKonumlari.put(uuidStr, konum.getValues(false));
+                     continue;
+                 }
                  Location loc = new Location(
-                     Bukkit.getWorld(plugin.getConfig().getString("pre_jail_locations." + uuidStr + ".world")),
+                     dunya,
                      plugin.getConfig().getDouble("pre_jail_locations." + uuidStr + ".x"),
                      plugin.getConfig().getDouble("pre_jail_locations." + uuidStr + ".y"),
                      plugin.getConfig().getDouble("pre_jail_locations." + uuidStr + ".z")

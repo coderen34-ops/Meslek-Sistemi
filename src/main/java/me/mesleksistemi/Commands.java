@@ -22,6 +22,9 @@ public class Commands implements CommandExecutor {
 
     private final MeslekSistemi plugin;
 
+    // KimlikListener'daki kütük butonlarıyla aynı liste
+    public static final String[] KIMLIK_BIYOMLARI = {"Orman", "Çöl", "Dağlar", "Ovalar", "Buzul", "Bataklık"};
+
     public Commands(MeslekSistemi plugin) {
         this.plugin = plugin;
     }
@@ -57,7 +60,7 @@ public class Commands implements CommandExecutor {
             Player hedef = Bukkit.getPlayer(args[0]);
             if (hedef != null) {
                 try {
-                    double miktar = Double.parseDouble(args[1]);
+                    double miktar = MeslekSistemi.parsePara(args[1]);
                     double bakiye = plugin.bankaHesaplari.getOrDefault(hedef.getUniqueId(), 0.0);
                     plugin.bankaHesaplari.put(hedef.getUniqueId(), bakiye + miktar);
                     hedef.sendMessage(ChatColor.GREEN + "[Banka] Hesabiniza " + miktar + "$ prim yatirildi!");
@@ -192,10 +195,18 @@ public class Commands implements CommandExecutor {
 
         if (command.getName().equalsIgnoreCase("kimlikbiyomsec")) {
             if (args.length == 0) return true;
+            // Sadece Nüfus Müdürlüğü'nün sunduğu kütüklerden biri seçilebilir
+            String secilenBiyom = null;
+            for (String biyom : KIMLIK_BIYOMLARI) {
+                if (biyom.equalsIgnoreCase(args[0])) { secilenBiyom = biyom; break; }
+            }
+            if (secilenBiyom == null) return true;
+            args[0] = secilenBiyom;
             UUID pId = player.getUniqueId();
             if (plugin.kimlikAsama.containsKey(pId) && plugin.kimlikAsama.get(pId) == 4) {
                 plugin.kimlikAsama.remove(pId);
                 MeslekSistemi.GeciciKimlik veri = plugin.geciciKimlikler.get(pId);
+                if (veri == null) return true;
                 veri.kutuk = args[0];
                 generateKimlik(player, veri);
                 plugin.geciciKimlikler.remove(pId);
@@ -216,7 +227,9 @@ public class Commands implements CommandExecutor {
         }
 
         if (command.getName().equalsIgnoreCase("basvurucevapla") && player.hasPermission("meslek.baskan") && args.length >= 2) {
-            UUID basvuranUUID = UUID.fromString(args[0]);
+            UUID basvuranUUID;
+            try { basvuranUUID = UUID.fromString(args[0]); }
+            catch (IllegalArgumentException e) { player.sendMessage(ChatColor.RED + "Gecersiz basvuru."); return true; }
             String islem = args[1];
             if (!plugin.aktifBasvurular.containsKey(basvuranUUID)) { player.sendMessage(ChatColor.RED + "Gecersiz basvuru."); return true; }
             

@@ -13,7 +13,6 @@ import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.block.Chest;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -23,6 +22,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -37,7 +37,6 @@ public class SecimManager implements Listener, CommandExecutor {
 
     private final MeslekSistemi plugin;
     private final NamespacedKey ballotKey;
-    private NamespacedKey economyValueKey;
 
     private boolean secimAktif = false;
     private Location sandikKonumu = null;
@@ -48,6 +47,11 @@ public class SecimManager implements Listener, CommandExecutor {
     
     // YENİ: Otomatik bitirme zamanlayıcısı
     private BukkitTask secimTimerTask = null;
+    private static final long SECIM_SURESI_MS = 10 * 60 * 1000L;
+    // Sandıkların kapanacağı an (yeniden başlatmada zamanlayıcı buradan devam eder)
+    private long secimBitisZamani = 0L;
+    // Her seçimin kimliği: pusulalar sadece çıktıkları seçimde geçerlidir
+    private long secimId = 0L;
     
     // OYLAMA DEĞİŞKENLERİ
     public long sonSecimBitisZamani = 0L;
@@ -61,11 +65,26 @@ public class SecimManager implements Listener, CommandExecutor {
         this.plugin = plugin;
         this.ballotKey = new NamespacedKey(plugin, "ballot_paper");
         
-        if (Bukkit.getPluginManager().getPlugin("Economy") != null) {
-            this.economyValueKey = new NamespacedKey(Bukkit.getPluginManager().getPlugin("Economy"), "value");
-        }
-        
         veriYukle();
+
+        // Sunucu seçim sırasında kapandıysa sandıklar kalan sürenin sonunda kapanır
+        if (secimAktif) {
+            if (secimBitisZamani <= 0) secimBitisZamani = System.currentTimeMillis() + SECIM_SURESI_MS;
+            secimZamanlayicisiKur();
+        }
+    }
+
+    private void secimZamanlayicisiKur() {
+        if (secimTimerTask != null) secimTimerTask.cancel();
+        long kalanTick = Math.max(20L, (secimBitisZamani - System.currentTimeMillis()) / 50L);
+        secimTimerTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (secimAktif) {
+                    bitirSecim(true); // Süre dolunca otomatik bittiğini belirtiyoruz
+                }
+            }
+        }.runTaskLater(plugin, kalanTick);
     }
 
     public void onDisable() {
@@ -99,7 +118,7 @@ public class SecimManager implements Listener, CommandExecutor {
             return false; 
         }
         
-        long sonGorulme = Bukkit.getOfflinePlayer(baskanUUID).getLastPlayed();
+        long sonGorulme = Bukkit.getOfflinePlayer(baskanUUID).getLastSeen();
         if (sonGorulme == 0) return true; 
         
         long offlineSure = System.currentTimeMillis() - sonGorulme;
@@ -127,7 +146,7 @@ public class SecimManager implements Listener, CommandExecutor {
                 if (baskanUUID != null) {
                     Player baskan = Bukkit.getPlayer(baskanUUID);
                     if (baskan == null || !baskan.isOnline()) {
-                        long sonGorulme = Bukkit.getOfflinePlayer(baskanUUID).getLastPlayed();
+                        long sonGorulme = Bukkit.getOfflinePlayer(baskanUUID).getLastSeen();
                         if (sonGorulme > 0) {
                             long offlineSure = System.currentTimeMillis() - sonGorulme;
                             if (offlineSure < 0) offlineSure = 0;
@@ -349,6 +368,8 @@ public class SecimManager implements Listener, CommandExecutor {
 
     private void baslatSecim() {
         secimAktif = true;
+        secimId = System.currentTimeMillis();
+        secimBitisZamani = secimId + SECIM_SURESI_MS;
         
         // YENİ: Mevcut başkanı bulup otomatik aday yapma işlemi (Ücretsiz)
         UUID mevcutBaskan = getGercekBaskan();
@@ -369,22 +390,15 @@ public class SecimManager implements Listener, CommandExecutor {
         Bukkit.broadcastMessage(ChatColor.RED + " ► Sandiklar 10 dakika sonra otomatik kapanacaktir!");
         Bukkit.broadcastMessage(ChatColor.AQUA + "======================================");
 
-        // YENİ: 10 Dakikalık otomatik seçim bitirme zamanlayıcısı (12000 tick)
-        if (secimTimerTask != null) secimTimerTask.cancel();
-        secimTimerTask = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (secimAktif) {
-                    bitirSecim(true); // Süre dolunca otomatik bittiğini belirtiyoruz
-                }
-            }
-        }.runTaskLater(plugin, 12000L); 
+        // YENİ: 10 Dakikalık otomatik seçim bitirme zamanlayıcısı
+        secimZamanlayicisiKur();
     }
 
     // YENİ: Oyları sayıp başkanı belirleyen kodları temiz bir metoda ayırdık
     private void bitirSecim(boolean otomatikMi) {
         if (!secimAktif) return;
         secimAktif = false;
+        secimBitisZamani = 0L;
         
         // Zamanlayıcıyı iptal et (eğer admin manuel bitirdiyse arkadan tekrar bitirmesin diye)
         if (secimTimerTask != null) {
@@ -462,7 +476,7 @@ public class SecimManager implements Listener, CommandExecutor {
                             } else {
                                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + eskiIsim + " parent set vatandas");
                                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + eskiIsim + " vatandas");
-                                plugin.oyuncuMeslekCache.put(eskiUUID, "Vatandas");
+                                plugin.oyuncuMeslekCache.put(eskiUUID, "vatandas");
                             }
                         }
                     }
@@ -476,16 +490,14 @@ public class SecimManager implements Listener, CommandExecutor {
                             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + yeniBaskan + " belediyebaskani");
                             org.bukkit.OfflinePlayer yp = Bukkit.getOfflinePlayer(yeniBaskan);
                             if (plugin.oyuncuMeslekCache != null) {
-                                plugin.oyuncuMeslekCache.put(yp.getUniqueId(), "BelediyeBaskani");
+                                plugin.oyuncuMeslekCache.put(yp.getUniqueId(), "belediyebaskani");
                             }
                         }
                         
                         Bukkit.broadcastMessage(ChatColor.GOLD + "★ " + ChatColor.GREEN + yeniBaskan + ChatColor.YELLOW + " resmen Belediye Baskani gorevine baslamistir! ★");
                     }
                     
-                    try {
-                        plugin.getClass().getMethod("veriKaydet").invoke(plugin);
-                    } catch (Exception ignored) {}
+                    plugin.veriKaydet();
                 }
             }.runTaskLater(plugin, 1200L);
         }
@@ -500,6 +512,7 @@ public class SecimManager implements Listener, CommandExecutor {
     @EventHandler
     public void onSandikClick(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (sandikKonumu == null || event.getClickedBlock() == null) return;
         
         if (event.getClickedBlock().getLocation().equals(sandikKonumu)) {
@@ -548,12 +561,18 @@ public class SecimManager implements Listener, CommandExecutor {
     public void onVotingClick(InventoryClickEvent event) {
         if (event.getView().getTitle().equals(ChatColor.DARK_BLUE + "Oy Pusulasi")) {
             event.setCancelled(true);
+            // Sadece sandıktaki adaylar: kendi envanterindeki (isim verilmiş) kafalar oy sayılmaz
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             Player player = (Player) event.getWhoClicked();
             ItemStack clickedItem = event.getCurrentItem();
 
             if (clickedItem == null || clickedItem.getType() != Material.PLAYER_HEAD) return;
             
             String secilenAday = ChatColor.stripColor(clickedItem.getItemMeta().getDisplayName());
+            if (!secimAktif || !adaylar.contains(secilenAday)) {
+                player.closeInventory();
+                return;
+            }
 
             if (oyKullananlar.contains(player.getUniqueId())) {
                 player.closeInventory();
@@ -577,18 +596,24 @@ public class SecimManager implements Listener, CommandExecutor {
         meta.setDisplayName(ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "Muhurlu Oy Pusulasi");
         meta.setLore(Collections.singletonList(ChatColor.GRAY + "Bu belge ile sandikta oy kullanabilirsiniz."));
         PersistentDataContainer data = meta.getPersistentDataContainer();
-        data.set(ballotKey, PersistentDataType.BYTE, (byte) 1);
+        data.set(ballotKey, PersistentDataType.LONG, secimId);
         item.setItemMeta(meta);
         return item;
     }
 
+    // Pusula sadece bu seçimde verildiyse geçerlidir (önceki seçimlerden kalanlar sayılmaz)
+    private boolean gecerliPusulaMi(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return false;
+        PersistentDataContainer data = item.getItemMeta().getPersistentDataContainer();
+        // Eski sürümün pusulaları farklı tipte saklanıyordu; tip uymazsa geçersiz sayılır
+        if (!data.has(ballotKey, PersistentDataType.LONG)) return false;
+        Long id = data.get(ballotKey, PersistentDataType.LONG);
+        return id != null && id == secimId;
+    }
+
     private boolean hasBallot(Player player) {
         for (ItemStack item : player.getInventory().getContents()) {
-            if (item != null && item.hasItemMeta()) {
-                if (item.getItemMeta().getPersistentDataContainer().has(ballotKey, PersistentDataType.BYTE)) {
-                    return true;
-                }
-            }
+            if (gecerliPusulaMi(item)) return true;
         }
         return false;
     }
@@ -597,95 +622,23 @@ public class SecimManager implements Listener, CommandExecutor {
         PlayerInventory inv = player.getInventory();
         for (int i = 0; i < inv.getSize(); i++) {
             ItemStack item = inv.getItem(i);
-            if (item != null && item.hasItemMeta()) {
-                if (item.getItemMeta().getPersistentDataContainer().has(ballotKey, PersistentDataType.BYTE)) {
-                    item.setAmount(item.getAmount() - 1);
-                    return true;
-                }
+            if (gecerliPusulaMi(item)) {
+                item.setAmount(item.getAmount() - 1);
+                return true;
             }
         }
         return false;
     }
 
-    private Double getMoneyValue(ItemStack item) {
-        if (item == null || item.getType() != Material.PAPER || !item.hasItemMeta()) return null;
-        PersistentDataContainer data = item.getItemMeta().getPersistentDataContainer();
-        if (economyValueKey != null && data.has(economyValueKey, PersistentDataType.DOUBLE)) {
-            return data.get(economyValueKey, PersistentDataType.DOUBLE);
-        }
-        return null;
-    }
-
-    private ItemStack createEconomyNote(double amount) {
-        ItemStack note = new ItemStack(Material.PAPER);
-        ItemMeta meta = note.getItemMeta();
-        meta.setDisplayName(ChatColor.GREEN + "" + ChatColor.BOLD + "$" + formatAmount(amount));
-        meta.setLore(Collections.singletonList(ChatColor.GRAY + "Paper money"));
-        PersistentDataContainer data = meta.getPersistentDataContainer();
-        if (economyValueKey != null) {
-            data.set(economyValueKey, PersistentDataType.DOUBLE, amount);
-        }
-        note.setItemMeta(meta);
-        return note;
-    }
-
-    private String formatAmount(double amount) {
-        return amount == Math.floor(amount) ? String.valueOf((long) amount) : String.valueOf(amount);
-    }
-
+    // Adaylık ücreti oyuncunun kağıt parasından alınıp Belediye Kasası'na aktarılır
     private boolean processPayment(Player player, double price) {
-        if (economyValueKey == null) {
-            player.sendMessage(ChatColor.RED + "Ekonomi sistemi bulunamadi!");
-            return false;
-        }
-
-        PlayerInventory inventory = player.getInventory();
-        double totalMoney = 0.0;
-        List<Integer> moneySlots = new ArrayList<>();
-
-        for (int i = 0; i < inventory.getSize(); i++) {
-            ItemStack item = inventory.getItem(i);
-            Double itemValue = getMoneyValue(item);
-            if (itemValue != null) {
-                totalMoney += (itemValue * item.getAmount());
-                moneySlots.add(i);
-            }
-        }
-
-        if (totalMoney < price) {
-            player.sendMessage(ChatColor.RED + "Adaylik icin yeterli paran yok! Gereken: $" + formatAmount(price));
-            return false;
-        }
-
-        for (int slot : moneySlots) {
-            inventory.setItem(slot, null);
-        }
-
-        double remaining = Math.round((totalMoney - price) * 100.0) / 100.0;
-        if (remaining > 0) {
-            inventory.addItem(createEconomyNote(remaining));
-        }
-
-        player.updateInventory();
-        
-        try {
-            Location kasaKon = (Location) plugin.getClass().getField("kasaKonumu").get(plugin);
-            if (kasaKon != null && kasaKon.getBlock().getState() instanceof Chest) {
-                Chest kasa = (Chest) kasaKon.getBlock().getState();
-                kasa.getInventory().addItem(createEconomyNote(price));
-                plugin.getClass().getMethod("mergeKasaMoney", Chest.class).invoke(plugin, kasa);
-            } else {
-                player.sendMessage(ChatColor.RED + "Belediye kasasi aktif olmadigi icin odenen tutar void'e gitti!");
-            }
-        } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "Belediye kasasi ayarlanamadi, para void'e gitti.");
-        }
-        
-        return true;
+        return plugin.processPaymentToKasa(player, price);
     }
 
     private void veriKaydet() {
         plugin.getConfig().set("secim.secimAktif", secimAktif);
+        plugin.getConfig().set("secim.bitisZamani", secimBitisZamani);
+        plugin.getConfig().set("secim.id", secimId);
         
         if (sandikKonumu != null) {
             plugin.getConfig().set("secim.sandik.world", sandikKonumu.getWorld().getName());
@@ -720,6 +673,8 @@ public class SecimManager implements Listener, CommandExecutor {
 
     private void veriYukle() {
         secimAktif = plugin.getConfig().getBoolean("secim.secimAktif", false);
+        secimBitisZamani = plugin.getConfig().getLong("secim.bitisZamani", 0L);
+        secimId = plugin.getConfig().getLong("secim.id", 0L);
         sonSecimBitisZamani = plugin.getConfig().getLong("secim.sonSecimBitisZamani", 0L);
         sonBasarisizOylamaZamani = plugin.getConfig().getLong("secim.sonBasarisizOylamaZamani", 0L);
         

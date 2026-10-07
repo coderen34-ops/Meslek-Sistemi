@@ -5,7 +5,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.block.Chest;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -18,6 +17,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityToggleGlideEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -67,6 +67,7 @@ public class EhliyetManager implements Listener, CommandExecutor {
 
     @EventHandler
     public void onNpcInteract(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (event.getRightClicked() instanceof Villager) {
             Villager npc = (Villager) event.getRightClicked();
             if (npc.getPersistentDataContainer().has(ehliyetNpcKey, PersistentDataType.BYTE)) {
@@ -110,6 +111,7 @@ public class EhliyetManager implements Listener, CommandExecutor {
 
         if (title.equals(ChatColor.DARK_AQUA + "Uçuş Kursu & Ehliyet")) {
             event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             
             if (clicked.getType() == Material.ELYTRA) {
                 if (plugin.elytraEhliyetleri.contains(player.getUniqueId())) {
@@ -118,7 +120,7 @@ public class EhliyetManager implements Listener, CommandExecutor {
                 }
                 
                 // Meslek sistemindeki aynı kasa güvenlik kontrolü
-                if (plugin.kasaKonumu == null || !(plugin.kasaKonumu.getBlock().getState() instanceof Chest)) {
+                if (plugin.getKasa() == null) {
                     player.sendMessage(ChatColor.RED + "Belediye kasası aktif değil, ehliyet harcı tahsil edilemiyor!");
                     player.closeInventory();
                     return;

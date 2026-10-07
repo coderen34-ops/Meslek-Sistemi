@@ -19,7 +19,18 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 
 // YENİ: Adliye paketindeki dosyalarımızı çağırıyoruz
 import me.mesleksistemi.adliye.AdliyeManager;
@@ -82,9 +93,23 @@ public class MeslekSistemi extends JavaPlugin {
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
     public KiraManager kiraManager;
+    private SecimManager secimManager;
+
+    // Config kaydı: istekler birleştirilir, dosya arka planda tek thread ile sırayla yazılır
+    private ExecutorService kayitYazici;
+    private boolean kayitPlanlandi = false;
+    private boolean kapaniyor = false;
+    // Kapanışta tüm sistemler veriyi belleğe yazar, dosya en sonda bir kez yazılır
+    private boolean kayitlarBiriktiriliyor = false;
 
     @Override
     public void onEnable() {
+        this.kayitYazici = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "MeslekSistemi-Kayit");
+            t.setDaemon(true);
+            return t;
+        });
+
         if (Bukkit.getPluginManager().getPlugin("Economy") != null) {
             this.economyValueKey = new NamespacedKey(Bukkit.getPluginManager().getPlugin("Economy"), "value");
         } else {
@@ -139,7 +164,7 @@ public class MeslekSistemi extends JavaPlugin {
         if (getCommand("sozlesmeonayla") != null) getCommand("sozlesmeonayla").setExecutor(sozlesmeManager);
 
         // ENTEGRASYON 2: Seçim
-        SecimManager secimManager = new SecimManager(this);
+        this.secimManager = new SecimManager(this);
         getServer().getPluginManager().registerEvents(secimManager, this);
         if (getCommand("secimoylama") != null) getCommand("secimoylama").setExecutor(secimManager);
         if (getCommand("adayol") != null) getCommand("adayol").setExecutor(secimManager);
@@ -218,12 +243,82 @@ public class MeslekSistemi extends JavaPlugin {
     @Override
     public void onDisable() { 
         if (ohalBar != null) ohalBar.removeAll();
+
+        // Bekleyen arka plan yazımları bitsin ki eski içerik son kaydın üzerine yazılmasın
+        kapaniyor = true;
+        if (kayitYazici != null) {
+            kayitYazici.shutdown();
+            try {
+                kayitYazici.awaitTermination(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
         
         // YENİ: Kapanırken hastalıkları ve stokları kalıcı olarak kaydeder
+        kayitlarBiriktiriliyor = true;
         if (this.saglikManager != null) this.saglikManager.veriKaydetSaglik();
         if (this.toptanciManager != null) this.toptanciManager.veriKaydetStok();
-        
-        veriKaydet(); 
+        if (this.secimManager != null) this.secimManager.onDisable();
+        veriKaydet();
+        kayitlarBiriktiriliyor = false;
+
+        super.saveConfig(); // Tüm veriler tek seferde, senkron ve eksiksiz yazılır
+    }
+
+    // Tüm sistemler saveConfig() çağırır. Her çağrıda diske yazmak yerine aynı saniyedeki
+    // istekler tek kayıtta birleştirilir; YAML ana thread'de üretilir, dosya arka planda yazılır.
+    @Override
+    public void saveConfig() {
+        if (kayitlarBiriktiriliyor) return;
+        if (kapaniyor || kayitYazici == null || !isEnabled()) {
+            super.saveConfig();
+            return;
+        }
+        if (kayitPlanlandi) return;
+        kayitPlanlandi = true;
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            kayitPlanlandi = false;
+            String icerik = getConfig().saveToString();
+            File dosya = new File(getDataFolder(), "config.yml");
+            kayitYazici.execute(() -> dosyayaYaz(dosya, icerik));
+        }, 20L);
+    }
+
+    // Önce geçici dosyaya yazıp sonra yerine taşır: yazım yarıda kalırsa config bozulmaz
+    private void dosyayaYaz(File dosya, String icerik) {
+        try {
+            Files.createDirectories(dosya.getParentFile().toPath());
+            Path gecici = new File(dosya.getParentFile(), "config.yml.tmp").toPath();
+            Files.writeString(gecici, icerik, StandardCharsets.UTF_8);
+            try {
+                Files.move(gecici, dosya.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(gecici, dosya.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            getLogger().log(Level.SEVERE, "config.yml kaydedilemedi!", e);
+        }
+    }
+
+    // Oyuncunun yazdığı para miktarı. NaN/Infinity gibi değerler reddedilir (bakiye bozulmasın),
+    // kuruş hassasiyetine yuvarlanır. Geçersizse NumberFormatException fırlatır.
+    public static double parsePara(String metin) {
+        double deger = Double.parseDouble(metin.trim());
+        if (!Double.isFinite(deger)) throw new NumberFormatException("Geçersiz miktar: " + metin);
+        return Math.round(deger * 100.0) / 100.0;
+    }
+
+    // "/essentials:home ev" -> "home". Eklenti önekiyle yazılan komutlar da yakalanır.
+    public static String komutAdi(String mesaj) {
+        String govde = mesaj.startsWith("/") ? mesaj.substring(1) : mesaj;
+        String komut = govde.trim().split("\\s+")[0].toLowerCase(Locale.ROOT);
+        int onekSonu = komut.lastIndexOf(':');
+        return onekSonu >= 0 ? komut.substring(onekSonu + 1) : komut;
+    }
+
+    public boolean hapisteMi(UUID oyuncu) {
+        return polisManager != null && polisManager.jailedPlayers.containsKey(oyuncu);
     }
     
     public MenuManager getMenuManager() { return this.menuManager; }
@@ -266,70 +361,121 @@ public class MeslekSistemi extends JavaPlugin {
         return book;
     }
 
-    public void mergeKasaMoney(Chest kasa) {
-        double toplamPara = 0.0;
-        Inventory inv = kasa.getInventory();
-        for (int i = 0; i < inv.getSize(); i++) {
-            ItemStack item = inv.getItem(i);
-            Double itemValue = getMoneyValue(item);
-            if (itemValue != null) {
-                toplamPara += (itemValue * item.getAmount());
-                inv.setItem(i, null);
-            }
-        }
-        if (toplamPara > 0) {
-            toplamPara = Math.round(toplamPara * 100.0) / 100.0;
-            inv.addItem(createEconomyNote(toplamPara));
-        }
+    // ------------------------------------------------------------------
+    // BELEDİYE KASASI: tüm sistemler kasadaki parayı bu metotlarla okur/değiştirir.
+    // Kasadaki kağıt paralar her zaman tek bir notta toplanır.
+    // ------------------------------------------------------------------
+    public Chest getKasa() {
+        if (kasaKonumu == null || kasaKonumu.getWorld() == null) return null;
+        org.bukkit.block.BlockState durum = kasaKonumu.getBlock().getState();
+        return durum instanceof Chest ? (Chest) durum : null;
     }
 
-    public boolean processPaymentToKasa(Player player, double price) {
-        PlayerInventory inventory = player.getInventory();
-        double totalMoney = 0.0;
-        List<Integer> moneySlots = new ArrayList<>();
-        for (int i = 0; i < inventory.getSize(); i++) {
-            ItemStack item = inventory.getItem(i);
-            Double itemValue = getMoneyValue(item);
-            if (itemValue != null) { totalMoney += (itemValue * item.getAmount()); moneySlots.add(i); }
+    public double kasaBakiyesi(Chest kasa) {
+        double toplam = 0.0;
+        for (ItemStack item : kasa.getInventory().getContents()) {
+            Double deger = getMoneyValue(item);
+            if (deger != null) toplam += deger * item.getAmount();
         }
-        if (totalMoney < price) { player.sendMessage(ChatColor.RED + "Yeterli fiziksel paran yok! Gereken: $" + price); return false; }
-        for (int slot : moneySlots) { inventory.setItem(slot, null); }
-        double remaining = Math.round((totalMoney - price) * 100.0) / 100.0;
-        if (remaining > 0) { inventory.addItem(createEconomyNote(remaining)); }
-        
-        if(kasaKonumu != null && kasaKonumu.getBlock().getState() instanceof Chest) {
-            Chest kasa = (Chest) kasaKonumu.getBlock().getState();
-            kasa.getInventory().addItem(createEconomyNote(price));
-            mergeKasaMoney(kasa); 
-        }
+        return Math.round(toplam * 100.0) / 100.0;
+    }
 
-        player.updateInventory();
+    // Kasadaki tüm notları silip yerine tek bir "yeniToplam" değerli not koyar.
+    // Kasada hiç not yokken sandık tamamen doluysa yer açılamaz ve false döner (hiçbir şey değişmez).
+    private boolean kasaNotunuAyarla(Chest kasa, double yeniToplam) {
+        Inventory inv = kasa.getInventory();
+        boolean notVar = false;
+        for (ItemStack item : inv.getContents()) {
+            if (getMoneyValue(item) != null) { notVar = true; break; }
+        }
+        yeniToplam = Math.round(yeniToplam * 100.0) / 100.0;
+        if (yeniToplam > 0 && !notVar && inv.firstEmpty() == -1) return false;
+
+        for (int i = 0; i < inv.getSize(); i++) {
+            if (getMoneyValue(inv.getItem(i)) != null) inv.setItem(i, null);
+        }
+        if (yeniToplam > 0) inv.addItem(createEconomyNote(yeniToplam));
         return true;
     }
 
-    public boolean processBankDeposit(Player player, double amount) {
-        PlayerInventory inventory = player.getInventory();
+    // Kasaya para koyar. Kasa yoksa veya dolu ise false (para kaybolmasın diye işlem yapılmamalı).
+    public boolean kasayaParaEkle(double miktar) {
+        Chest kasa = getKasa();
+        if (kasa == null) return false;
+        return kasaNotunuAyarla(kasa, kasaBakiyesi(kasa) + miktar);
+    }
+
+    // Kasadan para çeker. Kasa yoksa veya bakiye yetmiyorsa false.
+    public boolean kasadanParaCek(double miktar) {
+        Chest kasa = getKasa();
+        if (kasa == null) return false;
+        double bakiye = kasaBakiyesi(kasa);
+        if (bakiye < miktar) return false;
+        return kasaNotunuAyarla(kasa, bakiye - miktar);
+    }
+
+    public void mergeKasaMoney(Chest kasa) {
+        kasaNotunuAyarla(kasa, kasaBakiyesi(kasa));
+    }
+
+    // Oyuncunun üstündeki kağıt paradan tahsil edip kasaya aktarır.
+    // Kasa kurulu değilse veya doluysa ödeme alınmaz (eskiden para boşa gidiyordu).
+    public boolean processPaymentToKasa(Player player, double price) {
+        Chest kasa = getKasa();
+        if (kasa == null) {
+            player.sendMessage(ChatColor.RED + "Belediye kasası aktif değil, ödeme alınamıyor! (Yetkililer /kasaayarla yapmalı)");
+            return false;
+        }
         double totalMoney = 0.0;
-        List<Integer> moneySlots = new ArrayList<>();
-        for (int i = 0; i < inventory.getSize(); i++) {
-            ItemStack item = inventory.getItem(i);
+        PlayerInventory inventory = player.getInventory();
+        for (ItemStack item : inventory.getContents()) {
             Double itemValue = getMoneyValue(item);
-            if (itemValue != null) { totalMoney += (itemValue * item.getAmount()); moneySlots.add(i); }
+            if (itemValue != null) totalMoney += itemValue * item.getAmount();
+        }
+        if (totalMoney < price) { player.sendMessage(ChatColor.RED + "Yeterli fiziksel paran yok! Gereken: $" + price); return false; }
+        if (!kasaNotunuAyarla(kasa, kasaBakiyesi(kasa) + price)) {
+            player.sendMessage(ChatColor.RED + "Belediye kasası tamamen dolu, ödeme alınamıyor! Yetkililere bildirin.");
+            return false;
+        }
+        oyuncuParasiniDuzenle(player, totalMoney - price);
+        return true;
+    }
+
+    // Oyuncunun tüm kağıt paralarını silip yerine "kalan" değerli tek not verir
+    private void oyuncuParasiniDuzenle(Player player, double kalan) {
+        PlayerInventory inventory = player.getInventory();
+        for (int i = 0; i < inventory.getSize(); i++) {
+            if (getMoneyValue(inventory.getItem(i)) != null) inventory.setItem(i, null);
+        }
+        double remaining = Math.round(kalan * 100.0) / 100.0;
+        if (remaining > 0) {
+            for (ItemStack artan : inventory.addItem(createEconomyNote(remaining)).values()) {
+                player.getWorld().dropItemNaturally(player.getLocation(), artan);
+            }
+        }
+        player.updateInventory();
+    }
+
+    public boolean processBankDeposit(Player player, double amount) {
+        double totalMoney = 0.0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            Double itemValue = getMoneyValue(item);
+            if (itemValue != null) totalMoney += itemValue * item.getAmount();
         }
         if (totalMoney < amount) {
             player.sendMessage(ChatColor.RED + "Uzerinizde yeterli fiziksel para yok!"); return false;
         }
-        for (int slot : moneySlots) { inventory.setItem(slot, null); }
-        double remaining = Math.round((totalMoney - amount) * 100.0) / 100.0;
-        if (remaining > 0) { inventory.addItem(createEconomyNote(remaining)); }
-        player.updateInventory();
+        oyuncuParasiniDuzenle(player, totalMoney - amount);
         return true;
     }
 
     public Double getMoneyValue(ItemStack item) {
         if (item == null || item.getType() != Material.PAPER || !item.hasItemMeta()) return null;
         PersistentDataContainer data = item.getItemMeta().getPersistentDataContainer();
-        if (economyValueKey != null && data.has(economyValueKey, PersistentDataType.DOUBLE)) { return data.get(economyValueKey, PersistentDataType.DOUBLE); }
+        if (economyValueKey != null && data.has(economyValueKey, PersistentDataType.DOUBLE)) {
+            Double deger = data.get(economyValueKey, PersistentDataType.DOUBLE);
+            return (deger != null && Double.isFinite(deger)) ? deger : null;
+        }
         return null;
     }
 
@@ -372,6 +518,18 @@ public class MeslekSistemi extends JavaPlugin {
         if (newBases > 0) inv.addItem(new ItemStack(base, newBases));
     }
 
+    // Kasada stok "base + blok" olarak tutulur. Yeni toplamın sandığa sığıp sığmadığını hesaplar.
+    public boolean stokSigarMi(Inventory inv, Material base, Material block, int yeniToplam) {
+        int kullanilabilir = 0;
+        for (ItemStack item : inv.getStorageContents()) {
+            if (item == null || item.getType() == Material.AIR || item.getType() == base || item.getType() == block) kullanilabilir++;
+        }
+        int bloklar = yeniToplam / 9;
+        int tekler = yeniToplam % 9;
+        int gerekenSlot = (bloklar + block.getMaxStackSize() - 1) / block.getMaxStackSize() + (tekler > 0 ? 1 : 0);
+        return gerekenSlot <= kullanilabilir;
+    }
+
     public void removeItemFromInventory(Inventory inv, Material mat, int amount) {
         for (int i = 0; i < inv.getSize(); i++) {
             ItemStack item = inv.getItem(i);
@@ -391,13 +549,9 @@ public class MeslekSistemi extends JavaPlugin {
             return;
         }
 
-        if (kasaKonumu == null || !(kasaKonumu.getBlock().getState() instanceof Chest)) {
+        Chest kasa = getKasa();
+        if (kasa == null) {
             Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Belediye] SISTEM HATASI: Belediye Kasasi bulunamadigi icin maaslar odenemedi!"); return;
-        }
-        Chest kasa = (Chest) kasaKonumu.getBlock().getState();
-        double kasadakiToplamPara = 0.0;
-        for (ItemStack item : kasa.getInventory().getContents()) {
-            Double val = getMoneyValue(item); if (val != null) kasadakiToplamPara += (val * item.getAmount());
         }
         double odenecekToplamMaas = 0.0;
         List<Player> maasAlacaklar = new ArrayList<>();
@@ -410,24 +564,15 @@ public class MeslekSistemi extends JavaPlugin {
             
             if (meslekID.equalsIgnoreCase("gocmen") || meslekID.equalsIgnoreCase("mahkum") || meslekID.equalsIgnoreCase("default")) continue;
             
-            odenecekToplamMaas += maasMiktarlari.getOrDefault(meslekID, 50.0);
+            odenecekToplamMaas += maasMiktarlari.getOrDefault(meslekID.toLowerCase(Locale.ROOT), 50.0);
             maasAlacaklar.add(p);
         }
 
         if (maasAlacaklar.isEmpty()) return;
-        if (kasadakiToplamPara >= odenecekToplamMaas) {
-            for (int i = 0; i < kasa.getInventory().getSize(); i++) {
-                if (getMoneyValue(kasa.getInventory().getItem(i)) != null) kasa.getInventory().setItem(i, null);
-            }
-            double remaining = kasadakiToplamPara - odenecekToplamMaas;
-            if (remaining > 0) {
-                kasa.getInventory().addItem(createEconomyNote(remaining));
-                mergeKasaMoney(kasa); 
-            }
-            
+        if (kasadanParaCek(odenecekToplamMaas)) {
             for (Player p : maasAlacaklar) {
                 String meslekID = oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
-                double maas = maasMiktarlari.getOrDefault(meslekID, 50.0);
+                double maas = maasMiktarlari.getOrDefault(meslekID.toLowerCase(Locale.ROOT), 50.0);
                 double mevcutBakiye = bankaHesaplari.getOrDefault(p.getUniqueId(), 0.0);
                 bankaHesaplari.put(p.getUniqueId(), mevcutBakiye + maas);
                 p.sendMessage(ChatColor.GREEN + "[Banka] Maasiniz ($" + maas + ") dijital hesabiniza yatirildi.");
@@ -506,12 +651,22 @@ public class MeslekSistemi extends JavaPlugin {
         }
         if (getConfig().contains("banka")) {
             for (String uuidStr : getConfig().getConfigurationSection("banka").getKeys(false)) {
-                try { bankaHesaplari.put(UUID.fromString(uuidStr), getConfig().getDouble("banka." + uuidStr)); } catch (Exception e) {}
+                try {
+                    double bakiye = getConfig().getDouble("banka." + uuidStr);
+                    if (!Double.isFinite(bakiye)) {
+                        getLogger().warning("[Banka] " + uuidStr + " hesabında geçersiz bakiye (" + bakiye + ") vardı, 0 yapıldı.");
+                        bakiye = 0.0;
+                    }
+                    bankaHesaplari.put(UUID.fromString(uuidStr), bakiye);
+                } catch (Exception e) {}
             }
         }
         if (getConfig().contains("meslek_cache")) {
             for (String uuidStr : getConfig().getConfigurationSection("meslek_cache").getKeys(false)) {
-                try { oyuncuMeslekCache.put(UUID.fromString(uuidStr), getConfig().getString("meslek_cache." + uuidStr)); } catch (Exception e) {}
+                try {
+                    String meslek = getConfig().getString("meslek_cache." + uuidStr);
+                    if (meslek != null) oyuncuMeslekCache.put(UUID.fromString(uuidStr), meslek.toLowerCase(Locale.ROOT));
+                } catch (Exception e) {}
             }
         }
         if (getConfig().contains("tapu_sahipleri")) {

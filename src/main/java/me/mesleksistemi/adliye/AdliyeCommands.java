@@ -66,9 +66,7 @@ public class AdliyeCommands implements CommandExecutor {
                 player.sendMessage(ChatColor.GREEN + "Mahkeme salonu 2. Köşesi (pos2) kaydedildi!");
             } 
             else if (args[0].equalsIgnoreCase("sil")) {
-                am.mahkemeSalonu = null;
-                am.mahkemePos1 = null;
-                am.mahkemePos2 = null;
+                am.mahkemeKonumlariniSil();
                 player.sendMessage(ChatColor.GREEN + "Tüm mahkeme koordinatları ve kilitleri başarıyla silindi! Artık herkes özgürce çıkabilir.");
                 am.durusmadakiOyuncular.clear();
             }
@@ -91,7 +89,19 @@ public class AdliyeCommands implements CommandExecutor {
                 return true;
             }
             
+            // Teklif verildikten sonra dava başka avukata geçmiş olabilir
+            if (teklif.isMusteki && dava.durum != DavaDurumu.MUSTEKI_AVUKATI_BEKLIYOR) {
+                player.sendMessage(ChatColor.RED + "Bu dava için zaten bir avukat atanmış.");
+                am.bekleyenTeklifler.remove(player.getUniqueId());
+                return true;
+            }
+
             double musteriPara = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
+            if (musteriPara < teklif.ucret) {
+                player.sendMessage(ChatColor.RED + "Banka hesabınızda avukatlık ücreti için yeterli bakiye yok! Gereken: $" + teklif.ucret);
+                player.sendMessage(ChatColor.GRAY + "Bankaya para yatırıp tekrar /avukatkabul yazabilirsiniz.");
+                return true;
+            }
             plugin.bankaHesaplari.put(player.getUniqueId(), musteriPara - teklif.ucret);
             
             double avukatPara = plugin.bankaHesaplari.getOrDefault(teklif.avukatId, 0.0);
@@ -112,6 +122,7 @@ public class AdliyeCommands implements CommandExecutor {
             }
             
             am.bekleyenTeklifler.remove(player.getUniqueId());
+            am.veriKaydetAdliye();
             return true;
         }
 

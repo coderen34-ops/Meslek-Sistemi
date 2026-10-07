@@ -21,7 +21,9 @@ import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerEditBookEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
@@ -36,6 +38,14 @@ public class AdliyeListener implements Listener {
     private final MeslekSistemi plugin;
     private final AdliyeManager am;
 
+    private static final java.util.Set<String> ADLIYE_MENULERI = java.util.Set.of(
+            ChatColor.DARK_RED + "Adalet Sarayı",
+            ChatColor.DARK_RED + "Kimi Şikayet Edeceksiniz?",
+            ChatColor.GOLD + "Bekleyen Davalar (Avukat)",
+            ChatColor.GOLD + "Sanık Savunması Üstlen",
+            ChatColor.DARK_RED + "Hakim Kürsüsü",
+            ChatColor.DARK_RED + "Karar Ver");
+
     public AdliyeListener(MeslekSistemi plugin, AdliyeManager am) {
         this.plugin = plugin;
         this.am = am;
@@ -43,6 +53,7 @@ public class AdliyeListener implements Listener {
 
     @EventHandler
     public void onNpcInteract(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (event.getRightClicked() instanceof Villager) {
             Villager npc = (Villager) event.getRightClicked();
             if (npc.getPersistentDataContainer().has(am.adliyeNpcKey, PersistentDataType.BYTE)) {
@@ -149,6 +160,9 @@ public class AdliyeListener implements Listener {
         for (DavaDosyasi dava : am.aktifDavalar.values()) {
             if (slot > 53) break;
             if (dava.durum == DavaDurumu.HAKIM_BEKLIYOR || dava.durum == DavaDurumu.DURUSMADA) {
+                if (davadaTarafMi(player.getName(), dava)) continue;
+                // Süren duruşmayı sadece yöneten hakim görür
+                if (dava.durum == DavaDurumu.DURUSMADA && dava.hakim != null && !dava.hakim.equalsIgnoreCase(player.getName())) continue;
                 ItemStack item = new ItemStack(Material.BOOK);
                 ItemMeta meta = item.getItemMeta();
                 meta.setDisplayName(ChatColor.DARK_RED + "Dava No: " + dava.id.toString().substring(0, 5));
@@ -189,6 +203,23 @@ public class AdliyeListener implements Listener {
         player.openInventory(gui);
     }
 
+    private boolean davadaTarafMi(String isim, DavaDosyasi dava) {
+        return isim.equalsIgnoreCase(dava.musteki) || isim.equalsIgnoreCase(dava.sanik)
+                || isim.equalsIgnoreCase(dava.mustekiAvukati) || isim.equalsIgnoreCase(dava.sanikAvukati);
+    }
+
+    // Konum mahkeme salonunun (pos1-pos2) içinde mi? Farklı dünya = dışarıda.
+    private boolean salonIcindeMi(Location to) {
+        if (to.getWorld() == null || am.mahkemePos1.getWorld() == null || !to.getWorld().equals(am.mahkemePos1.getWorld())) return false;
+        double minX = Math.min(am.mahkemePos1.getX(), am.mahkemePos2.getX());
+        double maxX = Math.max(am.mahkemePos1.getX(), am.mahkemePos2.getX());
+        double minY = Math.min(am.mahkemePos1.getY(), am.mahkemePos2.getY());
+        double maxY = Math.max(am.mahkemePos1.getY(), am.mahkemePos2.getY());
+        double minZ = Math.min(am.mahkemePos1.getZ(), am.mahkemePos2.getZ());
+        double maxZ = Math.max(am.mahkemePos1.getZ(), am.mahkemePos2.getZ());
+        return to.getX() >= minX && to.getX() <= maxX && to.getY() >= minY && to.getY() <= maxY && to.getZ() >= minZ && to.getZ() <= maxZ;
+    }
+
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         if (!am.durusmadakiOyuncular.contains(event.getPlayer().getUniqueId())) return;
@@ -196,19 +227,15 @@ public class AdliyeListener implements Listener {
         
         Location to = event.getTo();
         if (to == null) return;
+        // Sadece blok değiştiğinde kontrol et (kafa çevirmek her tick tetikler)
+        Location from = event.getFrom();
+        if (from.getBlockX() == to.getBlockX() && from.getBlockY() == to.getBlockY() && from.getBlockZ() == to.getBlockZ()) return;
         
-        double minX = Math.min(am.mahkemePos1.getX(), am.mahkemePos2.getX());
-        double maxX = Math.max(am.mahkemePos1.getX(), am.mahkemePos2.getX());
-        double minY = Math.min(am.mahkemePos1.getY(), am.mahkemePos2.getY());
-        double maxY = Math.max(am.mahkemePos1.getY(), am.mahkemePos2.getY());
-        double minZ = Math.min(am.mahkemePos1.getZ(), am.mahkemePos2.getZ());
-        double maxZ = Math.max(am.mahkemePos1.getZ(), am.mahkemePos2.getZ());
-        
-        if (to.getX() < minX || to.getX() > maxX || to.getY() < minY || to.getY() > maxY || to.getZ() < minZ || to.getZ() > maxZ) {
+        if (!salonIcindeMi(to)) {
             event.getPlayer().sendMessage(ChatColor.DARK_RED + "" + ChatColor.BOLD + "DURUŞMA BİTMEDEN SALONDAN AYRILAMAZSIN!");
-            Vector pushback = event.getFrom().toVector().subtract(to.toVector()).normalize().multiply(0.5);
-            event.getPlayer().setVelocity(pushback);
-            event.setTo(event.getFrom());
+            Vector geri = from.toVector().subtract(to.toVector());
+            if (geri.lengthSquared() > 0) event.getPlayer().setVelocity(geri.normalize().multiply(0.5));
+            event.setTo(from);
         }
     }
 
@@ -220,17 +247,15 @@ public class AdliyeListener implements Listener {
         Location to = event.getTo();
         if (to == null) return;
         
-        double minX = Math.min(am.mahkemePos1.getX(), am.mahkemePos2.getX());
-        double maxX = Math.max(am.mahkemePos1.getX(), am.mahkemePos2.getX());
-        double minY = Math.min(am.mahkemePos1.getY(), am.mahkemePos2.getY());
-        double maxY = Math.max(am.mahkemePos1.getY(), am.mahkemePos2.getY());
-        double minZ = Math.min(am.mahkemePos1.getZ(), am.mahkemePos2.getZ());
-        double maxZ = Math.max(am.mahkemePos1.getZ(), am.mahkemePos2.getZ());
-        
-        if (to.getX() < minX || to.getX() > maxX || to.getY() < minY || to.getY() > maxY || to.getZ() < minZ || to.getZ() > maxZ) {
+        if (!salonIcindeMi(to)) {
             event.setCancelled(true);
             event.getPlayer().sendMessage(ChatColor.DARK_RED + "" + ChatColor.BOLD + "DURUŞMA BİTMEDEN IŞINLANAMAZ VEYA İNCİ ATAMAZSIN!");
         }
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        am.hakimAyrildi(event.getPlayer());
     }
 
     @EventHandler
@@ -238,8 +263,12 @@ public class AdliyeListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player)) return;
         String title = event.getView().getTitle();
         Player player = (Player) event.getWhoClicked();
+        if (!ADLIYE_MENULERI.contains(title)) return;
+        event.setCancelled(true);
+        // Sadece menüdeki eşyalar işlenir, oyuncunun kendi envanteri değil
+        if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
         ItemStack clicked = event.getCurrentItem();
-        if (clicked == null || clicked.getType() == Material.AIR) return;
+        if (clicked == null || clicked.getType() == Material.AIR || !clicked.hasItemMeta()) return;
 
         if (title.equals(ChatColor.DARK_RED + "Adalet Sarayı")) {
             event.setCancelled(true);
@@ -331,6 +360,8 @@ public class AdliyeListener implements Listener {
                             return;
                         }
                         dava.durum = DavaDurumu.DURUSMADA;
+                        dava.hakim = player.getName();
+                        am.veriKaydetAdliye();
                         player.teleport(am.mahkemeSalonu);
                         am.durusmadakiOyuncular.add(player.getUniqueId());
                         am.durusmayaCek(dava, player); 
@@ -348,7 +379,8 @@ public class AdliyeListener implements Listener {
             if (data.has(key, PersistentDataType.STRING)) {
                 UUID davaId = UUID.fromString(data.get(key, PersistentDataType.STRING));
                 DavaDosyasi dava = am.aktifDavalar.get(davaId);
-                if (dava != null) {
+                if (dava != null && dava.durum == DavaDurumu.DURUSMADA
+                        && (dava.hakim == null || dava.hakim.equalsIgnoreCase(player.getName()))) {
                     player.closeInventory();
                     if (clicked.getType() == Material.LIME_DYE) { 
                         am.hakimKararAsamasi.put(player.getUniqueId(), davaId);
@@ -371,20 +403,31 @@ public class AdliyeListener implements Listener {
                         am.durusmayiBitir(dava); 
                         am.durusmadakiOyuncular.remove(player.getUniqueId()); 
                         am.aktifDavalar.remove(davaId);
+                        am.veriKaydetAdliye();
                     }
                 }
             }
         }
     }
 
+    // Chat olayı ayrı thread'den gelir: bekleyen adliye işlemi varsa mesaj chat'e düşmez,
+    // işlem (banka, dava, hapis) ana thread'de yapılır.
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         UUID pId = player.getUniqueId();
+        if (!am.sohbetDurumu.containsKey(pId) && !am.avukatTeklifAsamasi.containsKey(pId) && !am.hakimKararAsamasi.containsKey(pId)) return;
+        event.setCancelled(true);
+        String mesaj = event.getMessage().trim();
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) sohbetIsle(player, mesaj);
+        });
+    }
+
+    private void sohbetIsle(Player player, String msg) {
+        UUID pId = player.getUniqueId();
 
         if (am.sohbetDurumu.containsKey(pId)) {
-            event.setCancelled(true);
-            String msg = event.getMessage().trim();
             String durum = am.sohbetDurumu.get(pId);
 
             if (msg.equalsIgnoreCase("iptal")) {
@@ -395,7 +438,7 @@ public class AdliyeListener implements Listener {
 
             if (durum.equals("DAVA_MIKTAR_BEKLIYOR")) {
                 try {
-                    double miktar = Double.parseDouble(msg);
+                    double miktar = MeslekSistemi.parsePara(msg);
                     if (miktar <= 0 || miktar > 1000000) {
                         player.sendMessage(ChatColor.RED + "Lütfen geçerli bir tazminat miktarı girin.");
                         return;
@@ -420,15 +463,13 @@ public class AdliyeListener implements Listener {
                 }
             }
         } else if (am.avukatTeklifAsamasi.containsKey(pId)) {
-            event.setCancelled(true);
-            String msg = event.getMessage().trim();
             if (msg.equalsIgnoreCase("iptal")) {
                 am.avukatTeklifAsamasi.remove(pId);
                 player.sendMessage(ChatColor.RED + "Teklif verme iptal edildi.");
                 return;
             }
             try {
-                double ucret = Double.parseDouble(msg);
+                double ucret = MeslekSistemi.parsePara(msg);
                 if (ucret < 500 || ucret > 5000) {
                     player.sendMessage(ChatColor.RED + "Yasalara göre avukatlık ücreti 500$ ile 5000$ arasında olmalıdır!");
                     return;
@@ -468,8 +509,6 @@ public class AdliyeListener implements Listener {
                 player.sendMessage(ChatColor.RED + "Lütfen sadece rakam girin!");
             }
         } else if (am.hakimKararAsamasi.containsKey(pId)) {
-            event.setCancelled(true);
-            String msg = event.getMessage().trim();
             UUID davaId = am.hakimKararAsamasi.get(pId);
             DavaDosyasi dava = am.aktifDavalar.get(davaId);
             
@@ -479,9 +518,16 @@ public class AdliyeListener implements Listener {
                 return;
             }
             
+            if (msg.equalsIgnoreCase("iptal")) {
+                am.hakimKararAsamasi.remove(pId);
+                am.geciciHakimTazminat.remove(pId);
+                player.sendMessage(ChatColor.RED + "Karar verme iptal edildi. Kürsüden tekrar karar verebilirsiniz.");
+                return;
+            }
+
             if (!am.geciciHakimTazminat.containsKey(pId)) {
                 try {
-                    double tazminat = Double.parseDouble(msg);
+                    double tazminat = MeslekSistemi.parsePara(msg);
                     if (tazminat > dava.talepEdilenMiktar) {
                         player.sendMessage(ChatColor.RED + "Talep edilen miktardan ($" + dava.talepEdilenMiktar + ") fazlasına hükmedemezsiniz! Tekrar yazın:");
                         return;
@@ -502,6 +548,7 @@ public class AdliyeListener implements Listener {
                 try {
                     int hapisSuresi = Integer.parseInt(msg);
                     if (hapisSuresi < 0) hapisSuresi = 0; 
+                    hapisSuresi = Math.min(hapisSuresi, Integer.MAX_VALUE / 60); // saniyeye çevrilirken taşmasın
                     
                     double tazminat = am.geciciHakimTazminat.get(pId);
                     am.hakimKararAsamasi.remove(pId);
@@ -531,14 +578,18 @@ public class AdliyeListener implements Listener {
                     
                     Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.YELLOW + "Karar açıklandı! Sanık " + ChatColor.RED + dava.sanik + ChatColor.YELLOW + " suçlu bulundu ve Müştekiye $" + ChatColor.GOLD + tazminat + ChatColor.YELLOW + " tazminat ödemeye mahkum edildi.");
                     
-                    if (hapisSuresi > 0) {
-                        Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.RED + "Ayrıca sanık " + hapisSuresi + " dakika hapis cezasına çarptırıldı!");
-                        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "hapis " + dava.sanik + " " + hapisSuresi);
-                    }
-                    
+                    // Önce duruşma kapanır (taraflar salondan serbest kalır), sonra sanık hücreye gönderilir
                     am.durusmayiBitir(dava); 
                     am.durusmadakiOyuncular.remove(player.getUniqueId()); 
                     am.aktifDavalar.remove(davaId);
+                    am.veriKaydetAdliye();
+
+                    if (hapisSuresi > 0) {
+                        Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.RED + "Ayrıca sanık " + hapisSuresi + " dakika hapis cezasına çarptırıldı!");
+                        if (plugin.polisManager == null || !plugin.polisManager.hapseGonder(sanikOp.getUniqueId(), sanikOp.getName(), hapisSuresi * 60)) {
+                            player.sendMessage(ChatColor.RED + "Hapis cezası uygulanamadı: karakolda hiç hücre ayarlanmamış! (/hucreolustur)");
+                        }
+                    }
                     
                 } catch (NumberFormatException e) {
                     player.sendMessage(ChatColor.RED + "Lütfen sadece tam sayı girin! (Örn: 15 veya 0)");
@@ -571,6 +622,7 @@ public class AdliyeListener implements Listener {
                 
                 DavaDosyasi yeniDava = new DavaDosyasi(UUID.randomUUID(), player.getName(), sanik, tazminat, sebep);
                 am.aktifDavalar.put(yeniDava.id, yeniDava);
+                am.veriKaydetAdliye();
                 
                 am.geciciDavaHedefi.remove(pId);
                 am.geciciDavaMiktari.remove(pId);

@@ -6,7 +6,6 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
-import org.bukkit.block.Chest;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -19,6 +18,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -174,6 +174,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
 
     @EventHandler
     public void onNpcInteract(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (event.getRightClicked() instanceof Villager) {
             Villager npc = (Villager) event.getRightClicked();
             Player player = event.getPlayer();
@@ -266,7 +267,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
             double unitPrice = getSatisFiyati(mat);
             double totalPrice = satilacakMiktar * unitPrice;
 
-            if (!deductFromKasa(totalPrice)) {
+            if (!plugin.kasadanParaCek(totalPrice)) {
                 player.sendMessage(ChatColor.RED + "Belediye Kasasında senin alacağını ödeyecek bütçe kalmamış! Başkan kasaya para koymalı.");
                 player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
                 return;
@@ -341,30 +342,6 @@ public class ToptanciManager implements Listener, CommandExecutor {
             }
         }
         return count;
-    }
-
-    private boolean deductFromKasa(double amount) {
-        if (plugin.kasaKonumu == null || !(plugin.kasaKonumu.getBlock().getState() instanceof Chest)) return false;
-        Chest kasa = (Chest) plugin.kasaKonumu.getBlock().getState();
-        
-        double total = 0.0;
-        for (ItemStack item : kasa.getInventory().getContents()) {
-            Double val = plugin.getMoneyValue(item);
-            if (val != null) total += (val * item.getAmount());
-        }
-
-        if (total < amount) return false;
-
-        for (int i = 0; i < kasa.getInventory().getSize(); i++) {
-            if (plugin.getMoneyValue(kasa.getInventory().getItem(i)) != null) kasa.getInventory().setItem(i, null);
-        }
-        
-        double remaining = Math.round((total - amount) * 100.0) / 100.0;
-        if (remaining > 0) {
-            kasa.getInventory().addItem(plugin.createEconomyNote(remaining));
-            plugin.mergeKasaMoney(kasa); 
-        }
-        return true;
     }
 
     public void veriKaydetStok() {

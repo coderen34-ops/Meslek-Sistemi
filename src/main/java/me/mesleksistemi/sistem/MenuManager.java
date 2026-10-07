@@ -142,6 +142,16 @@ public class MenuManager implements Listener {
         player.openInventory(gui);
     }
 
+    // Oyuncunun envanterine bu malzemeden kaç adet daha sığar
+    private int bosYer(Player player, Material mat) {
+        int yer = 0;
+        for (ItemStack i : player.getInventory().getStorageContents()) {
+            if (i == null || i.getType() == Material.AIR) yer += mat.getMaxStackSize();
+            else if (i.getType() == mat && !i.hasItemMeta()) yer += Math.max(0, i.getMaxStackSize() - i.getAmount());
+        }
+        return yer;
+    }
+
     private ItemStack getBorsaItem(Material mat, String name, int alis, int satis) {
         ItemStack item = new ItemStack(mat); ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(ChatColor.AQUA + name);
@@ -188,6 +198,7 @@ public class MenuManager implements Listener {
         // TAPU MÜDÜRLÜĞÜ MENÜSÜ
         if (title.equals(ChatColor.GOLD + "Tapu Mudurlugu")) {
             event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             ItemStack clicked = event.getCurrentItem();
             if (clicked == null || !clicked.hasItemMeta() || clicked.getType() == Material.BARRIER) return;
 
@@ -199,7 +210,7 @@ public class MenuManager implements Listener {
                 return;
             }
 
-            if (plugin.kasaKonumu == null || !(plugin.kasaKonumu.getBlock().getState() instanceof Chest)) {
+            if (plugin.getKasa() == null) {
                 player.sendMessage(ChatColor.RED + "Belediye kasasi aktif degil, islem yapilamiyor! (Baskan once /kasaayarla yapmali)");
                 player.closeInventory();
                 return;
@@ -223,6 +234,8 @@ public class MenuManager implements Listener {
         // MESLEK BAŞVURUSU MENÜSÜ
         if (title.equals(ChatColor.DARK_GREEN + "Meslek Basvurusu")) {
             event.setCancelled(true);
+            // Sadece menüdeki eşyalar: oyuncunun kendi envanterindeki benzer isimli eşyalar sayılmaz
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             ItemStack clicked = event.getCurrentItem();
             if (clicked == null || !clicked.hasItemMeta()) return;
             String tiklananIsim = ChatColor.stripColor(clicked.getItemMeta().getDisplayName());
@@ -297,17 +310,19 @@ public class MenuManager implements Listener {
                 player.sendMessage(ChatColor.GOLD + "Cekmek istediginiz miktari yazin:"); return;
             }
 
-            // YENİ: SHIFT DESTEKLİ BORSA İŞLEM KONTROLLERİ 
+            // BELEDİYE BORSASI: Ürün stoğu da para da Belediye Kasası'ndadır.
+            // Oyuncu alırken ödediği para kasaya girer; satarken parası kasadan ödenir.
             if (event.getRawSlot() >= 18 && event.getRawSlot() <= 21) {
                 Material mat = clicked.getType(); 
                 Material blockMat = plugin.getBlockMaterial(mat);
+                if (blockMat == null) return;
                 int alis = (mat == Material.DIAMOND) ? 300 : (mat == Material.EMERALD) ? 250 : (mat == Material.GOLD_INGOT) ? 150 : 100;
                 int satis = (mat == Material.DIAMOND) ? 50 : (mat == Material.EMERALD) ? 40 : (mat == Material.GOLD_INGOT) ? 20 : 5;
 
-                if (plugin.kasaKonumu == null || !(plugin.kasaKonumu.getBlock().getState() instanceof Chest)) {
+                Chest kasa = plugin.getKasa();
+                if (kasa == null) {
                     player.sendMessage(ChatColor.RED + "Kasa bulunamadi!"); player.closeInventory(); return;
                 }
-                Chest kasa = (Chest) plugin.kasaKonumu.getBlock().getState(); 
                 double bakiye = plugin.bankaHesaplari.getOrDefault(pId, 0.0);
                 ClickType click = event.getClick();
 
@@ -325,25 +340,28 @@ public class MenuManager implements Listener {
                     }
                     
                     double toplamTutar = alinacakMiktar * alis;
-                    
-                    if (bakiye >= toplamTutar) {
-                        // Envanterde yer var mı?
-                        HashMap<Integer, ItemStack> fit = player.getInventory().addItem(new ItemStack(mat, alinacakMiktar));
-                        if (!fit.isEmpty()) {
-                            player.sendMessage(ChatColor.RED + "Envanterinizde yeterli boş yer yok!");
-                            player.getInventory().removeItem(new ItemStack(mat, alinacakMiktar - fit.get(0).getAmount())); 
-                            return;
-                        }
-
-                        plugin.setChestStock(kasa.getInventory(), mat, blockMat, stok - alinacakMiktar);
-                        plugin.bankaHesaplari.put(pId, bakiye - toplamTutar);
-                        plugin.veriKaydet();
-                        
-                        player.sendMessage(ChatColor.GREEN + "" + alinacakMiktar + " adet satın aldınız. Ödenen: $" + toplamTutar); 
-                        openBankaMenu(player); 
-                    } else {
+                    if (bakiye < toplamTutar) {
                         player.sendMessage(ChatColor.RED + "Yeterli paranız yok! Gerekli: $" + toplamTutar);
+                        return;
                     }
+                    if (bosYer(player, mat) < alinacakMiktar) {
+                        player.sendMessage(ChatColor.RED + "Envanterinizde yeterli boş yer yok!");
+                        return;
+                    }
+
+                    // Önce stok kasadan düşülür (yer açılır), sonra para kasaya girer
+                    plugin.setChestStock(kasa.getInventory(), mat, blockMat, stok - alinacakMiktar);
+                    if (!plugin.kasayaParaEkle(toplamTutar)) {
+                        plugin.setChestStock(kasa.getInventory(), mat, blockMat, stok);
+                        player.sendMessage(ChatColor.RED + "Belediye kasası dolu, işlem yapılamadı!");
+                        return;
+                    }
+                    plugin.bankaHesaplari.put(pId, bakiye - toplamTutar);
+                    player.getInventory().addItem(new ItemStack(mat, alinacakMiktar));
+                    plugin.veriKaydet();
+                    
+                    player.sendMessage(ChatColor.GREEN + "" + alinacakMiktar + " adet satın aldınız. Ödenen: $" + toplamTutar); 
+                    openBankaMenu(player); 
                 } 
                 // DURUM 2: OYUNCU BORSAYA SATIYOR (SAĞ / SHIFT SAĞ)
                 else if (click == ClickType.RIGHT || click == ClickType.SHIFT_RIGHT) {
@@ -361,27 +379,24 @@ public class MenuManager implements Listener {
 
                     int satilacakMiktar = (click == ClickType.SHIFT_RIGHT) ? oyuncudakiMiktar : 1;
                     int stok = plugin.getChestStock(kasa.getInventory(), mat, blockMat);
-                    
-                    // Kasa doluluğunu kaba bir hesapla kontrol edelim
-                    boolean kasaDolu = true;
-                    for (ItemStack i : kasa.getInventory().getStorageContents()) {
-                        if (i == null || (i.getType() == mat && i.getAmount() < i.getMaxStackSize())) { 
-                            kasaDolu = false; break; 
-                        }
+                    double kazanilanPara = satilacakMiktar * satis;
+
+                    if (!plugin.stokSigarMi(kasa.getInventory(), mat, blockMat, stok + satilacakMiktar)) {
+                        player.sendMessage(ChatColor.RED + "Belediye kasası tamamen dolu!"); 
+                        return;
+                    }
+                    if (!plugin.kasadanParaCek(kazanilanPara)) {
+                        player.sendMessage(ChatColor.RED + "Belediye kasasında bu alımı karşılayacak nakit yok! Başkan kasaya para koymalı.");
+                        return;
                     }
 
-                    if (!kasaDolu) {
-                        double kazanilanPara = satilacakMiktar * satis;
-                        plugin.removeItemFromInventory(player.getInventory(), mat, satilacakMiktar);
-                        plugin.setChestStock(kasa.getInventory(), mat, blockMat, stok + satilacakMiktar);
-                        plugin.bankaHesaplari.put(pId, bakiye + kazanilanPara);
-                        plugin.veriKaydet();
-                        
-                        player.sendMessage(ChatColor.GREEN + "" + satilacakMiktar + " adet sattınız. Kazanılan: $" + kazanilanPara); 
-                        openBankaMenu(player); 
-                    } else { 
-                        player.sendMessage(ChatColor.RED + "Belediye kasası tamamen dolu!"); 
-                    }
+                    plugin.removeItemFromInventory(player.getInventory(), mat, satilacakMiktar);
+                    plugin.setChestStock(kasa.getInventory(), mat, blockMat, stok + satilacakMiktar);
+                    plugin.bankaHesaplari.put(pId, bakiye + kazanilanPara);
+                    plugin.veriKaydet();
+                    
+                    player.sendMessage(ChatColor.GREEN + "" + satilacakMiktar + " adet sattınız. Kazanılan: $" + kazanilanPara); 
+                    openBankaMenu(player); 
                 }
             }
             return;
@@ -390,6 +405,7 @@ public class MenuManager implements Listener {
         // BEKLEYEN BAŞVURULAR (BAŞKAN) MENÜSÜ
         if (title.equals(ChatColor.DARK_RED + "Bekleyen Basvurular")) {
             event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             ItemStack clicked = event.getCurrentItem();
             if (clicked == null || clicked.getType() != Material.PLAYER_HEAD) return;
             SkullMeta meta = (SkullMeta) clicked.getItemMeta();

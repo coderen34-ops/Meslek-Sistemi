@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Random;
 import java.util.UUID;
 import org.bukkit.Bukkit;
@@ -12,7 +13,9 @@ import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.block.Chest;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.entity.Projectile;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -59,6 +62,18 @@ public class SaglikManager implements Listener, CommandExecutor {
     private final HashMap<String, UUID> ambulansCagrilari = new HashMap<>(); 
     
     private final List<Location> hastaneYataklari = new ArrayList<>();
+    // Dünyası yüklü olmayan yatak kayıtları: kaydederken silinmesinler diye ham haliyle tutulur
+    private final List<String> yuklenemeyenYataklar = new ArrayList<>();
+
+    // Yarayı kimin açtığı (doktor kendi açtığı yarayı sarınca prim almaz)
+    private final HashMap<UUID, UUID> yaralayanlar = new HashMap<>();
+    // Aynı hasta için devlet primi en fazla bu aralıkla ödenir
+    private final HashMap<UUID, Long> sonPrimZamani = new HashMap<>();
+    private static final long PRIM_BEKLEME_MS = 10 * 60 * 1000L;
+
+    // Ağır yaralıyken kullanılamayan ışınlanma komutları
+    private static final Set<String> YARALIYKEN_YASAK_KOMUTLAR = Set.of(
+            "tpa", "call", "tpaccept", "tpdeny", "tpahere", "warp", "spawn", "home");
     
     private final Random random = new Random();
 
@@ -90,6 +105,7 @@ public class SaglikManager implements Listener, CommandExecutor {
                 veriKaydetSaglik();
             } else if (args[0].equalsIgnoreCase("sil")) {
                 hastaneYataklari.clear();
+                yuklenemeyenYataklar.clear();
                 player.sendMessage(ChatColor.GREEN + "Tüm hastane yatakları başarıyla silindi!");
                 veriKaydetSaglik();
             }
@@ -145,6 +161,11 @@ public class SaglikManager implements Listener, CommandExecutor {
             if (target == null || !target.isOnline() || !downedPlayers.containsKey(targetUUID)) {
                 player.sendMessage(ChatColor.RED + "Hasta şu an oyunda değil veya iyileşmiş.");
                 ambulansCagrilari.remove(targetName);
+                return true;
+            }
+            // Ambulans hapisteki hastayı hücreden çıkaramaz; doktor hücreye gidip müdahale etmeli
+            if (plugin.hapisteMi(targetUUID)) {
+                player.sendMessage(ChatColor.RED + "Hasta şu an hapiste! Ambulans gönderilemez, hücresine gidip müdahale etmelisin.");
                 return true;
             }
             
@@ -249,6 +270,7 @@ public class SaglikManager implements Listener, CommandExecutor {
             Player player = (Player) event.getWhoClicked();
             ItemStack clickedItem = event.getCurrentItem();
 
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
             if (clickedItem == null || !clickedItem.hasItemMeta()) return;
 
             double price = 0.0;
@@ -276,6 +298,13 @@ public class SaglikManager implements Listener, CommandExecutor {
         if (!(event.getEntity() instanceof Player)) return;
         Player player = (Player) event.getEntity();
         UUID uuid = player.getUniqueId();
+
+        // Boşluğa düşmek ve /kill baygınlıkla engellenmez (oyuncu sonsuza dek düşmesin)
+        EntityDamageEvent.DamageCause sebep = event.getCause();
+        if (sebep == EntityDamageEvent.DamageCause.VOID || sebep == EntityDamageEvent.DamageCause.KILL) {
+            if (downedPlayers.remove(uuid) != null) ayilt(player);
+            return;
+        }
 
         if (downedPlayers.containsKey(uuid)) {
             event.setCancelled(true);
@@ -308,6 +337,8 @@ public class SaglikManager implements Listener, CommandExecutor {
 
         if (player.getHealth() - event.getFinalDamage() <= 0) {
             event.setCancelled(true);
+            UUID saldiran = saldiranOyuncu(event);
+            if (saldiran != null) yaralayanlar.put(uuid, saldiran);
             applyDownedState(player, 1200); // 20 Dakika
             player.sendMessage(ChatColor.DARK_RED + "Ağır yaralandın ve bilincini kaybettin!");
             player.sendMessage(ChatColor.RED + "Bir doktor gelmezse 20 dakika içinde öleceksin.");
@@ -350,9 +381,29 @@ public class SaglikManager implements Listener, CommandExecutor {
 
             if (random.nextDouble() * 100 < kanamaIhtimali) {
                 bleedingPlayers.put(victim.getUniqueId(), true);
+                UUID saldiran = saldiranOyuncu(event);
+                if (saldiran != null) yaralayanlar.put(victim.getUniqueId(), saldiran);
                 victim.sendMessage(ChatColor.DARK_RED + "Derin bir yara aldın ve kanaman başladı! Bandaj bulmalısın.");
             }
         }
+    }
+
+    // Hasarı veren oyuncu (doğrudan vuruş ya da attığı ok)
+    private UUID saldiranOyuncu(EntityDamageEvent event) {
+        if (!(event instanceof EntityDamageByEntityEvent)) return null;
+        Entity hasarVeren = ((EntityDamageByEntityEvent) event).getDamager();
+        if (hasarVeren instanceof Player) return hasarVeren.getUniqueId();
+        if (hasarVeren instanceof Projectile && ((Projectile) hasarVeren).getShooter() instanceof Player) {
+            return ((Player) ((Projectile) hasarVeren).getShooter()).getUniqueId();
+        }
+        return null;
+    }
+
+    // Baygınlık etkilerini kaldırır
+    private void ayilt(Player player) {
+        player.removePotionEffect(PotionEffectType.BLINDNESS);
+        player.removePotionEffect(PotionEffectType.SLOWNESS);
+        player.removePotionEffect(PotionEffectType.JUMP_BOOST);
     }
 
     private void startBleedingTask() {
@@ -407,10 +458,8 @@ public class SaglikManager implements Listener, CommandExecutor {
     public void onCommandPreprocess(PlayerCommandPreprocessEvent event) {
         Player player = event.getPlayer();
         if (downedPlayers.containsKey(player.getUniqueId())) {
-            String msg = event.getMessage().toLowerCase();
-            if (msg.startsWith("/tpa") || msg.startsWith("/call") || msg.startsWith("/tpaccept") 
-                || msg.startsWith("/tpdeny") || msg.startsWith("/tpahere") || msg.startsWith("/warp") 
-                || msg.startsWith("/spawn") || msg.startsWith("/home")) {
+            // "/essentials:home" gibi önekli yazımlar da yakalanır
+            if (YARALIYKEN_YASAK_KOMUTLAR.contains(MeslekSistemi.komutAdi(event.getMessage()))) {
                 event.setCancelled(true);
                 player.sendMessage(ChatColor.RED + "Ağır yaralıyken ışınlanma komutlarını kullanamazsın!");
             }
@@ -425,11 +474,14 @@ public class SaglikManager implements Listener, CommandExecutor {
             return meta.getPersistentDataContainer().get(typeKey, PersistentDataType.STRING);
         }
         
-        if (meta.hasDisplayName()) {
+        // Eski sürümde etiketsiz satılmış eşyalar: isim + eklentinin yazdığı açıklama satırı birlikte aranır.
+        // Örs sadece isim değiştirebildiği için bu kontrol taklit eşyaları dışarıda bırakır.
+        if (meta.hasDisplayName() && meta.hasLore() && meta.getLore() != null && !meta.getLore().isEmpty()) {
             String name = ChatColor.stripColor(meta.getDisplayName()).toLowerCase();
-            if (item.getType() == Material.PAPER && name.contains("bandaj")) return "bandaj";
-            if (item.getType() == Material.STICK && name.contains("atel")) return "atel";
-            if (item.getType() == Material.SPECTRAL_ARROW && name.contains("adrenalin")) return "adrenalin";
+            String aciklama = ChatColor.stripColor(meta.getLore().get(0));
+            if (item.getType() == Material.PAPER && name.contains("bandaj") && aciklama.equals("Kanamayı durdurur.")) return "bandaj";
+            if (item.getType() == Material.STICK && name.contains("atel") && aciklama.equals("Kırık bacağı onarır.")) return "atel";
+            if (item.getType() == Material.SPECTRAL_ARROW && name.contains("adrenalin") && aciklama.equals("Baygın hastayı hayata döndürür.")) return "adrenalin";
         }
         return null;
     }
@@ -500,6 +552,8 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
 
         boolean tedaviEdildi = false;
+        // Prim kontrolü için tedaviden önce yarayı kimin açtığını al
+        UUID yaralayan = yaralayanlar.get(target.getUniqueId());
 
         if ("atel".equals(type) && brokenLegs.containsKey(target.getUniqueId())) {
             brokenLegs.remove(target.getUniqueId());
@@ -534,27 +588,22 @@ public class SaglikManager implements Listener, CommandExecutor {
             tedaviEdildi = true;
         }
 
+        if (tedaviEdildi && !bleedingPlayers.containsKey(target.getUniqueId()) && !downedPlayers.containsKey(target.getUniqueId())) {
+            yaralayanlar.remove(target.getUniqueId());
+        }
+
         String meslek = plugin.oyuncuMeslekCache.getOrDefault(doctor.getUniqueId(), "vatandas");
         if (tedaviEdildi && meslek.equalsIgnoreCase("doktor")) {
-            if (plugin.kasaKonumu != null && plugin.kasaKonumu.getBlock().getState() instanceof Chest) {
-                Chest kasa = (Chest) plugin.kasaKonumu.getBlock().getState();
-                double kasaBakiye = 0.0;
-                for (ItemStack kItem : kasa.getInventory().getContents()) {
-                    Double val = plugin.getMoneyValue(kItem);
-                    if (val != null) kasaBakiye += (val * kItem.getAmount());
-                }
-                
+            long simdi = System.currentTimeMillis();
+            boolean kendiYarasi = doctor.getUniqueId().equals(yaralayan);
+            boolean beklemede = simdi - sonPrimZamani.getOrDefault(target.getUniqueId(), 0L) < PRIM_BEKLEME_MS;
+            if (kendiYarasi) {
+                doctor.sendMessage(ChatColor.GRAY + "Kendi açtığınız yarayı tedavi ettiğiniz için devlet primi ödenmedi.");
+            } else if (!beklemede) {
                 double primMiktari = type.equals("adrenalin") ? 300.0 : 50.0;
                 
-                if (kasaBakiye >= primMiktari) {
-                    for (int i = 0; i < kasa.getInventory().getSize(); i++) {
-                        if (plugin.getMoneyValue(kasa.getInventory().getItem(i)) != null) kasa.getInventory().setItem(i, null);
-                    }
-                    if (kasaBakiye - primMiktari > 0) {
-                        kasa.getInventory().addItem(plugin.createEconomyNote(kasaBakiye - primMiktari));
-                        plugin.mergeKasaMoney(kasa);
-                    }
-                    
+                if (plugin.kasadanParaCek(primMiktari)) {
+                    sonPrimZamani.put(target.getUniqueId(), simdi);
                     double docHesap = plugin.bankaHesaplari.getOrDefault(doctor.getUniqueId(), 0.0);
                     plugin.bankaHesaplari.put(doctor.getUniqueId(), docHesap + primMiktari);
                     plugin.veriKaydet();
@@ -593,7 +642,8 @@ public class SaglikManager implements Listener, CommandExecutor {
             Bukkit.dispatchCommand(player, "sit"); 
         }
         
-        player.setHealth(player.getMaxHealth());
+        AttributeInstance maxCan = player.getAttribute(Attribute.MAX_HEALTH);
+        player.setHealth(maxCan != null ? maxCan.getValue() : 20.0);
         
         for (PotionEffect effect : player.getActivePotionEffects()) {
             player.removePotionEffect(effect.getType());
@@ -678,8 +728,9 @@ public class SaglikManager implements Listener, CommandExecutor {
     }
 
     public void veriKaydetSaglik() {
-        List<String> locs = new ArrayList<>();
+        List<String> locs = new ArrayList<>(yuklenemeyenYataklar);
         for (Location loc : hastaneYataklari) {
+            if (loc.getWorld() == null) continue;
             locs.add(loc.getWorld().getName() + ";" + loc.getX() + ";" + loc.getY() + ";" + loc.getZ() + ";" + loc.getYaw() + ";" + loc.getPitch());
         }
         plugin.getConfig().set("hastaneyataklari", locs);
@@ -709,6 +760,8 @@ public class SaglikManager implements Listener, CommandExecutor {
                     org.bukkit.World w = Bukkit.getWorld(split[0]);
                     if (w != null) {
                         hastaneYataklari.add(new Location(w, Double.parseDouble(split[1]), Double.parseDouble(split[2]), Double.parseDouble(split[3]), Float.parseFloat(split[4]), Float.parseFloat(split[5])));
+                    } else {
+                        yuklenemeyenYataklar.add(s);
                     }
                 }
             }

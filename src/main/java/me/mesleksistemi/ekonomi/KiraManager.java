@@ -19,7 +19,6 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
-import org.bukkit.block.Chest;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -147,7 +146,7 @@ public class KiraManager implements Listener, CommandExecutor {
 
         String id = args[0].toLowerCase();
         double fiyat;
-        try { fiyat = Double.parseDouble(args[1]); } catch (Exception e) { p.sendMessage(ChatColor.RED + "Fiyat rakam olmalıdır!"); return; }
+        try { fiyat = MeslekSistemi.parsePara(args[1]); } catch (Exception e) { p.sendMessage(ChatColor.RED + "Fiyat rakam olmalıdır!"); return; }
         if (fiyat <= 0 || Double.isNaN(fiyat) || Double.isInfinite(fiyat)) {
             p.sendMessage(ChatColor.RED + "Fiyat sıfırdan büyük olmalıdır!");
             return;
@@ -251,9 +250,9 @@ public class KiraManager implements Listener, CommandExecutor {
         double bakiye = plugin.bankaHesaplari.getOrDefault(pId, 0.0);
         if (bakiye < fiyat) return "Banka hesabınızda yeterli bakiye yok! Gereken: $" + fiyat;
 
-        // Parayı kes, kirala, GP3D'ye kaydet
+        // Önce para alıcısına ulaştırılır (kasa yoksa işlem yapılmaz), sonra kiracıdan düşülür
+        if (!kiraOdemesiAktar(ev, fiyat)) return "Belediye kasası şu an kira kabul edemiyor. Lütfen yetkililere bildirin.";
         plugin.bankaHesaplari.put(pId, bakiye - fiyat);
-        kiraOdemesiAktar(ev, fiyat);
 
         ev.kiraci = pId;
         ev.kalanSureMs = KIRA_SURESI_MS;
@@ -303,24 +302,20 @@ public class KiraManager implements Listener, CommandExecutor {
         return (dakika / 60) + " saat " + (dakika % 60) + " dakika";
     }
 
-    // Ödenen kirayı alıcısına aktarır: oyuncu evi ise sahibinin bankasına, belediye evi ise kasa sandığına
-    private void kiraOdemesiAktar(KiralikEv ev, double miktar) {
+    // Ödenen kirayı alıcısına aktarır: oyuncu evi ise sahibinin bankasına, belediye evi ise kasa sandığına.
+    // Belediye kasası kurulu değilse veya doluysa false döner; bu durumda kiracıdan para alınmamalı.
+    private boolean kiraOdemesiAktar(KiralikEv ev, double miktar) {
         if (ev.sahip != null) {
             plugin.bankaHesaplari.put(ev.sahip, plugin.bankaHesaplari.getOrDefault(ev.sahip, 0.0) + miktar);
             Player sahipOyuncu = Bukkit.getPlayer(ev.sahip);
             if (sahipOyuncu != null) {
                 sahipOyuncu.sendMessage(ChatColor.GREEN + "[Emlak] " + ev.isim + " için $" + miktar + " kira geliri banka hesabınıza yatırıldı.");
             }
-            return;
+            return true;
         }
-
-        if (plugin.kasaKonumu != null && plugin.kasaKonumu.getBlock().getState() instanceof Chest) {
-            Chest kasa = (Chest) plugin.kasaKonumu.getBlock().getState();
-            kasa.getInventory().addItem(plugin.createEconomyNote(miktar));
-            plugin.mergeKasaMoney(kasa);
-        } else {
-            plugin.getLogger().warning("[Kira] Belediye kasası ayarlı değil, '" + ev.id + "' evinin $" + miktar + " kirası kasaya aktarılamadı!");
-        }
+        if (plugin.kasayaParaEkle(miktar)) return true;
+        plugin.getLogger().warning("[Kira] Belediye kasası kurulu değil veya dolu, '" + ev.id + "' evinin $" + miktar + " kirası tahsil edilemedi!");
+        return false;
     }
 
     @EventHandler
@@ -446,11 +441,12 @@ public class KiraManager implements Listener, CommandExecutor {
             double bakiye = plugin.bankaHesaplari.getOrDefault(ev.kiraci, 0.0);
             if (bakiye >= ev.fiyat) {
                 // Kirayı ödeyebiliyor, süreyi 10 saat uzat
-                plugin.bankaHesaplari.put(ev.kiraci, bakiye - ev.fiyat);
-                kiraOdemesiAktar(ev, ev.fiyat);
+                // Kasa kurulu değilse para boşa gitmesin: bu dönem tahsil edilmez, kiracılık devam eder
+                if (kiraOdemesiAktar(ev, ev.fiyat)) {
+                    plugin.bankaHesaplari.put(ev.kiraci, bakiye - ev.fiyat);
+                    if (kiraciOyuncu != null) kiraciOyuncu.sendMessage(ChatColor.GREEN + "[Emlak] " + ev.isim + " evinizin kirası ($" + ev.fiyat + ") otomatik olarak bankanızdan kesildi.");
+                }
                 ev.kalanSureMs += KIRA_SURESI_MS;
-
-                if (kiraciOyuncu != null) kiraciOyuncu.sendMessage(ChatColor.GREEN + "[Emlak] " + ev.isim + " evinizin kirası ($" + ev.fiyat + ") otomatik olarak bankanızdan kesildi.");
                 degisiklik = true;
             } else {
                 // Parası yok, HACİZ (Evden çıkarma)

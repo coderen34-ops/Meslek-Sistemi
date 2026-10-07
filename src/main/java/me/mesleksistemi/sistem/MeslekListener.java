@@ -16,6 +16,7 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.UUID;
@@ -53,6 +54,8 @@ public class MeslekListener implements Listener {
 
     @EventHandler
     public void onNpcClick(PlayerInteractEntityEvent event) {
+        // Sağ tık her iki el için ayrı tetiklenir; menü iki kez açılmasın
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (event.getRightClicked() instanceof Villager) {
             Villager npc = (Villager) event.getRightClicked();
             Player player = event.getPlayer();
@@ -87,6 +90,7 @@ public class MeslekListener implements Listener {
 
     @EventHandler
     public void onLecternInteract(PlayerInteractEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
             Block clickedBlock = event.getClickedBlock();
             if (clickedBlock != null && clickedBlock.getType() == Material.LECTERN) {
@@ -110,26 +114,36 @@ public class MeslekListener implements Listener {
         }
     }
 
+    // Chat olayı ana thread dışında gelir. Bekleyen bir işlem varsa mesaj chat'e düşmez,
+    // asıl işlem (banka, başvuru, tapu) ana thread'de yapılır ki veriler güvenle değişsin.
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         UUID pId = player.getUniqueId();
         plugin.sonHareketZamani.put(pId, System.currentTimeMillis());
 
+        if (!plugin.basvuruBekleyenler.containsKey(pId) && !plugin.tapuIslemBekleyenler.containsKey(pId)
+                && !plugin.bankaIslemBekleyenler.containsKey(pId)) return;
+
+        event.setCancelled(true);
+        String mesaj = event.getMessage().trim();
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) sohbetIsle(player, mesaj);
+        });
+    }
+
+    private void sohbetIsle(Player player, String mesaj) {
+        UUID pId = player.getUniqueId();
+
         if (plugin.basvuruBekleyenler.containsKey(pId)) {
-            event.setCancelled(true); 
-            String sebep = event.getMessage();
-            plugin.aktifBasvurular.put(pId, new MeslekSistemi.Basvuru(player.getName(), plugin.basvuruBekleyenler.get(pId), sebep));
+            plugin.aktifBasvurular.put(pId, new MeslekSistemi.Basvuru(player.getName(), plugin.basvuruBekleyenler.get(pId), mesaj));
             plugin.basvuruBekleyenler.remove(pId); plugin.veriKaydet();
             player.sendMessage(ChatColor.GREEN + "Basvurunuz Belediye Baskanina iletildi!");
             return;
         }
 
         if (plugin.tapuIslemBekleyenler.containsKey(pId)) {
-            event.setCancelled(true);
-            String islemTipi = plugin.tapuIslemBekleyenler.get(pId); 
-            String mesaj = event.getMessage().trim();
-            plugin.tapuIslemBekleyenler.remove(pId);
+            String islemTipi = plugin.tapuIslemBekleyenler.remove(pId);
 
             if (mesaj.equalsIgnoreCase("iptal")) { player.sendMessage(ChatColor.YELLOW + "Tapu islemi iptal edildi."); return; }
 
@@ -142,53 +156,47 @@ public class MeslekListener implements Listener {
             double blokFiyati = islemTipi.equals("ILK") ? plugin.ilkTapuBlokFiyati : plugin.genisletmeBlokFiyati;
             double toplamTutar = blokMiktari * blokFiyati;
 
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (plugin.processPaymentToKasa(player, toplamTutar)) {
-                    if (islemTipi.equals("ILK")) plugin.tapuSahipleri.add(pId);
-                    plugin.veriKaydet();
-                    
-                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "acb " + player.getName() + " " + blokMiktari);
-                    
-                    player.sendMessage(ChatColor.GREEN + "--- TAPU ISLEMI BASARILI ---");
-                    player.sendMessage(ChatColor.AQUA + "Alinan Blok: " + ChatColor.WHITE + blokMiktari);
-                    player.sendMessage(ChatColor.AQUA + "Odenen Tutar: " + ChatColor.WHITE + "$" + toplamTutar);
-                    player.sendMessage(ChatColor.YELLOW + "Altin kureginizi kullanarak arsanizi cizebilirsiniz.");
-                }
-            });
+            if (plugin.processPaymentToKasa(player, toplamTutar)) {
+                if (islemTipi.equals("ILK")) plugin.tapuSahipleri.add(pId);
+                plugin.veriKaydet();
+
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "acb " + player.getName() + " " + blokMiktari);
+
+                player.sendMessage(ChatColor.GREEN + "--- TAPU ISLEMI BASARILI ---");
+                player.sendMessage(ChatColor.AQUA + "Alinan Blok: " + ChatColor.WHITE + blokMiktari);
+                player.sendMessage(ChatColor.AQUA + "Odenen Tutar: " + ChatColor.WHITE + "$" + toplamTutar);
+                player.sendMessage(ChatColor.YELLOW + "Altin kureginizi kullanarak arsanizi cizebilirsiniz.");
+            }
             return;
         }
 
         if (plugin.bankaIslemBekleyenler.containsKey(pId)) {
-            event.setCancelled(true);
-            String islem = plugin.bankaIslemBekleyenler.get(pId);
-            String mesaj = event.getMessage().trim();
-            plugin.bankaIslemBekleyenler.remove(pId);
+            String islem = plugin.bankaIslemBekleyenler.remove(pId);
 
             if (mesaj.equalsIgnoreCase("iptal")) { player.sendMessage(ChatColor.YELLOW + "İptal edildi."); return; }
 
             double miktar;
             try {
-                miktar = Double.parseDouble(mesaj);
+                miktar = MeslekSistemi.parsePara(mesaj);
                 if (miktar <= 0) throw new NumberFormatException();
             } catch (Exception e) { player.sendMessage(ChatColor.RED + "Gecersiz sayi."); return; }
 
+            // Bakiye işlem anında okunur: arada maaş/kira gibi değişiklikler ezilmesin
             double bakiye = plugin.bankaHesaplari.getOrDefault(pId, 0.0);
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (islem.equals("YATIR")) {
-                    if (plugin.processBankDeposit(player, miktar)) {
-                        plugin.bankaHesaplari.put(pId, bakiye + miktar);
-                        player.sendMessage(ChatColor.GREEN + "[Banka] $" + miktar + " yatirildi."); plugin.veriKaydet();
-                    }
-                } else if (islem.equals("CEK")) {
-                    if (bakiye >= miktar) {
-                        if (player.getInventory().firstEmpty() != -1) {
-                            plugin.bankaHesaplari.put(pId, bakiye - miktar);
-                            player.getInventory().addItem(plugin.createEconomyNote(miktar));
-                            player.sendMessage(ChatColor.GREEN + "[Banka] $" + miktar + " cektiniz."); plugin.veriKaydet();
-                        } else { player.sendMessage(ChatColor.RED + "Envanteriniz dolu."); }
-                    } else { player.sendMessage(ChatColor.RED + "Yetersiz bakiye."); }
+            if (islem.equals("YATIR")) {
+                if (plugin.processBankDeposit(player, miktar)) {
+                    plugin.bankaHesaplari.put(pId, bakiye + miktar);
+                    player.sendMessage(ChatColor.GREEN + "[Banka] $" + miktar + " yatirildi."); plugin.veriKaydet();
                 }
-            });
+            } else if (islem.equals("CEK")) {
+                if (bakiye >= miktar) {
+                    if (player.getInventory().firstEmpty() != -1) {
+                        plugin.bankaHesaplari.put(pId, bakiye - miktar);
+                        player.getInventory().addItem(plugin.createEconomyNote(miktar));
+                        player.sendMessage(ChatColor.GREEN + "[Banka] $" + miktar + " cektiniz."); plugin.veriKaydet();
+                    } else { player.sendMessage(ChatColor.RED + "Envanteriniz dolu."); }
+                } else { player.sendMessage(ChatColor.RED + "Yetersiz bakiye."); }
+            }
         }
     }
 

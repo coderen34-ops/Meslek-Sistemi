@@ -4,6 +4,8 @@ main: me.mesleksistemi.MeslekSistemi
 api-version: '26.2' 
 description: Kapsamli Meslek, Ekonomi, Sozlesme, Secim, Hukuk, Ehliyet, Saglik ve Ticaret Yonetim Sistemi
 depend: [GriefPrevention]
+# Varsa önce bunlar yüklensin: rütbe (lp), oturma/yatma (lay/sit) ve kağıt para eklentileri
+softdepend: [LuckPerms, GSit, Economy]
 
 commands:
   # ==========================================

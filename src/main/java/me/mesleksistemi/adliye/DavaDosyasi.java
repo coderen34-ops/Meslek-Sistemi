@@ -13,6 +13,8 @@ public class DavaDosyasi {
     public double sanikAvukatiUcreti = 0.0;
     public String sebep;
     public DavaDurumu durum;
+    // Duruşmayı yöneten hakim (duruşma başlayınca atanır)
+    public String hakim = null;
 
     public DavaDosyasi(UUID id, String musteki, String sanik, double talepEdilenMiktar, String sebep) {
         this.id = id;
