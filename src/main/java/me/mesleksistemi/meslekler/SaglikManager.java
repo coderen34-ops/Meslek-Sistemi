@@ -71,6 +71,18 @@ public class SaglikManager implements Listener, CommandExecutor {
     private final HashMap<UUID, Long> sonPrimZamani = new HashMap<>();
     private static final long PRIM_BEKLEME_MS = 10 * 60 * 1000L;
 
+    // Sağlık sisteminden muaf oyuncular (örn. arena savaşı). MeslekAPI üzerinden ayarlanır.
+    private final java.util.Set<UUID> muafOyuncular = new java.util.HashSet<>();
+
+    public void muafiyetAyarla(UUID oyuncu, boolean muaf) {
+        if (muaf) muafOyuncular.add(oyuncu);
+        else muafOyuncular.remove(oyuncu);
+    }
+
+    public boolean muafMi(UUID oyuncu) {
+        return muafOyuncular.contains(oyuncu);
+    }
+
     // Ağır yaralıyken kullanılamayan ışınlanma komutları
     private static final Set<String> YARALIYKEN_YASAK_KOMUTLAR = Set.of(
             "tpa", "call", "tpaccept", "tpdeny", "tpahere", "warp", "spawn", "home");
@@ -298,6 +310,7 @@ public class SaglikManager implements Listener, CommandExecutor {
         if (!(event.getEntity() instanceof Player)) return;
         Player player = (Player) event.getEntity();
         UUID uuid = player.getUniqueId();
+        if (muafOyuncular.contains(uuid)) return; // Muaf oyuncu normal hasar alır ve ölebilir
 
         // Boşluğa düşmek ve /kill baygınlıkla engellenmez (oyuncu sonsuza dek düşmesin)
         EntityDamageEvent.DamageCause sebep = event.getCause();
@@ -350,6 +363,7 @@ public class SaglikManager implements Listener, CommandExecutor {
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof Player)) return;
         Player victim = (Player) event.getEntity();
+        if (muafOyuncular.contains(victim.getUniqueId())) return;
         if (victim.isBlocking()) return; // Kalkanla savunulursa kanama olmaz!
 
         boolean canBleed = false;
@@ -413,7 +427,7 @@ public class SaglikManager implements Listener, CommandExecutor {
                 for (UUID uuid : new ArrayList<>(bleedingPlayers.keySet())) {
                     Player p = Bukkit.getPlayer(uuid);
                     // Çevrimdışı oyuncular listeden silinmiyor, girdiklerinde devam edecek
-                    if (p != null && p.isOnline() && !downedPlayers.containsKey(uuid)) {
+                    if (p != null && p.isOnline() && !downedPlayers.containsKey(uuid) && !muafOyuncular.contains(uuid)) {
                         p.damage(1.0); 
                     }
                 }
