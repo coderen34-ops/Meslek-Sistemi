@@ -36,6 +36,7 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.NamespacedKey;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -47,7 +48,10 @@ import java.util.concurrent.ThreadLocalRandom;
 public class TicaretManager implements Listener, CommandExecutor {
 
     private final MeslekSistemi plugin;
+    // Eski sürümün köylü geneli bekleme anahtarı (sadece taşıma için okunur)
     private final NamespacedKey cooldownKey;
+    // Her ürünün kendi stok yenileme zamanı (tarif sırasıyla, 0 = bekleme yok)
+    private final NamespacedKey stokYenilemeKey;
     private final NamespacedKey ehliyetKey;
     private final NamespacedKey adliyeKey;
     private final NamespacedKey sikayetKey;
@@ -88,6 +92,7 @@ public class TicaretManager implements Listener, CommandExecutor {
     public TicaretManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         this.cooldownKey = new NamespacedKey(plugin, "villager_restock_cooldown");
+        this.stokYenilemeKey = new NamespacedKey(plugin, "urun_stok_yenileme");
         this.ehliyetKey = new NamespacedKey(plugin, "ehliyet_npc");
         this.adliyeKey = new NamespacedKey(plugin, "adliye_npc");
         this.sikayetKey = new NamespacedKey(plugin, "sikayet_npc");
@@ -361,25 +366,24 @@ public class TicaretManager implements Listener, CommandExecutor {
             meslekKilitle((Villager) villager);
         }
 
+        // Stok her ürün için ayrı yenilenir: süresi dolan tükenmiş ürünlerin stoğu sıfırlanır
         long currentTime = villager.getWorld().getFullTime();
-        boolean onCooldown = false;
-        long kalanSureTick = 0;
-
-        if (villager.getPersistentDataContainer().has(cooldownKey, PersistentDataType.LONG)) {
-            long readyTime = villager.getPersistentDataContainer().get(cooldownKey, PersistentDataType.LONG);
-            if (currentTime < readyTime) {
-                onCooldown = true;
-                kalanSureTick = readyTime - currentTime;
-            } else {
-                villager.getPersistentDataContainer().remove(cooldownKey);
-                List<MerchantRecipe> yeniTarifler = new ArrayList<>();
-                for (MerchantRecipe r : villager.getRecipes()) {
-                    r.setUses(0);
-                    yeniTarifler.add(r);
-                }
-                villager.setRecipes(yeniTarifler);
+        List<MerchantRecipe> tarifler = new ArrayList<>(villager.getRecipes());
+        long[] stokZamani = stokZamanlari(villager, tarifler.size());
+        boolean tarifDegisti = false;
+        for (int i = 0; i < tarifler.size(); i++) {
+            MerchantRecipe r = tarifler.get(i);
+            if (r.getUses() < MAX_ALIM_SINIRI) continue;
+            if (stokZamani[i] == 0) {
+                stokZamani[i] = currentTime + STOK_YENILEME_TICK; // Süresi kaydedilmemiş tükenmiş ürün
+            } else if (currentTime >= stokZamani[i]) {
+                r.setUses(0);
+                stokZamani[i] = 0;
+                tarifDegisti = true;
             }
         }
+        if (tarifDegisti) villager.setRecipes(tarifler);
+        stokZamanlariniKaydet(villager, stokZamani);
 
         List<MerchantRecipe> recipes = villager.getRecipes();
         int size = ((recipes.size() / 9) + 1) * 9;
@@ -399,10 +403,10 @@ public class TicaretManager implements Listener, CommandExecutor {
             List<String> lore = meta != null && meta.hasLore() ? meta.getLore() : new ArrayList<>();
             lore.add(ChatColor.DARK_GRAY + "----------------------");
             
-            if (onCooldown || recipe.getUses() >= MAX_ALIM_SINIRI) {
+            if (recipe.getUses() >= MAX_ALIM_SINIRI) {
                 lore.add(ChatColor.RED + "X Stok Tükendi!");
-                if (onCooldown) {
-                    long kalanGun = (kalanSureTick / 24000L) + 1;
+                if (i < stokZamani.length && stokZamani[i] > currentTime) {
+                    long kalanGun = ((stokZamani[i] - currentTime) / 24000L) + 1;
                     lore.add(ChatColor.DARK_RED + "Tedarik icin " + kalanGun + " MC gunu lazim.");
                 }
             } else {
@@ -505,19 +509,11 @@ public class TicaretManager implements Listener, CommandExecutor {
         if (villager == null || slot < 0 || slot >= villager.getRecipes().size()) return;
         if (event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) return;
 
-        if (villager.getPersistentDataContainer().has(cooldownKey, PersistentDataType.LONG)) {
-            long readyTime = villager.getPersistentDataContainer().get(cooldownKey, PersistentDataType.LONG);
-            if (villager.getWorld().getFullTime() < readyTime) {
-                player.sendMessage(ChatColor.RED + "Bu tüccar yeni kervan gelene kadar ticaret yapmıyor! (2 Gün Kuralı)");
-                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
-                return;
-            }
-        }
-
         MerchantRecipe recipe = villager.getRecipes().get(slot);
 
+        // Sadece bu ürünün stoğu tükendiyse alınamaz; diğer ürünler satılmaya devam eder
         if (recipe.getUses() >= MAX_ALIM_SINIRI) {
-            player.sendMessage(ChatColor.RED + "Bu ürünün stoğu tamamen tükendi!");
+            player.sendMessage(ChatColor.RED + "Bu ürünün stoğu tükendi! Yeni kervan gelene kadar bu ürün satılmıyor. (2 Gün Kuralı)");
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
             return;
         }
@@ -606,17 +602,19 @@ public class TicaretManager implements Listener, CommandExecutor {
         }
 
         if (recipe.getUses() >= MAX_ALIM_SINIRI) {
-            villager.getPersistentDataContainer().set(cooldownKey, PersistentDataType.LONG, villager.getWorld().getFullTime() + STOK_YENILEME_TICK);
-            player.sendMessage(ChatColor.DARK_RED + "Dikkat! Tüccarın stoğu tükendi. Yeni kervan 2 oyun günü sonra gelecek.");
+            long[] stokZamani = stokZamanlari(villager, villager.getRecipes().size());
+            stokZamani[slot] = villager.getWorld().getFullTime() + STOK_YENILEME_TICK;
+            stokZamanlariniKaydet(villager, stokZamani);
+            player.sendMessage(ChatColor.DARK_RED + "Dikkat! Bu ürünün stoğu tükendi. Yeni kervan 2 oyun günü sonra gelecek.");
         } else {
             player.sendMessage(ChatColor.GREEN + "Ticaret başarılı!");
-            
-            if (sadakatGecerli) {
-                if (newTrades == 10) player.sendMessage(ChatColor.AQUA + "Tebrikler! Bu tüccarla Sadakat Seviyesi 2 oldun. (%5 İndirim)");
-                else if (newTrades == 25) player.sendMessage(ChatColor.AQUA + "Tebrikler! Bu tüccarla Sadakat Seviyesi 3 oldun. (%10 İndirim)");
-                else if (newTrades == 50) player.sendMessage(ChatColor.AQUA + "Tebrikler! Bu tüccarla Sadakat Seviyesi 4 oldun. (%15 İndirim)");
-                else if (newTrades == 100) player.sendMessage(ChatColor.GOLD + "İnanılmaz! Bu tüccarla Sadakat Seviyesi 5 (VIP) oldun. (%25 İndirim)");
-            }
+        }
+
+        if (sadakatGecerli) {
+            if (newTrades == 10) player.sendMessage(ChatColor.AQUA + "Tebrikler! Bu tüccarla Sadakat Seviyesi 2 oldun. (%5 İndirim)");
+            else if (newTrades == 25) player.sendMessage(ChatColor.AQUA + "Tebrikler! Bu tüccarla Sadakat Seviyesi 3 oldun. (%10 İndirim)");
+            else if (newTrades == 50) player.sendMessage(ChatColor.AQUA + "Tebrikler! Bu tüccarla Sadakat Seviyesi 4 oldun. (%15 İndirim)");
+            else if (newTrades == 100) player.sendMessage(ChatColor.GOLD + "İnanılmaz! Bu tüccarla Sadakat Seviyesi 5 (VIP) oldun. (%25 İndirim)");
         }
 
         if (seviyeAtladi) {
@@ -627,6 +625,30 @@ public class TicaretManager implements Listener, CommandExecutor {
 
         player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_YES, 1.0f, 1.0f);
         openTradeGUI(player, villager); 
+    }
+
+    // Köylünün ürün bazlı stok yenileme zamanları (dizi tarif sayısına göre büyütülür).
+    // Eski sürümdeki köylü geneli bekleme varsa sadece tükenmiş ürünlere aktarılıp silinir.
+    private long[] stokZamanlari(AbstractVillager villager, int tarifSayisi) {
+        PersistentDataContainer data = villager.getPersistentDataContainer();
+        long[] dizi = data.has(stokYenilemeKey, PersistentDataType.LONG_ARRAY)
+                ? data.get(stokYenilemeKey, PersistentDataType.LONG_ARRAY) : new long[0];
+        if (dizi.length < tarifSayisi) dizi = Arrays.copyOf(dizi, tarifSayisi);
+
+        if (data.has(cooldownKey, PersistentDataType.LONG)) {
+            long eskiBekleme = data.get(cooldownKey, PersistentDataType.LONG);
+            List<MerchantRecipe> tarifler = villager.getRecipes();
+            for (int i = 0; i < Math.min(tarifler.size(), dizi.length); i++) {
+                if (tarifler.get(i).getUses() >= MAX_ALIM_SINIRI && dizi[i] == 0) dizi[i] = eskiBekleme;
+            }
+            data.remove(cooldownKey);
+            data.set(stokYenilemeKey, PersistentDataType.LONG_ARRAY, dizi);
+        }
+        return dizi;
+    }
+
+    private void stokZamanlariniKaydet(AbstractVillager villager, long[] dizi) {
+        villager.getPersistentDataContainer().set(stokYenilemeKey, PersistentDataType.LONG_ARRAY, dizi);
     }
 
     @EventHandler

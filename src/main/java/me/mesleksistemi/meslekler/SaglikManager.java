@@ -628,6 +628,17 @@ public class SaglikManager implements Listener, CommandExecutor {
             return;
         }
 
+        // Tedavi edilecek bir sorun yoksa ücret alınmaz
+        UUID hastaId = player.getUniqueId();
+        AttributeInstance maxCanBilgisi = player.getAttribute(Attribute.MAX_HEALTH);
+        double maxCanDegeri = maxCanBilgisi != null ? maxCanBilgisi.getValue() : 20.0;
+        boolean sorunVar = brokenLegs.containsKey(hastaId) || bleedingPlayers.containsKey(hastaId)
+                || downedPlayers.containsKey(hastaId) || player.getHealth() < maxCanDegeri;
+        if (!sorunVar) {
+            player.sendMessage(ChatColor.GREEN + "Acil Servis: Muayene edildiniz, herhangi bir sağlık sorununuz yok. Ücret alınmadı.");
+            return;
+        }
+
         double tedaviUcreti = 350.0;
         if (!plugin.processPaymentToKasa(player, tedaviUcreti)) {
             player.sendMessage(ChatColor.RED + "Acil servis tedavi ücreti: $" + tedaviUcreti + ". Yeterli paranız yok.");
