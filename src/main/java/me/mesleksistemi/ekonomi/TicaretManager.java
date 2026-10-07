@@ -20,6 +20,9 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockBurnEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.VillagerCareerChangeEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
@@ -57,6 +60,8 @@ public class TicaretManager implements Listener, CommandExecutor {
     private final NamespacedKey sikayetKey;
     // YENİ: SaglikManager'daki hastane NPC'sinin anahtarı (aynı isim = aynı anahtar)
     private final NamespacedKey hastaneKey;
+    // Emlak Ofisi (KiraManager) ve Madenci/Oduncu Pazarı (ToptanciManager) NPC'leri
+    private final NamespacedKey emlakciKey, madenciKey, oduncuKey;
     // YENİ: Meslek kilidi işareti (köylünün teklifleri sabitlendiğinde konur)
     private final NamespacedKey meslekKilitKey;
     
@@ -97,6 +102,9 @@ public class TicaretManager implements Listener, CommandExecutor {
         this.adliyeKey = new NamespacedKey(plugin, "adliye_npc");
         this.sikayetKey = new NamespacedKey(plugin, "sikayet_npc");
         this.hastaneKey = new NamespacedKey(plugin, "hastane_npc");
+        this.emlakciKey = new NamespacedKey(plugin, "emlakci_npc");
+        this.madenciKey = new NamespacedKey(plugin, "madenci_npc");
+        this.oduncuKey = new NamespacedKey(plugin, "oduncu_npc");
         this.meslekKilitKey = new NamespacedKey(plugin, "meslek_kilit");
         this.kampanyaOrani = plugin.getConfig().getDouble(KAMPANYA_YOLU + ".oran", 0.0);
         this.kampanyaBitis = plugin.getConfig().getLong(KAMPANYA_YOLU + ".bitis", 0L);
@@ -261,7 +269,10 @@ public class TicaretManager implements Listener, CommandExecutor {
             data.has(ehliyetKey, PersistentDataType.BYTE) ||
             data.has(adliyeKey, PersistentDataType.BYTE) ||
             data.has(sikayetKey, PersistentDataType.BYTE) ||
-            data.has(hastaneKey, PersistentDataType.BYTE)) {
+            data.has(hastaneKey, PersistentDataType.BYTE) ||
+            data.has(emlakciKey, PersistentDataType.BYTE) ||
+            data.has(madenciKey, PersistentDataType.BYTE) ||
+            data.has(oduncuKey, PersistentDataType.BYTE)) {
             return true;
         }
 
@@ -274,13 +285,25 @@ public class TicaretManager implements Listener, CommandExecutor {
     // YENİ: MESLEK KİLİDİ
     // Vanilla'da hiç ticaret yapılmamış (xp = 0, seviye 1) bir köylü iş bloğunu
     // kaybederse mesleğini sıfırlar ve yeni meslekle yeni teklifler çıkar.
-    // Köylüye mesleği aldığı anda 1 xp vererek bu sıfırlanmayı engelliyoruz.
-    // İş bloğu oyuncu tarafından kırılınca kilit açılır, vanilla davranış devam eder.
+    // Köylüye mesleği aldığı anda 1 xp vererek bu sıfırlanmayı engelliyoruz (iş bloğu
+    // yerindeyken teklifler sabit kalır). İş bloğu herhangi bir şekilde yok olursa
+    // (kırma, patlama, yanma, piston...) hiç ticaret yapılmamış köylü anında işsiz kalır.
+    // Gerçekten ticaret yapılmış köylü vanilla'daki gibi mesleğini korur.
     // ------------------------------------------------------------------
     private void meslekKilitle(Villager villager) {
+        meslekKilitle(villager, true);
+    }
+
+    /** isYeriKontrol: iş bloğu kaybolduysa kilitlemek yerine mesleği sıfırla. */
+    private void meslekKilitle(Villager villager, boolean isYeriKontrol) {
         Villager.Profession meslek = villager.getProfession();
         if (meslek == Villager.Profession.NONE || meslek == Villager.Profession.NITWIT) return;
-        if (ozelNpcMi(villager)) return;
+        if (ozelNpcMi(villager) || !villager.hasAI()) return; // NPC'ler (AI kapalı) meslek sisteminin dışında
+
+        if (isYeriKontrol && hicTicaretYapilmamis(villager) && !isYeriYerinde(villager)) {
+            meslegiSifirla(villager);
+            return;
+        }
         if (villager.getVillagerExperience() > 0) return; // Ticaret yapılmış ya da zaten kilitli
 
         villager.getRecipes(); // Teklifleri şimdi oluşturtup sabitliyoruz
@@ -288,27 +311,41 @@ public class TicaretManager implements Listener, CommandExecutor {
         villager.getPersistentDataContainer().set(meslekKilitKey, PersistentDataType.BYTE, (byte) 1);
     }
 
-    private void meslekKilidiAc(Villager villager) {
-        PersistentDataContainer data = villager.getPersistentDataContainer();
-        if (!data.has(meslekKilitKey, PersistentDataType.BYTE)) return;
-        data.remove(meslekKilitKey);
-        // Hiç ticaret yapılmamışsa xp'yi sıfırla ki vanilla meslek sıfırlama çalışsın
-        if (villager.getVillagerExperience() <= 1) {
-            villager.setVillagerExperience(0);
-        }
+    /** xp 0 ya da sadece bizim kilit için verdiğimiz 1 xp: oyuncu bu köylüyle hiç ticaret yapmamış. */
+    private boolean hicTicaretYapilmamis(Villager villager) {
+        int xp = villager.getVillagerExperience();
+        return xp == 0 || (xp == 1 && villager.getPersistentDataContainer().has(meslekKilitKey, PersistentDataType.BYTE));
     }
 
-    // Yeni meslek edinildiği anda kilitle (meslek tam atandıktan sonra, 1 tick sonra)
+    /** Köylünün kayıtlı iş bloğu hâlâ yerinde mi? Bloğun chunk'ı yüklü değilse yerinde sayılır (yüklenmez). */
+    private boolean isYeriYerinde(Villager villager) {
+        Location site = villager.getMemory(MemoryKey.JOB_SITE);
+        if (site == null || site.getWorld() == null) return false;
+        if (!site.getWorld().isChunkLoaded(site.getBlockX() >> 4, site.getBlockZ() >> 4)) return true;
+        return MESLEK_BLOKLARI.contains(site.getBlock().getType());
+    }
+
+    /** Hiç ticaret yapılmamış köylüyü işsiz bırakır; yakında boş iş bloğu varsa vanilla'daki gibi yeni meslek alır. */
+    private void meslegiSifirla(Villager villager) {
+        villager.getPersistentDataContainer().remove(meslekKilitKey);
+        villager.getPersistentDataContainer().remove(stokYenilemeKey);
+        villager.setVillagerExperience(0);
+        villager.setProfession(Villager.Profession.NONE);
+    }
+
+    // Yeni meslek edinildiği anda kilitle (meslek tam atandıktan sonra, 1 tick sonra).
+    // İş bloğu hafızası bu anda yeni yazıldığı için burada iş yeri kontrolü yapılmaz.
     @EventHandler(ignoreCancelled = true)
     public void onMeslekEdinme(VillagerCareerChangeEvent event) {
         if (event.getReason() != VillagerCareerChangeEvent.ChangeReason.EMPLOYED) return;
         Villager villager = event.getEntity();
         Bukkit.getScheduler().runTask(plugin, () -> {
-            if (villager.isValid()) meslekKilitle(villager);
+            if (villager.isValid()) meslekKilitle(villager, false);
         });
     }
 
     // Eklentiden önce meslek edinmiş köylüler chunk yüklenince kilitlenir
+    // (iş bloğu yokken kilitlenmez, mesleği sıfırlanır)
     @EventHandler
     public void onKoyluYuklendi(EntitiesLoadEvent event) {
         List<Villager> liste = new ArrayList<>();
@@ -323,12 +360,9 @@ public class TicaretManager implements Listener, CommandExecutor {
         });
     }
 
-    // İş bloğu (örn. kürsü) kırılınca ona bağlı köylülerin kilidi açılır
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onMeslekBloguKirildi(BlockBreakEvent event) {
-        Block block = event.getBlock();
+    // İş bloğu (örn. kürsü) yok olunca ona bağlı, hiç ticaret yapılmamış köylüler anında işsiz kalır
+    private void isBloguYokOldu(Block block) {
         if (!MESLEK_BLOKLARI.contains(block.getType())) return;
-
         Location loc = block.getLocation();
         for (Entity entity : block.getWorld().getNearbyEntities(loc, 48, 24, 48)) {
             if (!(entity instanceof Villager)) continue;
@@ -337,9 +371,31 @@ public class TicaretManager implements Listener, CommandExecutor {
             Location site = villager.getMemory(MemoryKey.JOB_SITE);
             if (site == null || site.getWorld() == null || !site.getWorld().equals(loc.getWorld())) continue;
             if (site.getBlockX() == loc.getBlockX() && site.getBlockY() == loc.getBlockY() && site.getBlockZ() == loc.getBlockZ()) {
-                meslekKilidiAc(villager);
+                if (ozelNpcMi(villager) || !villager.hasAI()) continue;
+                if (hicTicaretYapilmamis(villager)) meslegiSifirla(villager);
+                else villager.getPersistentDataContainer().remove(meslekKilitKey); // Ticaret yapılmış: vanilla gibi meslek kalır
             }
         }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onMeslekBloguKirildi(BlockBreakEvent event) {
+        isBloguYokOldu(event.getBlock());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onMeslekBloguYandi(BlockBurnEvent event) {
+        isBloguYokOldu(event.getBlock());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onMeslekBloguPatladi(EntityExplodeEvent event) {
+        for (Block b : event.blockList()) isBloguYokOldu(b);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onMeslekBloguPatladi(BlockExplodeEvent event) {
+        for (Block b : event.blockList()) isBloguYokOldu(b);
     }
 
     @EventHandler
