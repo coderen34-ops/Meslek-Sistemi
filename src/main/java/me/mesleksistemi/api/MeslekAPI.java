@@ -3,7 +3,7 @@ package me.mesleksistemi.api;
 import java.util.UUID;
 
 /**
- * Diğer eklentilerin (örn. Aile-Sistemi) MeslekSistemi ile güvenli bağlantı noktası.
+ * Diğer eklentilerin (örn. Klan-Sistemi) MeslekSistemi ile güvenli bağlantı noktası.
  * Bukkit servis sistemine kayıtlıdır:
  *   MeslekAPI api = Bukkit.getServicesManager().load(MeslekAPI.class);
  * Tüm metotlar ana thread'den çağrılmalıdır.

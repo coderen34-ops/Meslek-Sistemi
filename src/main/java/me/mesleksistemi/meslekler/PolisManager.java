@@ -767,7 +767,7 @@ public class PolisManager implements Listener, CommandExecutor {
         return true;
     }
 
-    /** Oyuncu arena savaşında mı? (Aile-Sistemi savaştakileri MeslekAPI ile sağlık sisteminden muaf tutar) */
+    /** Oyuncu arena savaşında mı? (Klan-Sistemi savaştakileri MeslekAPI ile sağlık sisteminden muaf tutar) */
     private boolean savastaMi(UUID uuid) {
         return plugin.saglikManager != null && plugin.saglikManager.muafMi(uuid);
     }
@@ -776,7 +776,7 @@ public class PolisManager implements Listener, CommandExecutor {
     public void savasBitti(UUID uuid) {
         Player p = Bukkit.getPlayer(uuid);
         if (p == null || !jailedPlayers.containsKey(uuid) || jailTasks.containsKey(uuid)) return;
-        // Aile-Sistemi oyuncuyu geri ışınladıktan sonra çalışsın
+        // Klan-Sistemi oyuncuyu geri ışınladıktan sonra çalışsın
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!p.isOnline() || !jailedPlayers.containsKey(uuid) || jailTasks.containsKey(uuid)) return;
             preJailLocations.putIfAbsent(uuid, p.getLocation());

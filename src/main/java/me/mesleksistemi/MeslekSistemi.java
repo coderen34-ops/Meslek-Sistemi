@@ -239,7 +239,7 @@ public class MeslekSistemi extends JavaPlugin {
 
         Bukkit.getScheduler().runTaskTimer(this, this::maasDagitimiYap, 36000L, 36000L);
 
-        // Diğer eklentiler (Aile-Sistemi vb.) için bağlantı noktası
+        // Diğer eklentiler (Klan-Sistemi vb.) için bağlantı noktası
         getServer().getServicesManager().register(me.mesleksistemi.api.MeslekAPI.class,
                 new me.mesleksistemi.api.MeslekAPIImpl(this), this, org.bukkit.plugin.ServicePriority.Normal);
     }
