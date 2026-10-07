@@ -2,6 +2,7 @@ package me.mesleksistemi.meslekler;
 
 import me.mesleksistemi.MeslekSistemi;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -77,12 +78,26 @@ public class PolisManager implements Listener, CommandExecutor {
     
     private final Random random = new Random();
 
+    // Hapisteyken kullanılabilecek komutlar (beyaz liste). Config: hapis.izinli_komutlar
+    private static final String IZINLI_KOMUTLAR_YOLU = "hapis.izinli_komutlar";
+    private static final List<String> VARSAYILAN_IZINLI_KOMUTLAR = Arrays.asList(
+            "msg", "tell", "w", "r", "reply", "m",
+            "yasalar", "rehber",
+            "avukatkabul", "avukatred",
+            "kira", "kirasozlesme");
+
     public PolisManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         this.copKey = new NamespacedKey(plugin, "polis_copu");
         this.modKey = new NamespacedKey(plugin, "cop_modu");
         this.sikayetNpcKey = new NamespacedKey(plugin, "sikayet_npc");
         this.davaDosyasiKey = new NamespacedKey(plugin, "dava_hedefi");
+
+        // Liste config'de görünsün ki yöneticiler düzenleyebilsin
+        if (!plugin.getConfig().contains(IZINLI_KOMUTLAR_YOLU)) {
+            plugin.getConfig().set(IZINLI_KOMUTLAR_YOLU, VARSAYILAN_IZINLI_KOMUTLAR);
+            plugin.saveConfig();
+        }
     }
 
     @Override
@@ -643,21 +658,32 @@ public class PolisManager implements Listener, CommandExecutor {
         }
     }
 
-    @EventHandler
+    // Hapisteyken sadece beyaz listedeki komutlar çalışır. "/essentials:home" gibi
+    // eklenti önekli yazımlar da öneki atılarak kontrol edilir.
+    @EventHandler(ignoreCancelled = true)
     public void onCommandPreprocess(PlayerCommandPreprocessEvent event) {
-        if (jailedPlayers.containsKey(event.getPlayer().getUniqueId())) {
-            String msg = event.getMessage().toLowerCase();
-            if (msg.startsWith("/tp") || msg.startsWith("/spawn") || msg.startsWith("/home") || msg.startsWith("/warp") || msg.startsWith("/tpa") || msg.startsWith("/meslekata") || msg.startsWith("/istifa")) {
-                event.setCancelled(true);
-                event.getPlayer().sendMessage(ChatColor.RED + "Hapisteyken bu komutları kullanamazsınız!");
-            }
+        Player player = event.getPlayer();
+        if (!jailedPlayers.containsKey(player.getUniqueId())) return;
+        if (player.hasPermission("polis.admin")) return;
+
+        String komut = event.getMessage().substring(1).trim().split("\\s+")[0].toLowerCase();
+        int onekSonu = komut.lastIndexOf(':');
+        if (onekSonu >= 0) komut = komut.substring(onekSonu + 1);
+
+        List<String> izinli = plugin.getConfig().getStringList(IZINLI_KOMUTLAR_YOLU);
+        for (String izin : izinli) {
+            if (izin.equalsIgnoreCase(komut)) return;
         }
+
+        event.setCancelled(true);
+        player.sendMessage(ChatColor.RED + "Hapisteyken bu komutu kullanamazsınız!");
+        player.sendMessage(ChatColor.GRAY + "Kullanabileceğiniz komutlar: /" + String.join(", /", izinli));
     }
     
     @EventHandler
     public void onTeleport(PlayerTeleportEvent event) {
         if (jailedPlayers.containsKey(event.getPlayer().getUniqueId())) {
-            if (event.getCause() == TeleportCause.ENDER_PEARL || event.getCause() == TeleportCause.CHORUS_FRUIT) {
+            if (event.getCause() == TeleportCause.ENDER_PEARL || event.getCause() == TeleportCause.CONSUMABLE_EFFECT) {
                 event.setCancelled(true);
                 event.getPlayer().sendMessage(ChatColor.RED + "Hapisten bu şekilde kaçamazsınız!");
             }
