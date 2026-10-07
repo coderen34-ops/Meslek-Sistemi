@@ -62,6 +62,11 @@ public class MeslekAPIImpl implements MeslekAPI {
     }
 
     @Override
+    public boolean agirYaraliMi(UUID oyuncu) {
+        return plugin.saglikManager != null && plugin.saglikManager.agirYaraliMi(oyuncu);
+    }
+
+    @Override
     public boolean saglikMuafMi(UUID oyuncu) {
         return plugin.saglikManager != null && plugin.saglikManager.muafMi(oyuncu);
     }

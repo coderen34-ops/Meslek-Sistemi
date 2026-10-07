@@ -83,6 +83,10 @@ public class SaglikManager implements Listener, CommandExecutor {
         return muafOyuncular.contains(oyuncu);
     }
 
+    public boolean agirYaraliMi(UUID oyuncu) {
+        return downedPlayers.containsKey(oyuncu);
+    }
+
     // Ağır yaralıyken kullanılamayan ışınlanma komutları
     private static final Set<String> YARALIYKEN_YASAK_KOMUTLAR = Set.of(
             "tpa", "call", "tpaccept", "tpdeny", "tpahere", "warp", "spawn", "home");

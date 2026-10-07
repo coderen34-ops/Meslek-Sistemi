@@ -32,4 +32,7 @@ public interface MeslekAPI {
     void saglikMuafiyeti(UUID oyuncu, boolean muaf);
 
     boolean saglikMuafMi(UUID oyuncu);
+
+    /** Oyuncu şu an ağır yaralı (baygın, doktor bekliyor) mı? Ölümcül vuruş alan oyuncu ölmez, bu duruma düşer. */
+    boolean agirYaraliMi(UUID oyuncu);
 }
