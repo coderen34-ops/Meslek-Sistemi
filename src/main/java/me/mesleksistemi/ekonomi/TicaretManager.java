@@ -287,8 +287,8 @@ public class TicaretManager implements Listener, CommandExecutor {
     // kaybederse mesleğini sıfırlar ve yeni meslekle yeni teklifler çıkar.
     // Köylüye mesleği aldığı anda 1 xp vererek bu sıfırlanmayı engelliyoruz (iş bloğu
     // yerindeyken teklifler sabit kalır). İş bloğu herhangi bir şekilde yok olursa
-    // (kırma, patlama, yanma, piston...) hiç ticaret yapılmamış köylü anında işsiz kalır.
-    // Gerçekten ticaret yapılmış köylü vanilla'daki gibi mesleğini korur.
+    // (kırma, patlama, yanma...) köylü, ticaret yapılmış olsa bile anında işsiz kalır
+    // (vanilla'dan farklı: ticaret yapılmış köylü de mesleğini, seviyesini ve tekliflerini kaybeder).
     // ------------------------------------------------------------------
     private void meslekKilitle(Villager villager) {
         meslekKilitle(villager, true);
@@ -300,7 +300,7 @@ public class TicaretManager implements Listener, CommandExecutor {
         if (meslek == Villager.Profession.NONE || meslek == Villager.Profession.NITWIT) return;
         if (ozelNpcMi(villager) || !villager.hasAI()) return; // NPC'ler (AI kapalı) meslek sisteminin dışında
 
-        if (isYeriKontrol && hicTicaretYapilmamis(villager) && !isYeriYerinde(villager)) {
+        if (isYeriKontrol && !isYeriYerinde(villager)) {
             meslegiSifirla(villager);
             return;
         }
@@ -311,12 +311,6 @@ public class TicaretManager implements Listener, CommandExecutor {
         villager.getPersistentDataContainer().set(meslekKilitKey, PersistentDataType.BYTE, (byte) 1);
     }
 
-    /** xp 0 ya da sadece bizim kilit için verdiğimiz 1 xp: oyuncu bu köylüyle hiç ticaret yapmamış. */
-    private boolean hicTicaretYapilmamis(Villager villager) {
-        int xp = villager.getVillagerExperience();
-        return xp == 0 || (xp == 1 && villager.getPersistentDataContainer().has(meslekKilitKey, PersistentDataType.BYTE));
-    }
-
     /** Köylünün kayıtlı iş bloğu hâlâ yerinde mi? Bloğun chunk'ı yüklü değilse yerinde sayılır (yüklenmez). */
     private boolean isYeriYerinde(Villager villager) {
         Location site = villager.getMemory(MemoryKey.JOB_SITE);
@@ -325,11 +319,13 @@ public class TicaretManager implements Listener, CommandExecutor {
         return MESLEK_BLOKLARI.contains(site.getBlock().getType());
     }
 
-    /** Hiç ticaret yapılmamış köylüyü işsiz bırakır; yakında boş iş bloğu varsa vanilla'daki gibi yeni meslek alır. */
+    /** Köylüyü işsiz bırakır (seviye ve teklifler dahil); yakında boş iş bloğu varsa vanilla'daki gibi yeni meslek alır. */
     private void meslegiSifirla(Villager villager) {
         villager.getPersistentDataContainer().remove(meslekKilitKey);
         villager.getPersistentDataContainer().remove(stokYenilemeKey);
+        villager.setRecipes(new ArrayList<>());
         villager.setVillagerExperience(0);
+        villager.setVillagerLevel(1);
         villager.setProfession(Villager.Profession.NONE);
     }
 
@@ -360,7 +356,7 @@ public class TicaretManager implements Listener, CommandExecutor {
         });
     }
 
-    // İş bloğu (örn. kürsü) yok olunca ona bağlı, hiç ticaret yapılmamış köylüler anında işsiz kalır
+    // İş bloğu (örn. kürsü) yok olunca ona bağlı köylüler (ticaret yapılmış olsa bile) anında işsiz kalır
     private void isBloguYokOldu(Block block) {
         if (!MESLEK_BLOKLARI.contains(block.getType())) return;
         Location loc = block.getLocation();
@@ -372,8 +368,7 @@ public class TicaretManager implements Listener, CommandExecutor {
             if (site == null || site.getWorld() == null || !site.getWorld().equals(loc.getWorld())) continue;
             if (site.getBlockX() == loc.getBlockX() && site.getBlockY() == loc.getBlockY() && site.getBlockZ() == loc.getBlockZ()) {
                 if (ozelNpcMi(villager) || !villager.hasAI()) continue;
-                if (hicTicaretYapilmamis(villager)) meslegiSifirla(villager);
-                else villager.getPersistentDataContainer().remove(meslekKilitKey); // Ticaret yapılmış: vanilla gibi meslek kalır
+                meslegiSifirla(villager);
             }
         }
     }
