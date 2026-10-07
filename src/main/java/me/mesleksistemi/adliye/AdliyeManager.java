@@ -89,6 +89,12 @@ public class AdliyeManager {
         for (String isim : taraflar) {
             if (isim != null) {
                 Player p = Bukkit.getPlayerExact(isim);
+                // Arena savaşındaki taraf (sağlık muafiyetli) savaşın ortasından salona çekilmez
+                if (p != null && plugin.saglikManager != null && plugin.saglikManager.muafMi(p.getUniqueId())) {
+                    if (hakim != null) hakim.sendMessage(ChatColor.YELLOW + isim + " şu an bir aile savaşında, duruşma salonuna getirilemedi.");
+                    p.sendMessage(ChatColor.YELLOW + "[Adliye] Davanızın duruşması başladı ancak savaşta olduğunuz için salona çekilmediniz.");
+                    continue;
+                }
                 if (p != null && p.isOnline()) {
                     p.teleport(mahkemeSalonu);
                     durusmadakiOyuncular.add(p.getUniqueId());

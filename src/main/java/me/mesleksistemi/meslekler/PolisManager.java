@@ -621,6 +621,8 @@ public class PolisManager implements Listener, CommandExecutor {
             if (isCop(item)) {
                 String meslek = plugin.oyuncuMeslekCache.getOrDefault(copPlayer.getUniqueId(), "vatandas");
                 if (!meslek.equalsIgnoreCase("polis")) return; 
+                // Arena savaşındaki oyuncular (sağlık muafiyetli) copla hapse atılmaz; vuruş normal hasar sayılır
+                if (savastaMi(targetPlayer.getUniqueId()) || savastaMi(copPlayer.getUniqueId())) return;
                 event.setCancelled(true); 
                 
                 if (jailCells.isEmpty()) { copPlayer.sendMessage(ChatColor.RED + "Hiç hücre ayarlanmamış!"); return; }
@@ -742,10 +744,14 @@ public class PolisManager implements Listener, CommandExecutor {
         }
 
         Player online = Bukkit.getPlayer(uuid);
-        if (online != null) {
+        if (online != null && !savastaMi(uuid)) {
             preJailLocations.put(uuid, online.getLocation());
             jailPlayer(online, saniye);
         } else {
+            // Çevrimdışı ya da arena savaşında: ceza kaydedilir, hücreye alma girişte / savaş bitince yapılır
+            if (online != null) {
+                online.sendMessage(ChatColor.DARK_RED + "Hapis cezası aldınız! Savaşınız bitince hücreye alınacaksınız.");
+            }
             String eskiMeslek = plugin.oyuncuMeslekCache.getOrDefault(uuid, "vatandas");
             if (!eskiMeslek.equalsIgnoreCase("mahkum")) preJailRoles.put(uuid, eskiMeslek);
             jailedPlayers.put(uuid, saniye);
@@ -759,6 +765,26 @@ public class PolisManager implements Listener, CommandExecutor {
         }
         plugin.veriKaydet();
         return true;
+    }
+
+    /** Oyuncu arena savaşında mı? (Aile-Sistemi savaştakileri MeslekAPI ile sağlık sisteminden muaf tutar) */
+    private boolean savastaMi(UUID uuid) {
+        return plugin.saglikManager != null && plugin.saglikManager.muafMi(uuid);
+    }
+
+    /** Savaşı biten oyuncu savaş sırasında hapis cezası aldıysa hücreye alınır ve süresi başlar. */
+    public void savasBitti(UUID uuid) {
+        Player p = Bukkit.getPlayer(uuid);
+        if (p == null || !jailedPlayers.containsKey(uuid) || jailTasks.containsKey(uuid)) return;
+        // Aile-Sistemi oyuncuyu geri ışınladıktan sonra çalışsın
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!p.isOnline() || !jailedPlayers.containsKey(uuid) || jailTasks.containsKey(uuid)) return;
+            preJailLocations.putIfAbsent(uuid, p.getLocation());
+            Location cell = getBestCell();
+            if (cell != null) p.teleport(cell);
+            startJailTimer(p, jailedPlayers.get(uuid));
+            p.sendMessage(ChatColor.DARK_RED + "Savaşınız bitti, hapis cezanız başladı! Kalan süre: " + Math.max(1, jailedPlayers.get(uuid) / 60) + " dakika.");
+        }, 2L);
     }
 
     // Hapisteki oyuncuyu hücresine geri gönderir (örn. duruşma bittikten sonra)

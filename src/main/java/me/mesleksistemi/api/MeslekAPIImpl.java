@@ -57,6 +57,8 @@ public class MeslekAPIImpl implements MeslekAPI {
     @Override
     public void saglikMuafiyeti(UUID oyuncu, boolean muaf) {
         if (plugin.saglikManager != null) plugin.saglikManager.muafiyetAyarla(oyuncu, muaf);
+        // Savaş sırasında hapis cezası aldıysa muafiyet bitince hücreye alınır
+        if (!muaf && plugin.polisManager != null) plugin.polisManager.savasBitti(oyuncu);
     }
 
     @Override

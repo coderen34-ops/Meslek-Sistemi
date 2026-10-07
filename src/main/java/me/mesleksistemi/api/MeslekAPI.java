@@ -27,6 +27,7 @@ public interface MeslekAPI {
     /**
      * Sağlık sisteminden muafiyet (kanama, kırık, ağır yaralı durumu uygulanmaz; oyuncu normal ölür).
      * Örn. arena savaşındaki oyuncular için. Sunucu yeniden başlayınca sıfırlanır.
+     * Muaf oyuncu polis copuyla hapse atılmaz, duruşmaya çekilmez; aldığı hapis cezası muafiyet kalkınca başlar.
      */
     void saglikMuafiyeti(UUID oyuncu, boolean muaf);
 
