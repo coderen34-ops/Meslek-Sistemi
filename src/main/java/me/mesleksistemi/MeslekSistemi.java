@@ -1,0 +1,542 @@
+package me.mesleksistemi;
+
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.block.Chest;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.BookMeta;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.*;
+
+// YENİ: Adliye paketindeki dosyalarımızı çağırıyoruz
+import me.mesleksistemi.adliye.AdliyeManager;
+import me.mesleksistemi.adliye.AdliyeCommands;
+import me.mesleksistemi.adliye.AdliyeListener;
+import me.mesleksistemi.meslekler.PolisManager;
+import me.mesleksistemi.meslekler.SaglikManager;
+import me.mesleksistemi.ekonomi.KiraManager;
+import me.mesleksistemi.ekonomi.ToptanciManager;
+import me.mesleksistemi.ekonomi.TicaretManager;
+import me.mesleksistemi.sistem.EhliyetManager;
+import me.mesleksistemi.sistem.KimlikListener;
+import me.mesleksistemi.sistem.MenuManager;
+import me.mesleksistemi.sistem.MeslekListener;
+import me.mesleksistemi.sistem.SecimManager;
+import me.mesleksistemi.sistem.SozlesmeManager;
+
+public class MeslekSistemi extends JavaPlugin {
+
+    public NamespacedKey economyValueKey, npcKey, bankaNpcKey, nufusNpcKey, tapuNpcKey, kimlikIdKey;
+    public Location kasaKonumu = null, kursuKonumu = null, yasaKursuKonumu = null; 
+    
+    public HashMap<UUID, String> basvuruBekleyenler = new HashMap<>();
+    public HashMap<UUID, Basvuru> aktifBasvurular = new HashMap<>();
+    public HashMap<UUID, String> bankaIslemBekleyenler = new HashMap<>();
+    public HashMap<UUID, Integer> kimlikAsama = new HashMap<>();
+    public HashMap<UUID, GeciciKimlik> geciciKimlikler = new HashMap<>();
+    public HashMap<String, Double> meslekFiyatlari = new HashMap<>();
+    public HashMap<String, String> meslekGorunumAdlari = new HashMap<>();
+    public HashMap<String, Double> maasMiktarlari = new HashMap<>();
+    public HashMap<UUID, Double> bankaHesaplari = new HashMap<>();
+    public HashMap<UUID, Long> sonHareketZamani = new HashMap<>();
+    public HashMap<UUID, String> oyuncuMeslekCache = new HashMap<>(); 
+    
+    // TAPU VE EHLİYET VERİLERİ
+    public HashSet<UUID> tapuSahipleri = new HashSet<>();
+    public HashMap<UUID, String> tapuIslemBekleyenler = new HashMap<>();
+    public double ilkTapuBlokFiyati = 300.0;
+    public double genisletmeBlokFiyati = 1000.0;
+    
+    public HashSet<UUID> elytraEhliyetleri = new HashSet<>();
+    public double ehliyetFiyati = 50000.0; 
+
+    public boolean ohalAktif = false;
+    public BossBar ohalBar;
+    public boolean maaslarAcik = true;
+    public ItemStack yasaKitabi = null;
+    
+    public long sonOhalBitisZamani = 0L;
+
+    private MenuManager menuManager;
+    
+    // ENTEGRE YÖNETİCİLER (MANAGERS)
+    public PolisManager polisManager;
+    public AdliyeManager adliyeManager;
+    public EhliyetManager ehliyetManager;
+    
+    // YENİ ENTEGRE YÖNETİCİLER (Erişilebilir yapıldı)
+    public SaglikManager saglikManager;
+    public TicaretManager ticaretManager;
+    public ToptanciManager toptanciManager;
+    public KiraManager kiraManager;
+
+    @Override
+    public void onEnable() {
+        if (Bukkit.getPluginManager().getPlugin("Economy") != null) {
+            this.economyValueKey = new NamespacedKey(Bukkit.getPluginManager().getPlugin("Economy"), "value");
+        } else {
+            this.economyValueKey = new NamespacedKey(this, "value"); 
+        }
+        this.npcKey = new NamespacedKey(this, "meslek_npc");
+        this.bankaNpcKey = new NamespacedKey(this, "banka_npc");
+        this.nufusNpcKey = new NamespacedKey(this, "nufus_npc");
+        this.tapuNpcKey = new NamespacedKey(this, "tapu_npc");
+        this.kimlikIdKey = new NamespacedKey(this, "kimlik_no");
+
+        // MESLEK FİYATLARI
+        meslekFiyatlari.put("madenci", 300.0); meslekFiyatlari.put("doktor", 950.0);
+        meslekFiyatlari.put("avukat", 300.0); meslekFiyatlari.put("polis", 600.0); 
+        meslekFiyatlari.put("taseron", 150.0); meslekFiyatlari.put("hakim", 600.0); 
+        meslekFiyatlari.put("belediyecalisani", 200.0); meslekFiyatlari.put("oduncu", 250.0);
+
+        // MESLEK GÖRÜNÜM ADLARI
+        meslekGorunumAdlari.put("madenci", "Madenci"); meslekGorunumAdlari.put("doktor", "Doktor");
+        meslekGorunumAdlari.put("avukat", "Avukat"); meslekGorunumAdlari.put("polis", "Polis"); 
+        meslekGorunumAdlari.put("taseron", "Taseron"); meslekGorunumAdlari.put("hakim", "Hakim"); 
+        meslekGorunumAdlari.put("belediyecalisani", "Belediye Calisani");
+        meslekGorunumAdlari.put("belediyebaskani", "Belediye Baskani"); 
+        meslekGorunumAdlari.put("mahkum", "Mahkum"); meslekGorunumAdlari.put("oduncu", "Oduncu");
+        
+        // MAAŞ MİKTARLARI
+        maasMiktarlari.put("vatandas", 50.0); maasMiktarlari.put("taseron", 80.0);
+        maasMiktarlari.put("madenci", 100.0); maasMiktarlari.put("avukat", 150.0);
+        maasMiktarlari.put("belediyecalisani", 150.0); maasMiktarlari.put("polis", 250.0); 
+        maasMiktarlari.put("doktor", 300.0); maasMiktarlari.put("hakim", 400.0); 
+        maasMiktarlari.put("belediyebaskani", 500.0); maasMiktarlari.put("oduncu", 100.0);
+
+        ohalBar = Bukkit.createBossBar(
+            ChatColor.DARK_RED + "" + ChatColor.BOLD + "DİKKAT: SOKAĞA ÇIKMA YASAĞI AKTİFTİR - HERKES EVLERİNE DÖNSÜN!", 
+            BarColor.RED, 
+            BarStyle.SOLID
+        );
+        
+        this.menuManager = new MenuManager(this);
+        getServer().getPluginManager().registerEvents(this.menuManager, this);
+        getServer().getPluginManager().registerEvents(new KimlikListener(this), this);
+        getServer().getPluginManager().registerEvents(new MeslekListener(this), this);
+
+        // ENTEGRASYON 1: Sözleşme
+        SozlesmeManager sozlesmeManager = new SozlesmeManager(this);
+        getServer().getPluginManager().registerEvents(sozlesmeManager, this);
+        if (getCommand("sozlesmeolustur") != null) getCommand("sozlesmeolustur").setExecutor(sozlesmeManager);
+        if (getCommand("belediyesozlesmesi") != null) getCommand("belediyesozlesmesi").setExecutor(sozlesmeManager);
+        if (getCommand("sozlesmekabul") != null) getCommand("sozlesmekabul").setExecutor(sozlesmeManager);
+        if (getCommand("sozlesmereddet") != null) getCommand("sozlesmereddet").setExecutor(sozlesmeManager);
+        if (getCommand("sozlesmebitir") != null) getCommand("sozlesmebitir").setExecutor(sozlesmeManager);
+        if (getCommand("sozlesmeonayla") != null) getCommand("sozlesmeonayla").setExecutor(sozlesmeManager);
+
+        // ENTEGRASYON 2: Seçim
+        SecimManager secimManager = new SecimManager(this);
+        getServer().getPluginManager().registerEvents(secimManager, this);
+        if (getCommand("secimoylama") != null) getCommand("secimoylama").setExecutor(secimManager);
+        if (getCommand("adayol") != null) getCommand("adayol").setExecutor(secimManager);
+        if (getCommand("pusulaal") != null) getCommand("pusulaal").setExecutor(secimManager);
+        if (getCommand("secim") != null) getCommand("secim").setExecutor(secimManager);
+
+        // ENTEGRASYON 3: PolisManager
+        this.polisManager = new PolisManager(this);
+        getServer().getPluginManager().registerEvents(this.polisManager, this);
+        String[] polisCmds = {"hucreolustur", "hucresil", "copal", "serbestbirak", "amirkursu", "sikayetnpc", "sikayetkarar"};
+        for (String c : polisCmds) {
+            if (getCommand(c) != null) getCommand(c).setExecutor(this.polisManager);
+        }
+
+        // ENTEGRASYON 4: AdliyeManager (BÖLÜNMÜŞ HALİYLE KAYDEDİLİYOR)
+        this.adliyeManager = new AdliyeManager(this);
+        getServer().getPluginManager().registerEvents(new AdliyeListener(this, this.adliyeManager), this);
+        
+        AdliyeCommands adliyeCommandsExecutor = new AdliyeCommands(this, this.adliyeManager);
+        String[] adliyeCmds = {"adliyenpc", "mahkemeayarla", "avukatkabul", "avukatred"}; 
+        for (String c : adliyeCmds) {
+            if (getCommand(c) != null) getCommand(c).setExecutor(adliyeCommandsExecutor);
+        }
+
+        // ENTEGRASYON 5: EhliyetManager
+        this.ehliyetManager = new EhliyetManager(this);
+        getServer().getPluginManager().registerEvents(this.ehliyetManager, this);
+        if (getCommand("ehliyetnpc") != null) getCommand("ehliyetnpc").setExecutor(this.ehliyetManager);
+
+        // YENİ ENTEGRASYON 6: TicaretManager (Orijinal oyuncu takas pazarı & Sadakat Sistemi)
+        this.ticaretManager = new TicaretManager(this);
+        getServer().getPluginManager().registerEvents(this.ticaretManager, this);
+        if (getCommand("indirim") != null) getCommand("indirim").setExecutor(this.ticaretManager);
+
+        // YENİ ENTEGRASYON 7: SaglikManager (Kanama, Kırık, Hastane ve Ambulans)
+        this.saglikManager = new SaglikManager(this);
+        getServer().getPluginManager().registerEvents(this.saglikManager, this);
+        if (getCommand("doktormarket") != null) getCommand("doktormarket").setExecutor(this.saglikManager);
+        if (getCommand("hastanenpc") != null) getCommand("hastanenpc").setExecutor(this.saglikManager);
+        if (getCommand("ambulanscagir") != null) getCommand("ambulanscagir").setExecutor(this.saglikManager);
+        if (getCommand("ambulanskabul") != null) getCommand("ambulanskabul").setExecutor(this.saglikManager);
+        if (getCommand("hastaneyatak") != null) getCommand("hastaneyatak").setExecutor(this.saglikManager);
+
+        // YENİ ENTEGRASYON 8: ToptanciManager (Madenci ve Oduncu Pazarı Sistemi)
+        this.toptanciManager = new ToptanciManager(this);
+        getServer().getPluginManager().registerEvents(this.toptanciManager, this);
+        if (getCommand("madencinpc") != null) getCommand("madencinpc").setExecutor(this.toptanciManager);
+        if (getCommand("oduncunpc") != null) getCommand("oduncunpc").setExecutor(this.toptanciManager);
+
+        // ENTEGRASYON 9: KiraManager (Kiralık Evler & GriefPrevention3D Trust)
+        this.kiraManager = new KiraManager(this);
+        getServer().getPluginManager().registerEvents(this.kiraManager, this);
+        if (getCommand("kirakur") != null) getCommand("kirakur").setExecutor(this.kiraManager);
+        if (getCommand("kiranpc") != null) getCommand("kiranpc").setExecutor(this.kiraManager);
+        if (getCommand("kiraver") != null) getCommand("kiraver").setExecutor(this.kiraManager);
+        if (getCommand("kirasil") != null) getCommand("kirasil").setExecutor(this.kiraManager);
+        getServer().getPluginManager().registerEvents(this.kiraManager.sozlesmeManager, this);
+        if (getCommand("kirasozlesme") != null) getCommand("kirasozlesme").setExecutor(this.kiraManager.sozlesmeManager);
+        if (getCommand("kira") != null) getCommand("kira").setExecutor(this.kiraManager.sozlesmeManager);
+
+        veriYukle();
+
+        Commands cmdExecutor = new Commands(this);
+        String[] cmds = {
+            "meslekata", "primver", "kasaayarla", "kursuayarla", "mesleknpc", "bankanpc", 
+            "nufusnpc", "tapunpc", "kimlikbiyomsec", "meslekler", "basvurular", 
+            "basvurucevapla", "tapumenusu", "ohal", "maaslar", "yasayayinla", "yasakursuayarla", "yasalar", "rehber"
+        };
+        for (String c : cmds) {
+            if (getCommand(c) != null) getCommand(c).setExecutor(cmdExecutor);
+        }
+
+        Bukkit.getScheduler().runTaskTimer(this, this::maasDagitimiYap, 36000L, 36000L);
+    }
+
+    @Override
+    public void onDisable() { 
+        if (ohalBar != null) ohalBar.removeAll();
+        
+        // YENİ: Kapanırken hastalıkları ve stokları kalıcı olarak kaydeder
+        if (this.saglikManager != null) this.saglikManager.veriKaydetSaglik();
+        if (this.toptanciManager != null) this.toptanciManager.veriKaydetStok();
+        
+        veriKaydet(); 
+    }
+    
+    public MenuManager getMenuManager() { return this.menuManager; }
+
+    public ItemStack getRehberKitabi() {
+        ItemStack book = new ItemStack(Material.WRITTEN_BOOK);
+        BookMeta meta = (BookMeta) book.getItemMeta();
+        meta.setTitle(ChatColor.GOLD + "Şehir Rehberi");
+        meta.setAuthor(ChatColor.DARK_RED + "Devlet Yönetimi");
+        
+        meta.addPage(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "HOŞ GELDİNİZ\n\n" +
+                ChatColor.BLACK + "Şehrimize adım attınız! Yasal bir vatandaş olmak için öncelikle Nüfus Müdürlüğü'nden kimliğinizi çıkartmalısınız.\n\n" +
+                ChatColor.DARK_RED + "Unutmayın: " + ChatColor.BLACK + "Göçmen statüsündeyken arsa alamaz veya meslek sahibi olamazsınız.");
+                
+        meta.addPage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "ÖNEMLİ KOMUTLAR\n\n" +
+                ChatColor.DARK_RED + "/yasalar\n" + ChatColor.BLACK + "Şehrin güncel kurallarını öğrenmenizi sağlar.\n\n" +
+                ChatColor.DARK_RED + "/rehber\n" + ChatColor.BLACK + "Bu kitabı kaybederseniz tekrar almanızı sağlar.\n\n" +
+                ChatColor.DARK_RED + "/sozlesmeolustur\n" + ChatColor.BLACK + "Güvenli ticaret için kontrat yapmanızı sağlar.");
+                
+        meta.addPage(ChatColor.DARK_AQUA + ChatColor.BOLD.toString() + "EKONOMİ & ARSA\n\n" +
+                ChatColor.BLACK + "Fiziksel paranızı bankaya yatırarak güvende tutabilir ve meslek maaşınızı alabilirsiniz.\n\n" +
+                "İlk arsanızı Tapu Dairesi'nden alarak mülk sahibi olabilirsiniz.");
+
+        meta.addPage(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "BELEDİYE BAŞKANI\n\n" +
+                ChatColor.BLACK + "Şehrin yöneticisidir.\n\n" +
+                ChatColor.DARK_BLUE + "Yetkileri:\n" +
+                ChatColor.BLACK + "• Yasa Kürsüsü'ne anayasa koyabilir.\n" +
+                "• Sokağa çıkma yasağı (OHAL) ilan edebilir.\n" +
+                "• Tasarruf için memur maaşlarını dondurabilir.");
+
+        meta.addPage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "MEMURLAR\n\n" +
+                ChatColor.DARK_BLUE + "POLİS: " + ChatColor.BLACK + "Yasa Kürsüsündeki kuralları uygular. OHAL ihlalinde tutuklama yetkisine sahiptir.\n\n" +
+                ChatColor.DARK_RED + "DOKTOR: " + ChatColor.BLACK + "Şehirdeki yaralıları ve hastaları tedavi eder. Sağlık sisteminden sorumludur.");
+
+        meta.addPage(ChatColor.DARK_PURPLE + ChatColor.BOLD.toString() + "İLETİŞİM\n\n" +
+                ChatColor.BLACK + "Topluluğumuza katılmak, şikayet bildirmek veya yetkili başvurusu yapmak için Discord sunucumuza gelmeyi unutmayın!\n\n" +
+                ChatColor.BLUE + "https://discord.gg/invite/9GdXJ9q");
+
+        book.setItemMeta(meta);
+        return book;
+    }
+
+    public void mergeKasaMoney(Chest kasa) {
+        double toplamPara = 0.0;
+        Inventory inv = kasa.getInventory();
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            Double itemValue = getMoneyValue(item);
+            if (itemValue != null) {
+                toplamPara += (itemValue * item.getAmount());
+                inv.setItem(i, null);
+            }
+        }
+        if (toplamPara > 0) {
+            toplamPara = Math.round(toplamPara * 100.0) / 100.0;
+            inv.addItem(createEconomyNote(toplamPara));
+        }
+    }
+
+    public boolean processPaymentToKasa(Player player, double price) {
+        PlayerInventory inventory = player.getInventory();
+        double totalMoney = 0.0;
+        List<Integer> moneySlots = new ArrayList<>();
+        for (int i = 0; i < inventory.getSize(); i++) {
+            ItemStack item = inventory.getItem(i);
+            Double itemValue = getMoneyValue(item);
+            if (itemValue != null) { totalMoney += (itemValue * item.getAmount()); moneySlots.add(i); }
+        }
+        if (totalMoney < price) { player.sendMessage(ChatColor.RED + "Yeterli fiziksel paran yok! Gereken: $" + price); return false; }
+        for (int slot : moneySlots) { inventory.setItem(slot, null); }
+        double remaining = Math.round((totalMoney - price) * 100.0) / 100.0;
+        if (remaining > 0) { inventory.addItem(createEconomyNote(remaining)); }
+        
+        if(kasaKonumu != null && kasaKonumu.getBlock().getState() instanceof Chest) {
+            Chest kasa = (Chest) kasaKonumu.getBlock().getState();
+            kasa.getInventory().addItem(createEconomyNote(price));
+            mergeKasaMoney(kasa); 
+        }
+
+        player.updateInventory();
+        return true;
+    }
+
+    public boolean processBankDeposit(Player player, double amount) {
+        PlayerInventory inventory = player.getInventory();
+        double totalMoney = 0.0;
+        List<Integer> moneySlots = new ArrayList<>();
+        for (int i = 0; i < inventory.getSize(); i++) {
+            ItemStack item = inventory.getItem(i);
+            Double itemValue = getMoneyValue(item);
+            if (itemValue != null) { totalMoney += (itemValue * item.getAmount()); moneySlots.add(i); }
+        }
+        if (totalMoney < amount) {
+            player.sendMessage(ChatColor.RED + "Uzerinizde yeterli fiziksel para yok!"); return false;
+        }
+        for (int slot : moneySlots) { inventory.setItem(slot, null); }
+        double remaining = Math.round((totalMoney - amount) * 100.0) / 100.0;
+        if (remaining > 0) { inventory.addItem(createEconomyNote(remaining)); }
+        player.updateInventory();
+        return true;
+    }
+
+    public Double getMoneyValue(ItemStack item) {
+        if (item == null || item.getType() != Material.PAPER || !item.hasItemMeta()) return null;
+        PersistentDataContainer data = item.getItemMeta().getPersistentDataContainer();
+        if (economyValueKey != null && data.has(economyValueKey, PersistentDataType.DOUBLE)) { return data.get(economyValueKey, PersistentDataType.DOUBLE); }
+        return null;
+    }
+
+    public ItemStack createEconomyNote(double amount) {
+        ItemStack note = new ItemStack(Material.PAPER); ItemMeta meta = note.getItemMeta();
+        String formatted = amount == Math.floor(amount) ? String.valueOf((long) amount) : String.valueOf(amount);
+        meta.setDisplayName(ChatColor.GREEN + "" + ChatColor.BOLD + "$" + formatted);
+        meta.setLore(Collections.singletonList(ChatColor.GRAY + "Paper money"));
+        meta.getPersistentDataContainer().set(economyValueKey, PersistentDataType.DOUBLE, amount);
+        note.setItemMeta(meta); return note;
+    }
+
+    public Material getBlockMaterial(Material ingot) {
+        switch (ingot) {
+            case DIAMOND: return Material.DIAMOND_BLOCK; case EMERALD: return Material.EMERALD_BLOCK;
+            case GOLD_INGOT: return Material.GOLD_BLOCK; case IRON_INGOT: return Material.IRON_BLOCK;
+            default: return null;
+        }
+    }
+
+    public int getChestStock(Inventory inv, Material base, Material block) {
+        int total = 0;
+        for (ItemStack item : inv.getContents()) {
+            if (item != null) {
+                if (item.getType() == base) total += item.getAmount();
+                else if (item.getType() == block) total += (item.getAmount() * 9);
+            }
+        }
+        return total;
+    }
+
+    public void setChestStock(Inventory inv, Material base, Material block, int totalAmount) {
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            if (item != null && (item.getType() == base || item.getType() == block)) inv.setItem(i, null);
+        }
+        if (totalAmount <= 0) return;
+        int newBlocks = totalAmount / 9; int newBases = totalAmount % 9;
+        if (newBlocks > 0) inv.addItem(new ItemStack(block, newBlocks));
+        if (newBases > 0) inv.addItem(new ItemStack(base, newBases));
+    }
+
+    public void removeItemFromInventory(Inventory inv, Material mat, int amount) {
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            if (item != null && item.getType() == mat) {
+                if (item.getAmount() > amount) { item.setAmount(item.getAmount() - amount); break; } 
+                else if (item.getAmount() == amount) { inv.setItem(i, null); break; } 
+                else { amount -= item.getAmount(); inv.setItem(i, null); }
+            }
+        }
+    }
+
+    private void maasDagitimiYap() {
+        if (!maaslarAcik) {
+            Bukkit.broadcastMessage("");
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Belediye Başkanlığı] " + ChatColor.RED + "Şehrimizdeki tasarruf tedbirleri kapsamında memur maaş ödemeleri geçici bir süreliğine ASKIYA ALINMIŞTIR.");
+            Bukkit.broadcastMessage("");
+            return;
+        }
+
+        if (kasaKonumu == null || !(kasaKonumu.getBlock().getState() instanceof Chest)) {
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Belediye] SISTEM HATASI: Belediye Kasasi bulunamadigi icin maaslar odenemedi!"); return;
+        }
+        Chest kasa = (Chest) kasaKonumu.getBlock().getState();
+        double kasadakiToplamPara = 0.0;
+        for (ItemStack item : kasa.getInventory().getContents()) {
+            Double val = getMoneyValue(item); if (val != null) kasadakiToplamPara += (val * item.getAmount());
+        }
+        double odenecekToplamMaas = 0.0;
+        List<Player> maasAlacaklar = new ArrayList<>();
+        long simdi = System.currentTimeMillis();
+
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            long sonHareket = sonHareketZamani.getOrDefault(p.getUniqueId(), 0L);
+            if (simdi - sonHareket > 300000L) { p.sendMessage(ChatColor.RED + "[Banka] AFK oldugunuz icin bu donemki maasinizi alamadiniz."); continue; }
+            String meslekID = oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
+            
+            if (meslekID.equalsIgnoreCase("gocmen") || meslekID.equalsIgnoreCase("mahkum") || meslekID.equalsIgnoreCase("default")) continue;
+            
+            odenecekToplamMaas += maasMiktarlari.getOrDefault(meslekID, 50.0);
+            maasAlacaklar.add(p);
+        }
+
+        if (maasAlacaklar.isEmpty()) return;
+        if (kasadakiToplamPara >= odenecekToplamMaas) {
+            for (int i = 0; i < kasa.getInventory().getSize(); i++) {
+                if (getMoneyValue(kasa.getInventory().getItem(i)) != null) kasa.getInventory().setItem(i, null);
+            }
+            double remaining = kasadakiToplamPara - odenecekToplamMaas;
+            if (remaining > 0) {
+                kasa.getInventory().addItem(createEconomyNote(remaining));
+                mergeKasaMoney(kasa); 
+            }
+            
+            for (Player p : maasAlacaklar) {
+                String meslekID = oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
+                double maas = maasMiktarlari.getOrDefault(meslekID, 50.0);
+                double mevcutBakiye = bankaHesaplari.getOrDefault(p.getUniqueId(), 0.0);
+                bankaHesaplari.put(p.getUniqueId(), mevcutBakiye + maas);
+                p.sendMessage(ChatColor.GREEN + "[Banka] Maasiniz ($" + maas + ") dijital hesabiniza yatirildi.");
+            }
+            veriKaydet();
+        } else { Bukkit.broadcastMessage(ChatColor.DARK_RED + "" + ChatColor.BOLD + "BELEDIYE IFLAS ETTI! Memur maaşları ödenemedi."); }
+    }
+
+    public void veriKaydet() {
+        if (kasaKonumu != null) {
+            getConfig().set("kasa.world", kasaKonumu.getWorld().getName()); getConfig().set("kasa.x", kasaKonumu.getX());
+            getConfig().set("kasa.y", kasaKonumu.getY()); getConfig().set("kasa.z", kasaKonumu.getZ());
+        }
+        if (kursuKonumu != null) {
+            getConfig().set("kursu.world", kursuKonumu.getWorld().getName()); getConfig().set("kursu.x", kursuKonumu.getX());
+            getConfig().set("kursu.y", kursuKonumu.getY()); getConfig().set("kursu.z", kursuKonumu.getZ());
+        }
+        if (yasaKursuKonumu != null) {
+            getConfig().set("yasakursu.world", yasaKursuKonumu.getWorld().getName()); getConfig().set("yasakursu.x", yasaKursuKonumu.getX());
+            getConfig().set("yasakursu.y", yasaKursuKonumu.getY()); getConfig().set("yasakursu.z", yasaKursuKonumu.getZ());
+        }
+        
+        getConfig().set("maaslarAcik", maaslarAcik);
+        getConfig().set("yasaKitabi", yasaKitabi);
+        getConfig().set("sonOhalBitisZamani", sonOhalBitisZamani);
+
+        getConfig().set("basvurular", null); 
+        for (Map.Entry<UUID, Basvuru> entry : aktifBasvurular.entrySet()) {
+            String id = entry.getKey().toString();
+            getConfig().set("basvurular." + id + ".isim", entry.getValue().oyuncuAdi);
+            getConfig().set("basvurular." + id + ".meslek", entry.getValue().meslek);
+            getConfig().set("basvurular." + id + ".sebep", entry.getValue().sebep);
+        }
+        getConfig().set("banka", null);
+        for (Map.Entry<UUID, Double> entry : bankaHesaplari.entrySet()) { getConfig().set("banka." + entry.getKey().toString(), entry.getValue()); }
+        getConfig().set("meslek_cache", null);
+        for (Map.Entry<UUID, String> entry : oyuncuMeslekCache.entrySet()) { getConfig().set("meslek_cache." + entry.getKey().toString(), entry.getValue()); }
+        
+        List<String> tapuList = new ArrayList<>();
+        for (UUID id : tapuSahipleri) { tapuList.add(id.toString()); }
+        getConfig().set("tapu_sahipleri", tapuList);
+
+        List<String> ehliyetList = new ArrayList<>();
+        for (UUID id : elytraEhliyetleri) { ehliyetList.add(id.toString()); }
+        getConfig().set("elytra_ehliyetleri", ehliyetList);
+
+        if (this.polisManager != null) this.polisManager.veriKaydet(); 
+        if (this.adliyeManager != null) this.adliyeManager.veriKaydetAdliye();
+
+        saveConfig();
+    }
+
+    private void veriYukle() {
+        if (!getDataFolder().exists()) getDataFolder().mkdir();
+        if (getConfig().contains("kasa.world")) {
+            org.bukkit.World world = Bukkit.getWorld(getConfig().getString("kasa.world"));
+            if (world != null) kasaKonumu = new Location(world, getConfig().getDouble("kasa.x"), getConfig().getDouble("kasa.y"), getConfig().getDouble("kasa.z"));
+        }
+        if (getConfig().contains("kursu.world")) {
+            org.bukkit.World world = Bukkit.getWorld(getConfig().getString("kursu.world"));
+            if (world != null) kursuKonumu = new Location(world, getConfig().getDouble("kursu.x"), getConfig().getDouble("kursu.y"), getConfig().getDouble("kursu.z"));
+        }
+        if (getConfig().contains("yasakursu.world")) {
+            org.bukkit.World world = Bukkit.getWorld(getConfig().getString("yasakursu.world"));
+            if (world != null) yasaKursuKonumu = new Location(world, getConfig().getDouble("yasakursu.x"), getConfig().getDouble("yasakursu.y"), getConfig().getDouble("yasakursu.z"));
+        }
+        
+        maaslarAcik = getConfig().getBoolean("maaslarAcik", true);
+        yasaKitabi = getConfig().getItemStack("yasaKitabi");
+        sonOhalBitisZamani = getConfig().getLong("sonOhalBitisZamani", 0L);
+
+        if (getConfig().contains("basvurular")) {
+            for (String uuidStr : getConfig().getConfigurationSection("basvurular").getKeys(false)) {
+                try { aktifBasvurular.put(UUID.fromString(uuidStr), new Basvuru(getConfig().getString("basvurular." + uuidStr + ".isim"), getConfig().getString("basvurular." + uuidStr + ".meslek"), getConfig().getString("basvurular." + uuidStr + ".sebep"))); } catch (Exception e) {}
+            }
+        }
+        if (getConfig().contains("banka")) {
+            for (String uuidStr : getConfig().getConfigurationSection("banka").getKeys(false)) {
+                try { bankaHesaplari.put(UUID.fromString(uuidStr), getConfig().getDouble("banka." + uuidStr)); } catch (Exception e) {}
+            }
+        }
+        if (getConfig().contains("meslek_cache")) {
+            for (String uuidStr : getConfig().getConfigurationSection("meslek_cache").getKeys(false)) {
+                try { oyuncuMeslekCache.put(UUID.fromString(uuidStr), getConfig().getString("meslek_cache." + uuidStr)); } catch (Exception e) {}
+            }
+        }
+        if (getConfig().contains("tapu_sahipleri")) {
+            List<String> tapuList = getConfig().getStringList("tapu_sahipleri");
+            for (String id : tapuList) {
+                try { tapuSahipleri.add(UUID.fromString(id)); } catch (Exception e) {}
+            }
+        }
+
+        if (getConfig().contains("elytra_ehliyetleri")) {
+            List<String> ehliyetList = getConfig().getStringList("elytra_ehliyetleri");
+            for (String id : ehliyetList) {
+                try { elytraEhliyetleri.add(UUID.fromString(id)); } catch (Exception e) {}
+            }
+        }
+        
+        if (this.polisManager != null) this.polisManager.veriYukle(); 
+        if (this.adliyeManager != null) this.adliyeManager.veriYukleAdliye();
+    }
+
+    public static class Basvuru {
+        public String oyuncuAdi, meslek, sebep;
+        public Basvuru(String oyuncuAdi, String meslek, String sebep) { this.oyuncuAdi = oyuncuAdi; this.meslek = meslek; this.sebep = sebep; }
+    }
+    public static class GeciciKimlik {
+        public String isim, soyisim, kutuk; public int yas;
+    }
+}

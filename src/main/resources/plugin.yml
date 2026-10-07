@@ -1,0 +1,268 @@
+name: MeslekSistemi
+version: 1.0
+main: me.mesleksistemi.MeslekSistemi
+api-version: '26.2' 
+description: Kapsamli Meslek, Ekonomi, Sozlesme, Secim, Hukuk, Ehliyet, Saglik ve Ticaret Yonetim Sistemi
+depend: [GriefPrevention]
+
+commands:
+  # ==========================================
+  # KİRA VE EMLAK KOMUTLARI
+  # ==========================================
+  kirakur:
+    description: Belediyeye ait bir evi kiralik olarak isaretler (kira belediye kasasina gider).
+    usage: /kirakur <id> <fiyat> <Ekranda Görünecek İsim>
+    permission: meslek.baskan
+  kiraver:
+    description: Kendi claim'inizdeki evi/odayi kiraya verir (kira banka hesabiniza gider).
+    usage: /kiraver <id> <fiyat> <Ekranda Görünecek İsim>
+    permission: kira.kiraver
+  kirasil:
+    description: Kiralik ev ilanini kaldirir (kiradaysa sure bitince kapanir).
+    usage: /kirasil <id>
+  kirasozlesme:
+    description: Kira basvurularini gorur, sozlesme hazirlar/imzalar; kiraci kabul/red eder.
+    usage: /kirasozlesme
+  kira:
+    description: Aktif kira sozlesmenizi gosterir, buradan kiradan cikabilirsiniz.
+    usage: /kira
+  kiranpc:
+    description: Kiralik daireler icin Emlakci NPC'sini kurar.
+    usage: /kiranpc
+    permission: kira.admin
+
+  # ==========================================
+  # SEÇİM VE OYLAMA KOMUTLARI
+  # ==========================================
+  secimoylama:
+    description: Erken secim oylamasi baslatir veya oylamaya katilirsiniz.
+    usage: /secimoylama [evet/hayir]
+  adayol:
+    description: Baskan adayi olmanizi saglar (Ucreti belediye kasasina gider).
+    usage: /adayol
+  pusulaal:
+    description: Sandikta oy kullanmak icin muhurlu secim pusulasi verir.
+    usage: /pusulaal
+  secim:
+    description: Secim admin komutlari (Baslat/Bitir/Sandik kur).
+    usage: /secim <baslat|bitir|sandikkur>
+    permission: secim.admin
+    permission-message: Bu komutu kullanmak icin secim.admin yetkisine sahip olmalisiniz.
+
+  # ==========================================
+  # BELEDİYE VE MEMUR KOMUTLARI
+  # ==========================================
+  meslekata:
+    description: Oyuncuya yeni bir meslek atar ve LuckPerms rollerini ayarlar.
+    usage: /meslekata <oyuncu> <meslek>
+  ohal:
+    description: Sehirde sokaga cikma yasagi ilan eder.
+    usage: /ohal
+  maaslar:
+    description: Memur maas dongusunu acip kapatir.
+    usage: /maaslar
+  yasayayinla:
+    description: Yasa kursusune yeni bir kural ekler.
+    usage: /yasayayinla
+  yasalar:
+    description: Sehirdeki mevcut yasalari listeler.
+    usage: /yasalar
+  kasaayarla:
+    description: Belediye kasasinin (sandiginin) konumunu ayarlar.
+    usage: /kasaayarla
+  kursuayarla:
+    description: Baskanlik kursusunun konumunu ayarlar.
+    usage: /kursuayarla
+  yasakursuayarla:
+    description: Yasa kursusunun konumunu ayarlar.
+    usage: /yasakursuayarla
+  primver:
+    description: Belirli bir meslek grubuna prim dagitir.
+    usage: /primver <meslek> <miktar>
+
+  # ==========================================
+  # SÖZLEŞME KOMUTLARI
+  # ==========================================
+  sozlesmeolustur:
+    description: Iki oyuncu arasinda resmi sozlesme baslatir.
+    usage: /sozlesmeolustur
+  belediyesozlesmesi:
+    description: Belediye ile resmi is yapma sozlesmesi olusturur.
+    usage: /belediyesozlesmesi
+  sozlesmekabul:
+    description: Size gonderilen sozlesmeyi kabul edersiniz.
+    usage: /sozlesmekabul
+  sozlesmereddet:
+    description: Size gonderilen sozlesmeyi reddedersiniz.
+    usage: /sozlesmereddet
+  sozlesmebitir:
+    description: Gecerli bir sozlesmeyi sonlandirir.
+    usage: /sozlesmebitir
+  sozlesmeonayla:
+    description: Olusturulan sozlesmeyi onaylayip isleme koyar.
+    usage: /sozlesmeonayla
+
+  # ==========================================
+  # ADALET VE KOLLUK KUVVETİ (POLİS) KOMUTLARI
+  # ==========================================
+  hucreolustur:
+    description: Karakolda yeni bir mahkum hucresi olusturur.
+    usage: /hucreolustur <hücre_adı>
+    permission: polis.admin
+  hucresil:
+    description: Var olan bir hücreyi kalici olarak siler.
+    usage: /hucresil <hücre_adı>
+    permission: polis.admin
+  amirkursu:
+    description: Sikayet dosyalarinin incelenecegi amir masasini ayarlar.
+    usage: /amirkursu
+    permission: polis.admin
+  sikayetnpc:
+    description: Karakola sikayet alma NPC'sini kurar veya siler.
+    usage: /sikayetnpc <kur|sil>
+    permission: polis.admin
+  copal:
+    description: Emniyet mensuplari icin ayarlanabilir polis copu verir.
+    usage: /copal
+  serbestbirak:
+    description: Nezaretteki bir mahkumu suresinden once serbest birakir.
+    usage: /serbestbirak <oyuncu>
+  sikayetkarar:
+    description: (Sistem Komutu) Amir menusundeki dosya kararlarini isler.
+    usage: /sikayetkarar <id> <karar>
+
+  # ==========================================
+  # ADLİYE, AVUKAT VE HAKİM KOMUTLARI
+  # ==========================================
+  adliyenpc:
+    description: Adalet Sarayi icin dava ve avukat NPC'sini kurar veya siler.
+    usage: /adliyenpc <kur|sil>
+    permission: adliye.admin
+  mahkemeayarla:
+    description: Durusmalarin gorulecegi mahkeme salonunun sinirlarini belirler.
+    usage: /mahkemeayarla [pos1|pos2]
+    permission: adliye.admin
+  avukatkabul:
+    description: Size gonderilen avukatlik teklifini kabul eder.
+    usage: /avukatkabul
+  avukatred:
+    description: Size gonderilen avukatlik teklifini reddeder.
+    usage: /avukatred
+
+  # ==========================================
+  # HAVACILIK VE EHLİYET KOMUTLARI
+  # ==========================================
+  ehliyetnpc:
+    description: Sivil Havacilik ve Ucus Kursu NPC'sini kurar veya siler.
+    usage: /ehliyetnpc <kur|sil>
+    permission: ehliyet.admin
+    
+  # ==========================================
+  # SAĞLIK VE HASTANE KOMUTLARI
+  # ==========================================
+  doktormarket:
+    description: Doktorlar icin tibbi malzeme deposu acar.
+    usage: /doktormarket
+  hastanenpc:
+    description: Acil servis NPC'sini kurar.
+    usage: /hastanenpc <kur|sil>
+    permission: saglik.admin
+  ambulanscagir:
+    description: Agir yaraliyken doktorlara ambulans cagrisi gonderir. ($1500 ucret)
+    usage: /ambulanscagir
+  ambulanskabul:
+    description: Doktorun cagrili hastayi hastaneye sevk edip ucreti almasini saglar.
+    usage: /ambulanskabul <oyuncuadi>
+  hastaneyatak:
+    description: Hastanedeki acil servis yataklarinin konumlarini belirler veya siler.
+    usage: /hastaneyatak <ekle|sil>
+    permission: saglik.admin
+
+  # ==========================================
+  # TOPTANCI (MADENCİ/ODUNCU) KOMUTLARI
+  # ==========================================
+  madencinpc:
+    description: Madenci Ticaret NPC'sini kurar veya siler.
+    usage: /madencinpc <kur|sil>
+    permission: ticaret.admin
+  oduncunpc:
+    description: Oduncu Ticaret NPC'sini kurar veya siler.
+    usage: /oduncunpc <kur|sil>
+    permission: ticaret.admin
+  indirim:
+    description: Tuccar indirim kampanyasini yonetir.
+    usage: /indirim <durum|bitir|baslat>
+    permission: ticaret.admin
+
+  # ==========================================
+  # SİVİL VE GENEL KOMUTLAR
+  # ==========================================
+  rehber:
+    description: Sehir rehberi kitabini verir.
+    usage: /rehber
+  meslekler:
+    description: Sunucudaki aktif meslekleri listeler.
+    usage: /meslekler
+  tapumenusu:
+    description: Arsa ve tapu islemleri menusunu acar.
+    usage: /tapumenusu
+  basvurular:
+    description: Bekleyen meslek basvurularini gosterir.
+    usage: /basvurular
+  basvurucevapla:
+    description: Gelen basvurulari onaylar veya reddeder.
+    usage: /basvurucevapla
+
+  # ==========================================
+  # SİSTEM VE NPC KOMUTLARI
+  # ==========================================
+  mesleknpc:
+    description: Meslek NPC'sini kurar.
+    usage: /mesleknpc
+  bankanpc:
+    description: Banka NPC'sini kurar.
+    usage: /bankanpc
+  nufusnpc:
+    description: Nufus mudurlugu NPC'sini kurar.
+    usage: /nufusnpc
+  tapunpc:
+    description: Tapu dairesi NPC'sini kurar.
+    usage: /tapunpc
+  kimlikbiyomsec:
+    description: Kimlik icin dogum yeri biyomunu secer.
+    usage: /kimlikbiyomsec
+
+permissions:
+  secim.admin:
+    description: Sandik kurma ve secimi zorla baslatip bitirme yetkisi
+    default: op
+  meslek.baskan:
+    description: Baskan rolunun yetkisi (Bypass korumasi icin kullanilir)
+    default: false
+  polis.admin:
+    description: Hucre kurma ve karakol masasi ayarlama yetkisi
+    default: op
+  polis.kullan:
+    description: Coplari kullanabilme ve dosyalara bakabilme yetkisi (Sadece Emniyet)
+    default: false
+  adliye.admin:
+    description: Adliye NPC si ve Mahkeme Salonu ayarlama yetkisi
+    default: op
+  ehliyet.admin:
+    description: Ehliyet kursu NPC sini kurma ve silme yetkisi
+    default: op
+  ehliyet.bypass:
+    description: Ehliyetsiz olsa bile ucmaya devam edebilme yetkisi (Kurucular icin)
+    default: op
+  saglik.admin:
+    description: Hastane ve Yatak NPC/konumlarini ayarlama yetkisi
+    default: op
+  ticaret.admin:
+    description: Toptanci (Madenci/Oduncu) NPC'lerini kurma ve pazar yonetimi yetkisi
+    default: op
+  kira.admin:
+    description: Evleri kiralik isaretleme ve emlakci kurma yetkisi
+    default: op
+  kira.kiraver:
+    description: Oyuncunun kendi claim'indeki evi veya odayi kiraya verebilme yetkisi
+    default: true
