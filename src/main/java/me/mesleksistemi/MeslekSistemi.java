@@ -290,8 +290,26 @@ public class MeslekSistemi extends JavaPlugin {
         }, 20L);
     }
 
+    /**
+     * Tüm veriyi (banka dahil) ŞİMDİ diske yazar ve bitmesini bekler. Para işleminden hemen sonra
+     * çökmeye karşı kullanılır (örn. Arena Ligi giriş ücreti). Yazım, bekleyen arka plan kayıtlarıyla
+     * aynı sıraya girer; böylece daha eski bir kayıt yenisinin üzerine yazamaz. Başarılıysa true.
+     */
+    public boolean hemenDiskeYaz() {
+        veriKaydet();
+        String icerik = getConfig().saveToString();
+        File dosya = new File(getDataFolder(), "config.yml");
+        if (kapaniyor || kayitYazici == null || kayitYazici.isShutdown()) return dosyayaYaz(dosya, icerik);
+        try {
+            return kayitYazici.submit(() -> dosyayaYaz(dosya, icerik)).get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "config.yml hemen kaydedilemedi!", e);
+            return false;
+        }
+    }
+
     // Önce geçici dosyaya yazıp sonra yerine taşır: yazım yarıda kalırsa config bozulmaz
-    private void dosyayaYaz(File dosya, String icerik) {
+    private boolean dosyayaYaz(File dosya, String icerik) {
         try {
             Files.createDirectories(dosya.getParentFile().toPath());
             Path gecici = new File(dosya.getParentFile(), "config.yml.tmp").toPath();
@@ -301,8 +319,10 @@ public class MeslekSistemi extends JavaPlugin {
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(gecici, dosya.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
+            return true;
         } catch (IOException e) {
             getLogger().log(Level.SEVERE, "config.yml kaydedilemedi!", e);
+            return false;
         }
     }
 

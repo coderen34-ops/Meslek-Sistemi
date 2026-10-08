@@ -42,6 +42,13 @@ public interface MeslekAPI {
      */
     boolean kasayaYatir(double miktar);
 
+    /**
+     * Banka dahil tüm MeslekSistemi verisini şimdi senkron olarak diske yazar (normalde ~1 sn gecikmeyle yazılır).
+     * Para işleminden hemen sonra kendi kaydını yazmadan önce çağırın ki çökmede para kaybolmasın/çoğalmasın.
+     * Ana thread'den çağrılmalı; her işlemde değil, kritik anlarda kullanın. Başarılıysa true.
+     */
+    boolean bankayiHemenKaydet();
+
     /** MeslekSistemi'nin ekonomi log'una satır yazar (plugins/MeslekSistemi/loglar/ekonomi-YYYY-AA.log). */
     void ekonomiLog(String kategori, String kim, String detay);
 }

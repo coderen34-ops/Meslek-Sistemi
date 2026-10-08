@@ -75,6 +75,11 @@ public class MeslekAPIImpl implements MeslekAPI {
     }
 
     @Override
+    public boolean bankayiHemenKaydet() {
+        return plugin.hemenDiskeYaz();
+    }
+
+    @Override
     public void ekonomiLog(String kategori, String kim, String detay) {
         plugin.ekonomiLog(kategori, kim, detay);
     }
