@@ -66,6 +66,9 @@ public class TicaretManager implements Listener, CommandExecutor {
     private final NamespacedKey meslekKilitKey;
     
     private final double ZUMRUT_TABAN_KURU = 50.0; 
+    // Büyü kitabı fiyat aralığı (vanilla kitap tarifleri 5-64 zümrüt arasındadır)
+    private static final double KITAP_MIN_FIYAT = 1500.0, KITAP_MAX_FIYAT = 2750.0;
+    private static final double KITAP_MIN_ZUMRUT = 5.0, KITAP_MAX_ZUMRUT = 64.0;
     private final int MAX_ALIM_SINIRI = 8; // YENİ: Kota 4'ten 8'e çıkarıldı
     private final long STOK_YENILEME_TICK = 48000L; // YENİ: 2 Minecraft Günü (Gerçek hayatta 40 dakika)
 
@@ -716,7 +719,11 @@ public class TicaretManager implements Listener, CommandExecutor {
         double rawPrice = baseZumrutDegeri;
         
         if (type == Material.ENCHANTED_BOOK) {
-            rawPrice = (baseZumrutDegeri * 3.0) + 2500.0;
+            // Büyü kitabı: vanilla tarifi 5-64 zümrüt arasıdır; bu aralık $1500-$2750'ye orantılı yerleşir
+            // (genel %40 indirim uygulanmaz; sadakat/kampanya indirimi sonradan ayrıca düşer)
+            double zumrut = baseZumrutDegeri / ZUMRUT_TABAN_KURU;
+            double oran = Math.max(0.0, Math.min(1.0, (zumrut - KITAP_MIN_ZUMRUT) / (KITAP_MAX_ZUMRUT - KITAP_MIN_ZUMRUT)));
+            return Math.round(KITAP_MIN_FIYAT + oran * (KITAP_MAX_FIYAT - KITAP_MIN_FIYAT));
         } 
         else if (type.name().contains("DIAMOND") || type.name().contains("NETHERITE")) {
             rawPrice = (baseZumrutDegeri * 2.0) + 1000.0;
