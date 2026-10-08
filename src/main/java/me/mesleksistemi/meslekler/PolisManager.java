@@ -496,13 +496,12 @@ public class PolisManager implements Listener, CommandExecutor {
         TextComponent sayfa1 = new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "ŞİKAYET DOSYASI\n\n");
         sayfa1.addExtra(new TextComponent(ChatColor.BLACK + "Şikayet Eden:\n" + ChatColor.DARK_GRAY + sikayet.sikayetEden + "\n\n"));
         sayfa1.addExtra(new TextComponent(ChatColor.BLACK + "Şüpheli:\n" + ChatColor.DARK_GRAY + sikayet.sikayetEdilen + "\n\n"));
-        sayfa1.addExtra(new TextComponent(ChatColor.DARK_RED + "İfade Detayı:\n"));
-        
-        if (!chunks.isEmpty()) { sayfa1.addExtra(new TextComponent(ChatColor.BLACK + chunks.get(0))); }
+        sayfa1.addExtra(new TextComponent(ChatColor.DARK_RED + "İfade Detayı: " + ChatColor.DARK_GRAY + "sonraki sayfada ►"));
         pages.add(new BaseComponent[]{sayfa1});
 
-        for (int i = 1; i < chunks.size(); i++) {
-            pages.add(new BaseComponent[]{new TextComponent(ChatColor.BLACK + chunks.get(i))});
+        // İfade ayrı sayfalardan başlar: başlık bilgileriyle aynı sayfada 14 satırı aşıp kesilmesin
+        for (String parca : chunks) {
+            pages.add(new BaseComponent[]{new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "İFADE\n\n" + ChatColor.BLACK + parca)});
         }
 
         TextComponent sonSayfa = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "AMİR KARARI\n\n\n");

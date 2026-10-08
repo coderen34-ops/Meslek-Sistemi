@@ -451,6 +451,44 @@ public class SozlesmeManager implements Listener, CommandExecutor {
         }, 40L);
     }
 
+    // ------------------------------------------------------------------
+    // KİTAPLAR: bir kitap sayfasına ~14 satır sığar; taşan kısım (özellikle butonlar) görünmez.
+    // Bu yüzden: 1. sayfa bilgiler, iş tanımı gerekirse sonraki sayfalara bölünür, butonlar her zaman ayrı son sayfada.
+    // ------------------------------------------------------------------
+    private static final int SAYFA_KARAKTER = 200; // Bir sayfaya rahat sığan düz metin
+
+    /** Metni kelime sınırından ~SAYFA_KARAKTER'lik parçalara böler. */
+    private static List<String> parcala(String metin, int boyut) {
+        List<String> parcalar = new ArrayList<>();
+        int i = 0;
+        while (i < metin.length()) {
+            int son = Math.min(i + boyut, metin.length());
+            if (son < metin.length()) { int bosluk = metin.lastIndexOf(' ', son); if (bosluk > i) son = bosluk; }
+            parcalar.add(metin.substring(i, son).trim());
+            i = son;
+        }
+        return parcalar;
+    }
+
+    /**
+     * Kitabı sayfalar: bilgi sayfası (iş tanımı kısaysa onun da altında), uzun iş tanımı için ek sayfalar,
+     * en sonda butonların olduğu sayfa.
+     */
+    private void sayfalariEkle(BookMeta meta, TextComponent bilgi, String detay, TextComponent butonSayfasi) {
+        String d = detay == null ? "" : detay;
+        if (d.length() <= 80) {
+            bilgi.addExtra(ChatColor.DARK_RED + "İşin Tanımı:\n" + ChatColor.BLACK + d);
+            meta.spigot().addPage(new BaseComponent[]{bilgi});
+        } else {
+            bilgi.addExtra(ChatColor.DARK_RED + "İşin Tanımı: " + ChatColor.DARK_GRAY + "sonraki sayfada ►");
+            meta.spigot().addPage(new BaseComponent[]{bilgi});
+            for (String parca : parcala(d, SAYFA_KARAKTER)) {
+                meta.spigot().addPage(new BaseComponent[]{new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "İŞİN TANIMI\n\n" + ChatColor.BLACK + parca)});
+            }
+        }
+        meta.spigot().addPage(new BaseComponent[]{butonSayfasi});
+    }
+
     private void sendTeklifKitabi(Player isci, String id, AktifSozlesme sozlesme) {
         ItemStack book = new ItemStack(Material.WRITTEN_BOOK);
         BookMeta meta = (BookMeta) book.getItemMeta();
@@ -461,17 +499,17 @@ public class SozlesmeManager implements Listener, CommandExecutor {
         TextComponent s1 = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + baslik + "\n\n");
         s1.addExtra(ChatColor.BLACK + "Teklif Eden: " + ChatColor.DARK_GRAY + sozlesme.isverenAdi + "\n");
         s1.addExtra(ChatColor.BLACK + "Teklif Edilen Ücret: " + ChatColor.DARK_GREEN + "$" + sozlesme.tutar + "\n\n");
-        s1.addExtra(ChatColor.DARK_RED + "İşin Tanımı:\n" + ChatColor.BLACK + sozlesme.detay + "\n\n");
 
+        TextComponent son = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "KARARINIZ\n\n");
+        son.addExtra(ChatColor.BLACK + "Teklifi kabul ederseniz işe başlamış olursunuz.\n\n");
         TextComponent kabul = new TextComponent(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "[ KABUL ET ]\n\n");
         kabul.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sozlesmekabul " + id));
-
         TextComponent red = new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "[ REDDET ]");
         red.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sozlesmereddet " + id));
+        son.addExtra(kabul);
+        son.addExtra(red);
 
-        s1.addExtra(kabul);
-        s1.addExtra(red);
-        meta.spigot().addPage(new BaseComponent[]{s1});
+        sayfalariEkle(meta, s1, sozlesme.detay, son);
         kitapVer(isci, book, meta, id);
 
         isci.sendMessage(ChatColor.GOLD + "[!] " + ChatColor.WHITE + sozlesme.isverenAdi + " size bir İş Teklifi gönderdi. Envanterinizi kontrol edin.");
@@ -488,13 +526,14 @@ public class SozlesmeManager implements Listener, CommandExecutor {
         s1.addExtra(ChatColor.BLACK + "İşveren: " + ChatColor.DARK_GRAY + sozlesme.isverenAdi + "\n");
         s1.addExtra(ChatColor.BLACK + "Yüklenici: " + ChatColor.DARK_GRAY + sozlesme.isciAdi + "\n");
         s1.addExtra(ChatColor.BLACK + "Ücret: " + ChatColor.DARK_GREEN + "$" + sozlesme.tutar + "\n\n");
-        s1.addExtra(ChatColor.DARK_RED + "İşin Tanımı:\n" + ChatColor.BLACK + sozlesme.detay + "\n\n");
 
+        TextComponent son = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "İŞ DURUMU\n\n");
+        son.addExtra(ChatColor.BLACK + "İşi bitirdiğinizde bildirin; işveren onaylayınca ödeme hesabınıza yatar.\n\n");
         TextComponent buton = new TextComponent(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "[ İŞİ BİTİRDİM - BİLDİR ]");
         buton.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sozlesmebitir " + id));
-        s1.addExtra(buton);
+        son.addExtra(buton);
 
-        meta.spigot().addPage(new BaseComponent[]{s1});
+        sayfalariEkle(meta, s1, sozlesme.detay, son);
         kitapVer(isci, book, meta, id);
     }
 
@@ -510,16 +549,15 @@ public class SozlesmeManager implements Listener, CommandExecutor {
         String kaynak = sozlesme.tip.equals("BELEDIYE") ? "(Belediye Kasası)" : "(Şahsi Hesap)";
         s1.addExtra(ChatColor.DARK_GRAY + kaynak + "\n\n");
 
+        TextComponent son = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "ONAY\n\n");
         TextComponent kabul = new TextComponent(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "[ ÖDEMEYİ YAP ]\n\n");
         kabul.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sozlesmeonayla " + id + " KABUL"));
-
         TextComponent red = new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "[ SÖZLEŞMEYİ İPTAL ET ]");
         red.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sozlesmeonayla " + id + " RED"));
+        son.addExtra(kabul);
+        son.addExtra(red);
 
-        s1.addExtra(kabul);
-        s1.addExtra(red);
-
-        meta.spigot().addPage(new BaseComponent[]{s1});
+        sayfalariEkle(meta, s1, sozlesme.detay, son);
         kitapVer(isveren, book, meta, id);
     }
 
