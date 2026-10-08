@@ -107,8 +107,8 @@ public class ToptanciManager implements Listener, CommandExecutor {
             return 10.40; 
         }
 
-        if (name.contains("LOG") || name.contains("WOOD") || name.contains("STEM")) return 8.00;
-        if (name.contains("PLANKS")) return 2.00; 
+        if (name.contains("LOG") || name.contains("WOOD") || name.contains("STEM")) return 4.00; // Normal ağaçlar (devlete $2)
+        if (name.contains("PLANKS")) return 1.00; 
         
         return 0.50;
     }
