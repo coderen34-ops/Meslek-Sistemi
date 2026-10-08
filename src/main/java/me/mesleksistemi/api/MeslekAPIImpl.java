@@ -67,6 +67,19 @@ public class MeslekAPIImpl implements MeslekAPI {
     }
 
     @Override
+    public boolean kasayaYatir(double miktar) {
+        if (!gecerliMiktar(miktar)) return false;
+        if (!plugin.kasayaParaEkle(kurus(miktar))) return false;
+        plugin.veriKaydet();
+        return true;
+    }
+
+    @Override
+    public void ekonomiLog(String kategori, String kim, String detay) {
+        plugin.ekonomiLog(kategori, kim, detay);
+    }
+
+    @Override
     public boolean saglikMuafMi(UUID oyuncu) {
         return plugin.saglikManager != null && plugin.saglikManager.muafMi(oyuncu);
     }

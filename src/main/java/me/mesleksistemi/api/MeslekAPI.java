@@ -35,4 +35,13 @@ public interface MeslekAPI {
 
     /** Oyuncu şu an ağır yaralı (baygın, doktor bekliyor) mı? Ölümcül vuruş alan oyuncu ölmez, bu duruma düşer. */
     boolean agirYaraliMi(UUID oyuncu);
+
+    /**
+     * Belediye kasasına (sandık) para koyar. Miktar geçersizse (NaN, sonsuz, sıfır/negatif),
+     * kasa kurulu değilse ya da doluysa hiçbir şey yapmaz, false döner (para kaybolmasın diye çağıran iade etmeli).
+     */
+    boolean kasayaYatir(double miktar);
+
+    /** MeslekSistemi'nin ekonomi log'una satır yazar (plugins/MeslekSistemi/loglar/ekonomi-YYYY-AA.log). */
+    void ekonomiLog(String kategori, String kim, String detay);
 }
