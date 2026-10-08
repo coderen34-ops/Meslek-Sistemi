@@ -4,6 +4,7 @@ import me.mesleksistemi.MeslekSistemi;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
@@ -149,6 +150,15 @@ public class MeslekListener implements Listener {
             plugin.aktifBasvurular.put(pId, new MeslekSistemi.Basvuru(player.getName(), plugin.basvuruBekleyenler.get(pId), mesaj));
             plugin.basvuruBekleyenler.remove(pId); plugin.veriKaydet();
             player.sendMessage(ChatColor.GREEN + "Basvurunuz Belediye Baskanina iletildi!");
+            // Çevrimiçi başkana bildirim ve zil sesi
+            String meslekAdi = plugin.meslekGorunumAdlari.getOrDefault(plugin.aktifBasvurular.get(pId).meslek, plugin.aktifBasvurular.get(pId).meslek);
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                if (p.getUniqueId().equals(pId)) continue;
+                if (!"belediyebaskani".equalsIgnoreCase(plugin.oyuncuMeslekCache.get(p.getUniqueId())) && !p.hasPermission("meslek.baskan")) continue;
+                p.sendMessage(ChatColor.GOLD + "[Belediye] " + ChatColor.YELLOW + player.getName() + ChatColor.WHITE + " adlı vatandaş "
+                        + ChatColor.AQUA + meslekAdi + ChatColor.WHITE + " mesleği için başvurdu. " + ChatColor.GRAY + "(Başvuru Kürsüsü'nden inceleyin)");
+                p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 1.0f, 1.2f);
+            }
             return;
         }
 
