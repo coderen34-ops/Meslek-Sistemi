@@ -52,6 +52,8 @@ public class MeslekListener implements Listener {
         }
     }
 
+    private static final int BANKA_ACILIS = 8, BANKA_KAPANIS = 17;
+
     @EventHandler
     public void onNpcClick(PlayerInteractEntityEvent event) {
         // Sağ tık her iki el için ayrı tetiklenir; menü iki kez açılmasın
@@ -79,6 +81,14 @@ public class MeslekListener implements Listener {
                 String ms = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "gocmen");
                 if(ms.equalsIgnoreCase("gocmen") || ms.equalsIgnoreCase("default")) {
                     player.sendMessage(ChatColor.RED + "Göçmen durumundayken banka hesabı kullanamazsınız!"); return;
+                }
+                // Banka mesaisi: oyun saatiyle 08:00 - 17:00 (Minecraft'ta 0 tick = 06:00)
+                long tick = npc.getWorld().getTime();
+                int saat = (int) ((tick / 1000 + 6) % 24), dakika = (int) (tick % 1000 * 60 / 1000);
+                if (saat < BANKA_ACILIS || saat >= BANKA_KAPANIS) {
+                    player.sendMessage(ChatColor.RED + "Banka şu an kapalı! Mesai saatleri: " + String.format("%02d:00 - %02d:00", BANKA_ACILIS, BANKA_KAPANIS)
+                            + ChatColor.GRAY + " (Şu an " + String.format("%02d:%02d", saat, dakika) + ")");
+                    return;
                 }
                 plugin.getMenuManager().openBankaMenu(player);
             }
