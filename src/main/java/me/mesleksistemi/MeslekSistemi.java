@@ -405,31 +405,59 @@ public class MeslekSistemi extends JavaPlugin {
         BookMeta meta = (BookMeta) book.getItemMeta();
         meta.setTitle(ChatColor.GOLD + "Şehir Rehberi");
         meta.setAuthor(ChatColor.DARK_RED + "Devlet Yönetimi");
-        
+
+        // Bir sayfaya ~14 satır sığar; her konu kısa tutuldu
         meta.addPage(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "HOŞ GELDİNİZ\n\n" +
-                ChatColor.BLACK + "Şehrimize adım attınız! Yasal bir vatandaş olmak için öncelikle Nüfus Müdürlüğü'nden kimliğinizi çıkartmalısınız.\n\n" +
-                ChatColor.DARK_RED + "Unutmayın: " + ChatColor.BLACK + "Göçmen statüsündeyken arsa alamaz veya meslek sahibi olamazsınız.");
-                
+                ChatColor.BLACK + "Şehre göçmen olarak geldiniz. " + ChatColor.DARK_RED + "Nüfus Müdürlüğü" + ChatColor.BLACK +
+                "'nden kimlik çıkarın; devlet hesabınıza " + ChatColor.DARK_GREEN + "$1000" + ChatColor.BLACK + " yatırır.\n\n" +
+                ChatColor.DARK_RED + "Göçmenler" + ChatColor.BLACK + " blok kıramaz, meslek ve banka hesabı edinemez.");
         meta.addPage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "ÖNEMLİ KOMUTLAR\n\n" +
-                ChatColor.DARK_RED + "/yasalar\n" + ChatColor.BLACK + "Şehrin güncel kurallarını öğrenmenizi sağlar.\n\n" +
-                ChatColor.DARK_RED + "/rehber\n" + ChatColor.BLACK + "Bu kitabı kaybederseniz tekrar almanızı sağlar.\n\n" +
-                ChatColor.DARK_RED + "/sozlesmeolustur\n" + ChatColor.BLACK + "Güvenli ticaret için kontrat yapmanızı sağlar.");
-                
-        meta.addPage(ChatColor.DARK_AQUA + ChatColor.BOLD.toString() + "EKONOMİ & ARSA\n\n" +
-                ChatColor.BLACK + "Fiziksel paranızı bankaya yatırarak güvende tutabilir ve meslek maaşınızı alabilirsiniz.\n\n" +
-                "İlk arsanızı Tapu Dairesi'nden alarak mülk sahibi olabilirsiniz.");
-
+                ChatColor.DARK_RED + "/yasalar " + ChatColor.BLACK + "Şehrin kuralları\n" +
+                ChatColor.DARK_RED + "/rehber " + ChatColor.BLACK + "Bu kitap\n" +
+                ChatColor.DARK_RED + "/sozlesmeolustur " + ChatColor.BLACK + "İş sözleşmesi\n" +
+                ChatColor.DARK_RED + "/kira " + ChatColor.BLACK + "Kira sözleşmen\n" +
+                ChatColor.DARK_RED + "/klan " + ChatColor.BLACK + "Klan sistemi\n" +
+                ChatColor.DARK_RED + "/ambulanscagir " + ChatColor.BLACK + "Ağır yaralıyken\n" +
+                ChatColor.DARK_RED + "/secimoylama " + ChatColor.BLACK + "Erken seçim");
+        meta.addPage(ChatColor.DARK_AQUA + ChatColor.BOLD.toString() + "PARA VE BANKA\n\n" +
+                ChatColor.BLACK + "Cebinizdeki para kağıt paradır, kaybedebilirsiniz. Banka güvenlidir; maaşlar oraya yatar.\n\n" +
+                ChatColor.DARK_RED + "Banka mesaisi: " + ChatColor.BLACK + "oyun saatiyle 08:00 - 17:00.\n\n" +
+                "Bankadaki " + ChatColor.DARK_BLUE + "Belediye Borsası" + ChatColor.BLACK + "nda elmas, zümrüt, altın, demir, lapis, bakır ve kömür alıp satabilirsiniz.");
+        meta.addPage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "MESLEKLER\n\n" +
+                ChatColor.BLACK + "Meslek NPC'sinden başvurun, ücreti ödeyip sebebinizi yazın. Başkan onaylarsa mesleğiniz verilir.\n\n" +
+                "Her 30 dakikada mesleğinize göre " + ChatColor.DARK_GREEN + "maaş" + ChatColor.BLACK + " alırsınız. AFK olanlar maaş alamaz.\n\n" +
+                "Aynı menüden istifa edebilirsiniz.");
+        meta.addPage(ChatColor.GOLD + ChatColor.BOLD.toString() + "PAZARLAR\n\n" +
+                ChatColor.DARK_BLUE + "Madenci ve Oduncu Pazarı: " + ChatColor.BLACK + "Madenci ve oduncular taş/odun satıp para kazanır, herkes pazardan satın alabilir.\n\n" +
+                ChatColor.DARK_BLUE + "Köylüler: " + ChatColor.BLACK + "Zümrüt yerine kağıt parayla ticaret yapar. Aynı köylüyle ticaret yaptıkça sadakat indirimi kazanırsınız.");
+        meta.addPage(ChatColor.DARK_AQUA + ChatColor.BOLD.toString() + "ARSA VE KİRA\n\n" +
+                ChatColor.BLACK + "Tapu Dairesi'nden arsa bloğu alın, altın kürekle arsanızı çizin.\n\n" +
+                "Ev kiralamak için Emlak Ofisi'nden başvurun. Kira 10 saatlik dönemlerle bankadan ödenir.\n\n" +
+                "Kendi evinizi " + ChatColor.DARK_RED + "/kiraver" + ChatColor.BLACK + " ile kiraya verebilirsiniz.");
         meta.addPage(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "BELEDİYE BAŞKANI\n\n" +
-                ChatColor.BLACK + "Şehrin yöneticisidir.\n\n" +
-                ChatColor.DARK_BLUE + "Yetkileri:\n" +
-                ChatColor.BLACK + "• Yasa Kürsüsü'ne anayasa koyabilir.\n" +
-                "• Sokağa çıkma yasağı (OHAL) ilan edebilir.\n" +
-                "• Tasarruf için memur maaşlarını dondurabilir.");
-
-        meta.addPage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "MEMURLAR\n\n" +
-                ChatColor.DARK_BLUE + "POLİS: " + ChatColor.BLACK + "Yasa Kürsüsündeki kuralları uygular. OHAL ihlalinde tutuklama yetkisine sahiptir.\n\n" +
-                ChatColor.DARK_RED + "DOKTOR: " + ChatColor.BLACK + "Şehirdeki yaralıları ve hastaları tedavi eder. Sağlık sisteminden sorumludur.");
-
+                ChatColor.BLACK + "Şehri yönetir, seçimle gelir.\n" +
+                "• Meslek başvurularını onaylar\n" +
+                "• Yasa yayınlar\n" +
+                "• Sokağa çıkma yasağı (OHAL) ilan eder\n" +
+                "• Maaşları dondurabilir\n" +
+                "• Belediye adına iş sözleşmesi yapar");
+        meta.addPage(ChatColor.DARK_PURPLE + ChatColor.BOLD.toString() + "SEÇİM\n\n" +
+                ChatColor.DARK_RED + "/secimoylama" + ChatColor.BLACK + " ile erken seçim istenir; çevrimiçilerin %51'i evet derse seçim başlar.\n\n" +
+                ChatColor.DARK_RED + "/adayol" + ChatColor.BLACK + " ($5000) ile aday olun, " + ChatColor.DARK_RED + "/pusulaal" + ChatColor.BLACK +
+                " ile pusula alıp sandıkta oy verin. Sandıklar 10 dakika açık kalır.");
+        meta.addPage(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "POLİS VE HAPİS\n\n" +
+                ChatColor.BLACK + "Suç gördüyseniz karakoldaki Şikayet NPC'sine bildirin.\n\n" +
+                "Polis copuyla vurulan hapse girer, mesleği Mahkum olur. Hapiste blok kırılmaz, çoğu komut kapalıdır. Ceza bitince eski mesleğinize dönersiniz.");
+        meta.addPage(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "ADLİYE\n\n" +
+                ChatColor.BLACK + "Adalet Sarayı'ndan dava açıp tazminat isteyebilirsiniz. Avukat tutabilirsiniz.\n\n" +
+                "Hakim duruşmada tazminat ve hapis cezası verir. Duruşma bitmeden salondan ayrılamazsınız.");
+        meta.addPage(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "SAĞLIK\n\n" +
+                ChatColor.BLACK + "Ölmezsiniz, " + ChatColor.DARK_RED + "ağır yaralanırsınız" + ChatColor.BLACK + ": 20 dakikada doktor gelmezse ölürsünüz.\n\n" +
+                "Kanama için bandaj, kırık bacak için atel gerekir. " + ChatColor.DARK_RED + "/ambulanscagir" + ChatColor.BLACK +
+                " ($1500). Doktor yoksa hastane NPC'si tedavi eder.");
+        meta.addPage(ChatColor.DARK_GREEN + ChatColor.BOLD.toString() + "EHLİYET VE KLAN\n\n" +
+                ChatColor.BLACK + "Elytra ile uçmak için Sivil Havacılık'tan " + ChatColor.DARK_RED + "uçuş ehliyeti" + ChatColor.BLACK + " ($50.000) almalısınız.\n\n" +
+                "Bir klan kurmak ya da katılmak için " + ChatColor.DARK_RED + "/klan" + ChatColor.BLACK + " yazın. Klanlar savaşır, büyü ustalığı edinir.");
         meta.addPage(ChatColor.DARK_PURPLE + ChatColor.BOLD.toString() + "İLETİŞİM\n\n" +
                 ChatColor.BLACK + "Topluluğumuza katılmak, şikayet bildirmek veya yetkili başvurusu yapmak için Discord sunucumuza gelmeyi unutmayın!\n\n" +
                 ChatColor.BLUE + "https://discord.gg/invite/9GdXJ9q");
