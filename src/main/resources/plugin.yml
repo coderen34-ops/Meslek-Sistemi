@@ -235,6 +235,9 @@ commands:
     usage: /kimlikbiyomsec
 
 permissions:
+  meslek.admin:
+    description: NPC kurma, kasa ve kursu ayarlama, meslek atama ve prim verme yetkisi
+    default: op
   secim.admin:
     description: Sandik kurma ve secimi zorla baslatip bitirme yetkisi
     default: op
