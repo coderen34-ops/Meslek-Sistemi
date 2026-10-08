@@ -96,19 +96,19 @@ public class ToptanciManager implements Listener, CommandExecutor {
         if (name.contains("ANDESITE") || name.contains("DIORITE") || name.contains("GRANITE") || mat == Material.STONE) return 2.40;
         if (madenciEsyalari.contains(mat)) return 2.00; // Parke taşı, toprak, çimen, kum, çakıl
 
-        // ODUNCU FİYATLARI
+        // ODUNCU FİYATLARI (madenciyle aynı oranda; 1 kütük = 4 kalas fiyatı)
         if (name.contains("PALE_OAK")) {
-            if (name.contains("PLANKS")) return 0.85;
-            return 3.40; 
+            if (name.contains("PLANKS")) return 3.40;
+            return 13.60; 
         }
         
         if (name.contains("MANGROVE") || name.contains("CHERRY") || name.contains("CRIMSON") || name.contains("WARPED") || name.contains("BAMBOO")) {
-            if (name.contains("PLANKS")) return 0.65;
-            return 2.60; 
+            if (name.contains("PLANKS")) return 2.60;
+            return 10.40; 
         }
 
-        if (name.contains("LOG") || name.contains("WOOD") || name.contains("STEM")) return 2.00;
-        if (name.contains("PLANKS")) return 0.50; 
+        if (name.contains("LOG") || name.contains("WOOD") || name.contains("STEM")) return 8.00;
+        if (name.contains("PLANKS")) return 2.00; 
         
         return 0.50;
     }
