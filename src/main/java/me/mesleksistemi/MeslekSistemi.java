@@ -496,6 +496,8 @@ public class MeslekSistemi extends JavaPlugin {
         switch (ingot) {
             case DIAMOND: return Material.DIAMOND_BLOCK; case EMERALD: return Material.EMERALD_BLOCK;
             case GOLD_INGOT: return Material.GOLD_BLOCK; case IRON_INGOT: return Material.IRON_BLOCK;
+            case LAPIS_LAZULI: return Material.LAPIS_BLOCK; case COPPER_INGOT: return Material.COPPER_BLOCK;
+            case COAL: return Material.COAL_BLOCK;
             default: return null;
         }
     }

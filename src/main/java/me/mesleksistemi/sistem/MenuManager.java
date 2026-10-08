@@ -95,10 +95,8 @@ public class MenuManager implements Listener {
         ItemStack cek = new ItemStack(Material.GOLD_NUGGET); ItemMeta cMeta = cek.getItemMeta();
         cMeta.setDisplayName(ChatColor.RED + "Bankadan Para CEK"); cek.setItemMeta(cMeta); gui.setItem(15, cek);
 
-        gui.setItem(18, getBorsaItem(Material.DIAMOND, "Elmas (Belediye)", 300, 50));
-        gui.setItem(19, getBorsaItem(Material.EMERALD, "Zumrut (Belediye)", 250, 40));
-        gui.setItem(20, getBorsaItem(Material.GOLD_INGOT, "Altin (Belediye)", 150, 20));
-        gui.setItem(21, getBorsaItem(Material.IRON_INGOT, "Demir (Belediye)", 100, 5));
+        int slot = BORSA_ILK_SLOT;
+        for (BorsaUrunu u : BORSA) gui.setItem(slot++, getBorsaItem(u.mat(), u.ad(), u.alis(), u.satis()));
 
         player.openInventory(gui);
     }
@@ -151,6 +149,18 @@ public class MenuManager implements Listener {
         }
         return yer;
     }
+
+    // BELEDİYE BORSASI ürünleri (banka menüsünde 18. slottan itibaren): alış = oyuncunun ödediği, satış = oyuncuya ödenen
+    private record BorsaUrunu(Material mat, String ad, int alis, int satis) {}
+    private static final int BORSA_ILK_SLOT = 18;
+    private static final List<BorsaUrunu> BORSA = List.of(
+            new BorsaUrunu(Material.DIAMOND, "Elmas (Belediye)", 300, 50),
+            new BorsaUrunu(Material.EMERALD, "Zumrut (Belediye)", 250, 40),
+            new BorsaUrunu(Material.GOLD_INGOT, "Altin (Belediye)", 150, 20),
+            new BorsaUrunu(Material.IRON_INGOT, "Demir (Belediye)", 100, 5),
+            new BorsaUrunu(Material.LAPIS_LAZULI, "Lapis (Belediye)", 40, 3),
+            new BorsaUrunu(Material.COPPER_INGOT, "Bakir (Belediye)", 30, 2),
+            new BorsaUrunu(Material.COAL, "Komur (Belediye)", 20, 1));
 
     private ItemStack getBorsaItem(Material mat, String name, int alis, int satis) {
         ItemStack item = new ItemStack(mat); ItemMeta meta = item.getItemMeta();
@@ -312,12 +322,14 @@ public class MenuManager implements Listener {
 
             // BELEDİYE BORSASI: Ürün stoğu da para da Belediye Kasası'ndadır.
             // Oyuncu alırken ödediği para kasaya girer; satarken parası kasadan ödenir.
-            if (event.getRawSlot() >= 18 && event.getRawSlot() <= 21) {
-                Material mat = clicked.getType(); 
+            int borsaSira = event.getRawSlot() - BORSA_ILK_SLOT;
+            if (borsaSira >= 0 && borsaSira < BORSA.size()) {
+                BorsaUrunu urun = BORSA.get(borsaSira);
+                Material mat = urun.mat();
                 Material blockMat = plugin.getBlockMaterial(mat);
                 if (blockMat == null) return;
-                int alis = (mat == Material.DIAMOND) ? 300 : (mat == Material.EMERALD) ? 250 : (mat == Material.GOLD_INGOT) ? 150 : 100;
-                int satis = (mat == Material.DIAMOND) ? 50 : (mat == Material.EMERALD) ? 40 : (mat == Material.GOLD_INGOT) ? 20 : 5;
+                int alis = urun.alis();
+                int satis = urun.satis();
 
                 Chest kasa = plugin.getKasa();
                 if (kasa == null) {
