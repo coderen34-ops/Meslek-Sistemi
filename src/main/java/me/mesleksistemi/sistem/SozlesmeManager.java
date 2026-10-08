@@ -211,6 +211,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                         return true;
                     }
                     player.sendMessage(ChatColor.GREEN + "Ödeme onaylandı. " + sozlesme.tutar + "$ Belediye Kasasından kesildi.");
+                    plugin.ekonomiLog("belediye-sozlesme", player.getName(), "ÖDENDİ " + sozlesmeID + " | işçi: " + sozlesme.isciAdi + " | $" + sozlesme.tutar);
                 }
 
                 double isciBakiye = plugin.bankaHesaplari.getOrDefault(sozlesme.isciUUID, 0.0);
@@ -233,6 +234,20 @@ public class SozlesmeManager implements Listener, CommandExecutor {
             return true;
         }
         return false;
+    }
+
+    // Aynı işçiyle son belediye sözleşmesinin zamanı (config, oyuncu UUID'si -> ms)
+    private static final String BEKLEME_YOLU = "belediye_sozlesme_bekleme";
+
+    /** Belediye sözleşmesine engel varsa sebebi (mesaj), yoksa null. */
+    private String belediyeEngeli(Player baskan, UUID isci) {
+        if (baskan.getUniqueId().equals(isci)) return "Kendinizle belediye sözleşmesi yapamazsınız.";
+        long kalan = plugin.getConfig().getLong(BEKLEME_YOLU + "." + isci, 0L) + plugin.belediyeSozlesmeBeklemeMs() - System.currentTimeMillis();
+        if (kalan > 0) return "Bu oyuncuyla tekrar belediye sözleşmesi yapmak için " + MeslekSistemi.sureYaz(kalan) + " beklemelisiniz.";
+        for (AktifSozlesme a : aktifSozlesmeler.values()) {
+            if ("BELEDIYE".equals(a.tip) && isci.equals(a.isciUUID)) return "Bu oyuncuyla zaten açık bir belediye sözleşmesi var.";
+        }
+        return null;
     }
 
     private void openPlayerMenu(Player player, String tip) {
@@ -281,6 +296,16 @@ public class SozlesmeManager implements Listener, CommandExecutor {
 
             if (!taslaklar.containsKey(isveren.getUniqueId())) return;
             SozlesmeTaslagi taslak = taslaklar.get(isveren.getUniqueId());
+            if (taslak.tip.equals("BELEDIYE")) {
+                String engel = belediyeEngeli(isveren, isci.getUniqueId());
+                if (engel != null) {
+                    isveren.sendMessage(ChatColor.RED + "❌ " + engel);
+                    plugin.ekonomiLog("belediye-sozlesme", isveren.getName(), "REDDEDİLDİ (" + engel + ") | işçi: " + isci.getName());
+                    isveren.closeInventory();
+                    taslaklar.remove(isveren.getUniqueId());
+                    return;
+                }
+            }
 
             taslak.isciIsmi = isci.getName();
             taslak.asama = 2;
@@ -326,6 +351,13 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                             return; // Aşamayı 3'e geçirmeden bekler
                         }
                     } else if (taslak.tip.equals("BELEDIYE")) {
+                        double ustLimit = plugin.belediyeSozlesmeUstLimit();
+                        if (taslak.tutar > ustLimit) {
+                            player.sendMessage(ChatColor.RED + "❌ Belediye sözleşmesi en fazla $" + ustLimit + " olabilir!");
+                            player.sendMessage(ChatColor.GRAY + "Daha düşük bir tutar girin veya iptal etmek için 'iptal' yazın.");
+                            plugin.ekonomiLog("belediye-sozlesme", player.getName(), "REDDEDİLDİ (üst limit $" + ustLimit + ") | işçi: " + taslak.isciIsmi + " | $" + taslak.tutar);
+                            return;
+                        }
                         if (plugin.getKasa() == null) {
                             player.sendMessage(ChatColor.RED + "❌ HATA: Belediye Kasası bulunamadı! İptal etmek için 'iptal' yazın.");
                             return;
@@ -358,6 +390,18 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                     return;
                 }
 
+                if (taslak.tip.equals("BELEDIYE")) {
+                    // Seçimden bu yana durum değişmiş olabilir: hepsi yeniden kontrol edilir
+                    String engel = belediyeEngeli(player, isci.getUniqueId());
+                    if (engel == null && taslak.tutar > plugin.belediyeSozlesmeUstLimit()) engel = "Tutar üst limiti ($" + plugin.belediyeSozlesmeUstLimit() + ") aşıyor";
+                    if (engel != null) {
+                        player.sendMessage(ChatColor.RED + "❌ " + engel + " Sözleşme iptal edildi.");
+                        plugin.ekonomiLog("belediye-sozlesme", player.getName(), "REDDEDİLDİ (" + engel + ") | işçi: " + isci.getName() + " | $" + taslak.tutar);
+                        taslaklar.remove(player.getUniqueId());
+                        return;
+                    }
+                }
+
                 String sozlesmeID = UUID.randomUUID().toString().substring(0, 8);
                 AktifSozlesme aktif = new AktifSozlesme();
                 aktif.isverenAdi = player.getName();
@@ -369,6 +413,11 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                 aktif.durum = "TEKLIF";
                 aktif.tip = taslak.tip;
                 aktifSozlesmeler.put(sozlesmeID, aktif);
+                if (aktif.tip.equals("BELEDIYE")) {
+                    // Bekleme teklif gönderildiği an başlar (işçi reddetse bile); oyuncu bazlı, başkan değişse de geçerli
+                    plugin.getConfig().set(BEKLEME_YOLU + "." + isci.getUniqueId(), System.currentTimeMillis());
+                    plugin.ekonomiLog("belediye-sozlesme", player.getName(), "TEKLİF " + sozlesmeID + " | işçi: " + isci.getName() + " | $" + aktif.tutar);
+                }
                 veriKaydet();
 
                 sendTeklifKitabi(isci, sozlesmeID, aktif);

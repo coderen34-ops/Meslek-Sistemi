@@ -226,6 +226,7 @@ public class MeslekSistemi extends JavaPlugin {
         if (getCommand("kira") != null) getCommand("kira").setExecutor(this.kiraManager.sozlesmeManager);
 
         veriYukle();
+        ayarlariHazirla();
 
         Commands cmdExecutor = new Commands(this);
         String[] cmds = {
@@ -319,6 +320,78 @@ public class MeslekSistemi extends JavaPlugin {
         String komut = govde.trim().split("\\s+")[0].toLowerCase(Locale.ROOT);
         int onekSonu = komut.lastIndexOf(':');
         return onekSonu >= 0 ? komut.substring(onekSonu + 1) : komut;
+    }
+
+    // ------------------------------------------------------------------
+    // AYARLAR (config.yml kökünde; eksikse varsayılanla eklenir)
+    // ------------------------------------------------------------------
+    public static final String AYAR_BASVURU_PRIM = "basvuru-prim";
+    public static final String AYAR_BASVURU_PRIM_GUNLUK = "basvuru-prim-gunluk-limit";
+    public static final String AYAR_SOZLESME_UST_LIMIT = "belediye-sozlesme-ust-limit";
+    public static final String AYAR_SOZLESME_BEKLEME = "belediye-sozlesme-bekleme-dakika";
+
+    private void ayarlariHazirla() {
+        boolean degisti = false;
+        Object[][] varsayilanlar = {
+                {AYAR_BASVURU_PRIM, 30.0}, {AYAR_BASVURU_PRIM_GUNLUK, 20},
+                {AYAR_SOZLESME_UST_LIMIT, 10000.0}, {AYAR_SOZLESME_BEKLEME, 60}};
+        for (Object[] v : varsayilanlar) {
+            if (!getConfig().contains((String) v[0])) { getConfig().set((String) v[0], v[1]); degisti = true; }
+        }
+        if (degisti) saveConfig();
+        double prim = getConfig().getDouble(AYAR_BASVURU_PRIM);
+        if (prim > basvuruPrimUstSiniri()) {
+            getLogger().warning("[Prim] " + AYAR_BASVURU_PRIM + " (" + prim + ") en düşük başvuru ücretinin %20'sini ("
+                    + basvuruPrimUstSiniri() + ") aşıyor; " + basvuruPrimUstSiniri() + " olarak uygulanacak.");
+        }
+    }
+
+    // Config'ten pozitif, sonlu sayı okur; geçersizse varsayılan döner
+    private double ayarSayi(String yol, double varsayilan) {
+        double d = getConfig().getDouble(yol, varsayilan);
+        return (Double.isFinite(d) && d >= 0) ? d : varsayilan;
+    }
+
+    /** Prim, en düşük meslek başvuru ücretinin %20'sini geçemez (başvuru açıp prim toplamak kâr etmesin). */
+    public double basvuruPrimUstSiniri() {
+        double enDusuk = meslekFiyatlari.values().stream().mapToDouble(Double::doubleValue).min().orElse(0.0);
+        return Math.round(enDusuk * 0.2 * 100.0) / 100.0;
+    }
+
+    public double basvuruPrimi() { return Math.min(ayarSayi(AYAR_BASVURU_PRIM, 30.0), basvuruPrimUstSiniri()); }
+    public int basvuruPrimGunlukLimit() { return (int) ayarSayi(AYAR_BASVURU_PRIM_GUNLUK, 20); }
+    public double belediyeSozlesmeUstLimit() { return ayarSayi(AYAR_SOZLESME_UST_LIMIT, 10000.0); }
+    public long belediyeSozlesmeBeklemeMs() { return (long) ayarSayi(AYAR_SOZLESME_BEKLEME, 60) * 60_000L; }
+
+    // ------------------------------------------------------------------
+    // EKONOMİ LOG'U: plugins/MeslekSistemi/loglar/ekonomi-YYYY-AA.log
+    // Dosya arka plandaki kayıt thread'inde yazılır (sunucu donmaz).
+    // ------------------------------------------------------------------
+    public void ekonomiLog(String kategori, String kim, String detay) {
+        java.time.LocalDateTime simdi = java.time.LocalDateTime.now();
+        String satir = "[" + simdi.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "] ["
+                + kategori + "] " + kim + " | " + detay + System.lineSeparator();
+        File dosya = new File(getDataFolder(), "loglar/ekonomi-" + simdi.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM")) + ".log");
+        Runnable yaz = () -> {
+            try {
+                Files.createDirectories(dosya.getParentFile().toPath());
+                Files.writeString(dosya.toPath(), satir, StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                getLogger().log(Level.WARNING, "Ekonomi log'u yazılamadı!", e);
+            }
+        };
+        if (kapaniyor || kayitYazici == null || kayitYazici.isShutdown()) yaz.run();
+        else kayitYazici.execute(yaz);
+    }
+
+    /** "1 saat 5 dakika" / "12 dakika" / "40 saniye" */
+    public static String sureYaz(long ms) {
+        long sn = Math.max(0, (ms + 999) / 1000);
+        long saat = sn / 3600, dk = (sn % 3600) / 60;
+        if (saat > 0) return saat + " saat " + dk + " dakika";
+        if (dk > 0) return dk + " dakika";
+        return sn + " saniye";
     }
 
     public boolean hapisteMi(UUID oyuncu) {

@@ -250,9 +250,57 @@ public class Commands implements CommandExecutor {
                 player.sendMessage(ChatColor.RED + "Basvuru reddedildi!");
                 if (basvuranPlayer != null) basvuranPlayer.sendMessage(ChatColor.RED + "Basvurunuz reddedildi.");
             }
+            if (islem.equalsIgnoreCase("kabulet") || islem.equalsIgnoreCase("reddet")) {
+                basvuruPrimiOde(player, basvuranUUID, basvuru, islem.equalsIgnoreCase("kabulet") ? "KABUL" : "RED");
+            }
             player.closeInventory(); plugin.veriKaydet(); return true;
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------
+    // BAŞKAN PRİMİ: başvuru kabul ya da red edilince (aynı tutar) kasadan başkanın bankasına.
+    // Başvuru cevaplanınca listeden silindiği için aynı başvuruya ikinci kez prim ödenemez.
+    // ------------------------------------------------------------------
+    private static final String PRIM_YOLU = "basvuru_prim_kayit";
+
+    private void basvuruPrimiOde(Player baskan, UUID basvuran, MeslekSistemi.Basvuru basvuru, String karar) {
+        String kim = baskan.getName();
+        String konu = basvuru.oyuncuAdi + " (" + basvuru.meslek + ", " + karar + ")";
+        double prim = plugin.basvuruPrimi();
+        if (prim <= 0) return;
+
+        if (basvuran.equals(baskan.getUniqueId())) {
+            baskan.sendMessage(ChatColor.GRAY + "Kendi başvurunuz için prim ödenmez.");
+            plugin.ekonomiLog("basvuru-prim", kim, "ÖDENMEDİ (kendi başvurusu) | " + konu);
+            return;
+        }
+        long simdi = System.currentTimeMillis();
+        long sonPrim = plugin.getConfig().getLong(PRIM_YOLU + ".son." + basvuran, 0L);
+        if (simdi - sonPrim < 24 * 60 * 60 * 1000L) {
+            baskan.sendMessage(ChatColor.GRAY + "Bu oyuncunun başvurusu için son 24 saatte prim ödendi, bu sefer prim yok.");
+            plugin.ekonomiLog("basvuru-prim", kim, "ÖDENMEDİ (aynı başvurana 24 saat içinde) | " + konu);
+            return;
+        }
+        long bugun = java.time.LocalDate.now().toEpochDay();
+        int bugunSayi = plugin.getConfig().getLong(PRIM_YOLU + ".gun", -1L) == bugun ? plugin.getConfig().getInt(PRIM_YOLU + ".sayi", 0) : 0;
+        if (bugunSayi >= plugin.basvuruPrimGunlukLimit()) {
+            baskan.sendMessage(ChatColor.GRAY + "Bugünkü başvuru primi limiti (" + plugin.basvuruPrimGunlukLimit() + ") doldu, prim ödenmedi.");
+            plugin.ekonomiLog("basvuru-prim", kim, "ÖDENMEDİ (günlük limit) | " + konu);
+            return;
+        }
+        if (!plugin.kasadanParaCek(prim)) {
+            baskan.sendMessage(ChatColor.RED + "Belediye kasası yetersiz, prim ödenmedi.");
+            plugin.ekonomiLog("basvuru-prim", kim, "ÖDENMEDİ (kasa yetersiz/yok) | " + konu + " | $" + prim);
+            return;
+        }
+        double bakiye = plugin.bankaHesaplari.getOrDefault(baskan.getUniqueId(), 0.0);
+        plugin.bankaHesaplari.put(baskan.getUniqueId(), bakiye + prim);
+        plugin.getConfig().set(PRIM_YOLU + ".son." + basvuran, simdi);
+        plugin.getConfig().set(PRIM_YOLU + ".gun", bugun);
+        plugin.getConfig().set(PRIM_YOLU + ".sayi", bugunSayi + 1);
+        baskan.sendMessage(ChatColor.GREEN + "[Banka] Başvuruyu değerlendirdiğiniz için belediye kasasından $" + prim + " prim yatırıldı.");
+        plugin.ekonomiLog("basvuru-prim", kim, "ÖDENDİ $" + prim + " | " + konu + " | bugün " + (bugunSayi + 1) + "/" + plugin.basvuruPrimGunlukLimit());
     }
 
     private void handleNpcCommand(Player player, String[] args, NamespacedKey key, String name, Villager.Profession prof) {
