@@ -88,12 +88,13 @@ public class ToptanciManager implements Listener, CommandExecutor {
     private double getAlisFiyati(Material mat) {
         String name = mat.name();
 
-        // MADENCİ FİYATLARI
-        if (name.contains("AMETHYST")) return 1.50; // En nadir
-        if (name.contains("CALCITE")) return 1.20; // Jeot taşı
-        if (name.contains("BLACKSTONE") || name.contains("BASALT")) return 1.00; // Nether tehlikesi
-        if (name.contains("DEEPSLATE") || mat == Material.TUFF) return 0.80;
-        if (name.contains("ANDESITE") || name.contains("DIORITE") || name.contains("GRANITE") || mat == Material.STONE) return 0.60;
+        // MADENCİ FİYATLARI (devlete satış bunun yarısı; en değersiz taş - parke taşı - devlete $1)
+        if (name.contains("AMETHYST")) return 6.00; // En nadir
+        if (name.contains("CALCITE")) return 4.80; // Jeot taşı
+        if (name.contains("BLACKSTONE") || name.contains("BASALT")) return 4.00; // Nether tehlikesi
+        if (name.contains("DEEPSLATE") || mat == Material.TUFF) return 3.20;
+        if (name.contains("ANDESITE") || name.contains("DIORITE") || name.contains("GRANITE") || mat == Material.STONE) return 2.40;
+        if (madenciEsyalari.contains(mat)) return 2.00; // Parke taşı, toprak, çimen, kum, çakıl
 
         // ODUNCU FİYATLARI
         if (name.contains("PALE_OAK")) {
