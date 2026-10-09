@@ -53,21 +53,21 @@ public class MeslekSistemi extends JavaPlugin {
     public NamespacedKey economyValueKey, npcKey, bankaNpcKey, nufusNpcKey, tapuNpcKey, kimlikIdKey;
     public Location kasaKonumu = null, kursuKonumu = null, yasaKursuKonumu = null; 
     
-    public HashMap<UUID, String> basvuruBekleyenler = new HashMap<>();
+    public java.util.concurrent.ConcurrentHashMap<UUID, String> basvuruBekleyenler = new java.util.concurrent.ConcurrentHashMap<>();
     public HashMap<UUID, Basvuru> aktifBasvurular = new HashMap<>();
-    public HashMap<UUID, String> bankaIslemBekleyenler = new HashMap<>();
-    public HashMap<UUID, Integer> kimlikAsama = new HashMap<>();
-    public HashMap<UUID, GeciciKimlik> geciciKimlikler = new HashMap<>();
+    public java.util.concurrent.ConcurrentHashMap<UUID, String> bankaIslemBekleyenler = new java.util.concurrent.ConcurrentHashMap<>();
+    public java.util.concurrent.ConcurrentHashMap<UUID, Integer> kimlikAsama = new java.util.concurrent.ConcurrentHashMap<>();
+    public java.util.concurrent.ConcurrentHashMap<UUID, GeciciKimlik> geciciKimlikler = new java.util.concurrent.ConcurrentHashMap<>();
     public HashMap<String, Double> meslekFiyatlari = new HashMap<>();
     public HashMap<String, String> meslekGorunumAdlari = new HashMap<>();
     public HashMap<String, Double> maasMiktarlari = new HashMap<>();
     public HashMap<UUID, Double> bankaHesaplari = new HashMap<>();
     public HashMap<UUID, Long> sonHareketZamani = new HashMap<>();
-    public HashMap<UUID, String> oyuncuMeslekCache = new HashMap<>(); 
+    public java.util.concurrent.ConcurrentHashMap<UUID, String> oyuncuMeslekCache = new java.util.concurrent.ConcurrentHashMap<>(); 
     
     // TAPU VE EHLİYET VERİLERİ
     public HashSet<UUID> tapuSahipleri = new HashSet<>();
-    public HashMap<UUID, String> tapuIslemBekleyenler = new HashMap<>();
+    public java.util.concurrent.ConcurrentHashMap<UUID, String> tapuIslemBekleyenler = new java.util.concurrent.ConcurrentHashMap<>();
     public double ilkTapuBlokFiyati = 300.0;
     public double genisletmeBlokFiyati = 1000.0;
     
@@ -150,6 +150,7 @@ public class MeslekSistemi extends JavaPlugin {
         
         this.menuManager = new MenuManager(this);
         getServer().getPluginManager().registerEvents(this.menuManager, this);
+        getServer().getPluginManager().registerEvents(new me.mesleksistemi.sistem.MenuKorumaListener(), this);
         getServer().getPluginManager().registerEvents(new KimlikListener(this), this);
         getServer().getPluginManager().registerEvents(new MeslekListener(this), this);
 
@@ -349,12 +350,14 @@ public class MeslekSistemi extends JavaPlugin {
     public static final String AYAR_BASVURU_PRIM_GUNLUK = "basvuru-prim-gunluk-limit";
     public static final String AYAR_SOZLESME_UST_LIMIT = "belediye-sozlesme-ust-limit";
     public static final String AYAR_SOZLESME_BEKLEME = "belediye-sozlesme-bekleme-dakika";
+    public static final String AYAR_TOPTANCI_GUNLUK = "toptanci-gunluk-limit";
 
     private void ayarlariHazirla() {
         boolean degisti = false;
         Object[][] varsayilanlar = {
                 {AYAR_BASVURU_PRIM, 30.0}, {AYAR_BASVURU_PRIM_GUNLUK, 20},
-                {AYAR_SOZLESME_UST_LIMIT, 10000.0}, {AYAR_SOZLESME_BEKLEME, 60}};
+                {AYAR_SOZLESME_UST_LIMIT, 10000.0}, {AYAR_SOZLESME_BEKLEME, 60},
+                {AYAR_TOPTANCI_GUNLUK, 20000.0}, {"secim-bypass-cevrimdisi-dakika", 60}};
         for (Object[] v : varsayilanlar) {
             if (!getConfig().contains((String) v[0])) { getConfig().set((String) v[0], v[1]); degisti = true; }
         }
@@ -381,6 +384,8 @@ public class MeslekSistemi extends JavaPlugin {
     public double basvuruPrimi() { return Math.min(ayarSayi(AYAR_BASVURU_PRIM, 30.0), basvuruPrimUstSiniri()); }
     public int basvuruPrimGunlukLimit() { return (int) ayarSayi(AYAR_BASVURU_PRIM_GUNLUK, 20); }
     public double belediyeSozlesmeUstLimit() { return ayarSayi(AYAR_SOZLESME_UST_LIMIT, 10000.0); }
+    /** Bir oyuncunun toptancıya günde satabileceği toplam tutar (0 = sınırsız). */
+    public double toptanciGunlukLimit() { return ayarSayi(AYAR_TOPTANCI_GUNLUK, 20000.0); }
     public long belediyeSozlesmeBeklemeMs() { return (long) ayarSayi(AYAR_SOZLESME_BEKLEME, 60) * 60_000L; }
 
     // ------------------------------------------------------------------

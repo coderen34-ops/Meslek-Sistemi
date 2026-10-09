@@ -227,6 +227,10 @@ public class ToptanciManager implements Listener, CommandExecutor {
         return item;
     }
 
+    // Oyuncu başına günlük satış toplamı (bellekte tutulur; gün değişince sıfırlanır)
+    private final java.util.Map<java.util.UUID, Long> gunlukSatisGunu = new java.util.HashMap<>();
+    private final java.util.Map<java.util.UUID, Double> gunlukSatisToplam = new java.util.HashMap<>();
+
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         String title = event.getView().getTitle();
@@ -266,6 +270,25 @@ public class ToptanciManager implements Listener, CommandExecutor {
 
             int satilacakMiktar = (click == ClickType.SHIFT_RIGHT) ? oyuncudakiMiktar : 1;
             double unitPrice = getSatisFiyati(mat);
+
+            // Günlük satış tavanı: jeneratörle kasayı boşaltmayı engeller (0 = sınırsız)
+            double gunlukLimit = plugin.toptanciGunlukLimit();
+            if (gunlukLimit > 0 && unitPrice > 0) {
+                long bugun = java.time.LocalDate.now().toEpochDay();
+                Long kayitliGun = gunlukSatisGunu.get(player.getUniqueId());
+                if (kayitliGun == null || kayitliGun != bugun) {
+                    gunlukSatisGunu.put(player.getUniqueId(), bugun);
+                    gunlukSatisToplam.put(player.getUniqueId(), 0.0);
+                }
+                double kalan = gunlukLimit - gunlukSatisToplam.getOrDefault(player.getUniqueId(), 0.0);
+                int sigar = (int) Math.floor(kalan / unitPrice + 1e-9);
+                if (sigar <= 0) {
+                    player.sendMessage(ChatColor.RED + "Bugünlük satış limitine ulaştın ($" + String.format(Locale.US, "%.0f", gunlukLimit) + "). Yarın tekrar gel!");
+                    player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+                    return;
+                }
+                if (satilacakMiktar > sigar) satilacakMiktar = sigar;
+            }
             double totalPrice = satilacakMiktar * unitPrice;
 
             if (!plugin.kasadanParaCek(totalPrice)) {
@@ -275,6 +298,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
             }
 
             plugin.removeItemFromInventory(player.getInventory(), mat, satilacakMiktar);
+            gunlukSatisToplam.merge(player.getUniqueId(), totalPrice, Double::sum);
             
             double currentBank = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
             plugin.bankaHesaplari.put(player.getUniqueId(), currentBank + totalPrice);

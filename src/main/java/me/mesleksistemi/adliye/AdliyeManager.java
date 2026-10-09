@@ -28,14 +28,14 @@ public class AdliyeManager {
     public final HashMap<UUID, DavaDosyasi> aktifDavalar = new HashMap<>();
     public final HashSet<UUID> durusmadakiOyuncular = new HashSet<>();
     
-    public final HashMap<UUID, String> sohbetDurumu = new HashMap<>();
-    public final HashMap<UUID, String> geciciDavaHedefi = new HashMap<>();
-    public final HashMap<UUID, Double> geciciDavaMiktari = new HashMap<>();
+    public final java.util.concurrent.ConcurrentHashMap<UUID, String> sohbetDurumu = new java.util.concurrent.ConcurrentHashMap<>();
+    public final java.util.concurrent.ConcurrentHashMap<UUID, String> geciciDavaHedefi = new java.util.concurrent.ConcurrentHashMap<>();
+    public final java.util.concurrent.ConcurrentHashMap<UUID, Double> geciciDavaMiktari = new java.util.concurrent.ConcurrentHashMap<>();
     
-    public final HashMap<UUID, UUID> avukatTeklifAsamasi = new HashMap<>(); 
+    public final java.util.concurrent.ConcurrentHashMap<UUID, UUID> avukatTeklifAsamasi = new java.util.concurrent.ConcurrentHashMap<>(); 
     public final HashMap<UUID, AvukatTeklifi> bekleyenTeklifler = new HashMap<>(); 
-    public final HashMap<UUID, UUID> hakimKararAsamasi = new HashMap<>(); 
-    public final HashMap<UUID, Double> geciciHakimTazminat = new HashMap<>();
+    public final java.util.concurrent.ConcurrentHashMap<UUID, UUID> hakimKararAsamasi = new java.util.concurrent.ConcurrentHashMap<>(); 
+    public final java.util.concurrent.ConcurrentHashMap<UUID, Double> geciciHakimTazminat = new java.util.concurrent.ConcurrentHashMap<>();
 
     public AdliyeManager(MeslekSistemi plugin) {
         this.plugin = plugin;

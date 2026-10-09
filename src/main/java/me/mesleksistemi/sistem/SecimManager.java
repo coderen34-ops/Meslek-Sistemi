@@ -103,6 +103,13 @@ public class SecimManager implements Listener, CommandExecutor {
         return null;
     }
 
+    // Başkan bu süre kadar çevrimdışı kalırsa oylama bypass edilebilir (varsayılan 60 dk; eskiden 5 dk idi)
+    private long bypassCevrimdisiMs() {
+        double dk = plugin.getConfig().getDouble("secim-bypass-cevrimdisi-dakika", 60.0);
+        if (!Double.isFinite(dk) || dk < 1.0) dk = 60.0;
+        return (long) (dk * 60_000L);
+    }
+
     private boolean isBypassAktif() {
         UUID baskanUUID = getGercekBaskan();
         
@@ -124,7 +131,7 @@ public class SecimManager implements Listener, CommandExecutor {
         long offlineSure = System.currentTimeMillis() - sonGorulme;
         if (offlineSure < 0) offlineSure = 0; 
         
-        return offlineSure >= (5 * 60 * 1000L); // 5 dakika kontrolü
+        return offlineSure >= bypassCevrimdisiMs(); // config: secim-bypass-cevrimdisi-dakika
     }
 
     @Override
@@ -151,8 +158,8 @@ public class SecimManager implements Listener, CommandExecutor {
                             long offlineSure = System.currentTimeMillis() - sonGorulme;
                             if (offlineSure < 0) offlineSure = 0;
                             
-                            if (offlineSure < 300000L) { // 5 dakikadan az (Tolerans)
-                                long kalanSaniyeTop = (300000L - offlineSure) / 1000L;
+                            if (offlineSure < bypassCevrimdisiMs()) { // tolerans süresi içinde
+                                long kalanSaniyeTop = (bypassCevrimdisiMs() - offlineSure) / 1000L;
                                 long kalanDakika = kalanSaniyeTop / 60L;
                                 long kalanSaniye = kalanSaniyeTop % 60L;
                                 player.sendMessage(ChatColor.RED + "Başkan şu an çevrimdışı ancak tolerans süresinde!");

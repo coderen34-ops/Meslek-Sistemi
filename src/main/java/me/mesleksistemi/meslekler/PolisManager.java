@@ -77,8 +77,8 @@ public class PolisManager implements Listener, CommandExecutor {
     public HashMap<UUID, Sikayet> aktifSikayetler = new HashMap<>();
     public HashSet<String> arananOyuncular = new HashSet<>();
     
-    private final HashMap<UUID, Integer> sikayetAdimi = new HashMap<>(); 
-    private final HashMap<UUID, String> geciciSikayetHedef = new HashMap<>(); 
+    private final java.util.concurrent.ConcurrentHashMap<UUID, Integer> sikayetAdimi = new java.util.concurrent.ConcurrentHashMap<>(); 
+    private final java.util.concurrent.ConcurrentHashMap<UUID, String> geciciSikayetHedef = new java.util.concurrent.ConcurrentHashMap<>(); 
     
     private final Random random = new Random();
 

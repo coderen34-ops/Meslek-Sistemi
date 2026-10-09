@@ -390,16 +390,7 @@ public class AdliyeListener implements Listener {
                         player.sendMessage(ChatColor.RED + "(Talep edilenden fazlasını yazamazsınız!)");
                     } else if (clicked.getType() == Material.RED_DYE) { 
                         Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.YELLOW + "Karar açıklandı! Sanık " + ChatColor.GREEN + dava.sanik + ChatColor.YELLOW + " beraat etti, dava düşürüldü.");
-                        if (dava.sanikAvukati != null) {
-                            @SuppressWarnings("deprecation")
-                            OfflinePlayer sAvukat = Bukkit.getOfflinePlayer(dava.sanikAvukati);
-                            double bakiye = plugin.bankaHesaplari.getOrDefault(sAvukat.getUniqueId(), 0.0);
-                            plugin.bankaHesaplari.put(sAvukat.getUniqueId(), bakiye + 2500.0);
-                            plugin.veriKaydet();
-                            if (sAvukat.isOnline()) {
-                                sAvukat.getPlayer().sendMessage(ChatColor.GREEN + "Zorlu bir savunmayı başardığınız için Devlet size $" + ChatColor.GOLD + "2500" + ChatColor.GREEN + " prim ödedi!");
-                            }
-                        }
+                        avukatPrimiOde(dava, dava.sanikAvukati, 2500.0, "Zorlu bir savunmayı başardığınız için Devlet size $");
                         am.durusmayiBitir(dava); 
                         am.durusmadakiOyuncular.remove(player.getUniqueId()); 
                         am.aktifDavalar.remove(davaId);
@@ -561,19 +552,17 @@ public class AdliyeListener implements Listener {
                     
                     double sanikPara = plugin.bankaHesaplari.getOrDefault(sanikOp.getUniqueId(), 0.0);
                     double mustekiPara = plugin.bankaHesaplari.getOrDefault(mustekiOp.getUniqueId(), 0.0);
-                    
-                    plugin.bankaHesaplari.put(sanikOp.getUniqueId(), sanikPara - tazminat); 
-                    plugin.bankaHesaplari.put(mustekiOp.getUniqueId(), mustekiPara + tazminat);
-                    
-                    if (dava.mustekiAvukati != null) {
-                        @SuppressWarnings("deprecation")
-                        OfflinePlayer mAvukat = Bukkit.getOfflinePlayer(dava.mustekiAvukati);
-                        double bakiye = plugin.bankaHesaplari.getOrDefault(mAvukat.getUniqueId(), 0.0);
-                        plugin.bankaHesaplari.put(mAvukat.getUniqueId(), bakiye + 1500.0);
-                        if (mAvukat.isOnline()) {
-                            mAvukat.getPlayer().sendMessage(ChatColor.GREEN + "Hukuk mücadelesini kazandığınız için Devlet size $" + ChatColor.GOLD + "1500" + ChatColor.GREEN + " prim ödedi!");
-                        }
+
+                    // Sanığın bakiyesi eksiye düşmesin: tazminat en fazla bakiyesi kadar tahsil edilir
+                    // (müştekiye giden tutar çekilenle birebir aynı, hiç para basılmaz).
+                    if (sanikOp.getUniqueId().equals(mustekiOp.getUniqueId())) tazminat = 0.0;
+                    tazminat = Math.max(0.0, Math.min(tazminat, Math.max(0.0, sanikPara)));
+                    if (tazminat > 0.0) {
+                        plugin.bankaHesaplari.put(sanikOp.getUniqueId(), sanikPara - tazminat);
+                        plugin.bankaHesaplari.put(mustekiOp.getUniqueId(), mustekiPara + tazminat);
                     }
+
+                    avukatPrimiOde(dava, dava.mustekiAvukati, 1500.0, "Hukuk mücadelesini kazandığınız için Devlet size $");
                     plugin.veriKaydet();
                     
                     Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.YELLOW + "Karar açıklandı! Sanık " + ChatColor.RED + dava.sanik + ChatColor.YELLOW + " suçlu bulundu ve Müştekiye $" + ChatColor.GOLD + tazminat + ChatColor.YELLOW + " tazminat ödemeye mahkum edildi.");
@@ -595,6 +584,22 @@ public class AdliyeListener implements Listener {
                     player.sendMessage(ChatColor.RED + "Lütfen sadece tam sayı girin! (Örn: 15 veya 0)");
                 }
             }
+        }
+    }
+
+    // Avukat primi belediye kasasından ödenir (para basılmaz). Avukat davanın tarafı veya hakimi ise prim yok.
+    private void avukatPrimiOde(DavaDosyasi dava, String avukatAdi, double miktar, String mesajBasi) {
+        if (avukatAdi == null) return;
+        if (avukatAdi.equalsIgnoreCase(dava.musteki) || avukatAdi.equalsIgnoreCase(dava.sanik)
+                || (dava.hakim != null && avukatAdi.equalsIgnoreCase(dava.hakim))) return;
+        if (!plugin.kasadanParaCek(miktar)) return; // kasa yok veya bakiye yetmiyor: prim ödenmez
+        @SuppressWarnings("deprecation")
+        OfflinePlayer avukat = Bukkit.getOfflinePlayer(avukatAdi);
+        double bakiye = plugin.bankaHesaplari.getOrDefault(avukat.getUniqueId(), 0.0);
+        plugin.bankaHesaplari.put(avukat.getUniqueId(), bakiye + miktar);
+        plugin.veriKaydet();
+        if (avukat.isOnline() && avukat.getPlayer() != null) {
+            avukat.getPlayer().sendMessage(ChatColor.GREEN + mesajBasi + ChatColor.GOLD + (long) miktar + ChatColor.GREEN + " prim ödedi!");
         }
     }
 

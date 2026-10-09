@@ -603,13 +603,20 @@ public class TicaretManager implements Listener, CommandExecutor {
             if (!consumePlayerMoney(player, finalPrice)) {
                 return; 
             }
+            // Ödenen para yok olmasın, belediye kasasına aktarılır (kasa yoksa/doluysa eskisi gibi harcanmış sayılır)
+            plugin.kasayaParaEkle(Math.round(finalPrice * 100.0) / 100.0);
         }
 
+        // Sadece tarifin istediği özdeş eşyalar alınır (aynı türden başka eşya veya kağıt para silinmez)
         for (ItemStack req : requiredItems) {
-            plugin.removeItemFromInventory(player.getInventory(), req.getType(), req.getAmount());
+            player.getInventory().removeItem(req.clone());
         }
 
-        player.getInventory().addItem(recipe.getResult().clone());
+        // Envanter doluysa ürün kaybolmasın, oyuncunun ayağına düşsün
+        java.util.Map<Integer, ItemStack> tasan = player.getInventory().addItem(recipe.getResult().clone());
+        for (ItemStack kalan : tasan.values()) {
+            player.getWorld().dropItem(player.getLocation(), kalan);
+        }
 
         recipe.setUses(recipe.getUses() + 1);
         // YENİ: Köylü tecrübesi sadece gerçek köylülerde var (gezgin tüccarda yok)
