@@ -93,6 +93,55 @@ public class SaglikManager implements Listener, CommandExecutor {
     
     private final Random random = new Random();
 
+    private double cfg(String yol, double varsayilan) { return plugin.getConfig().getDouble("saglik." + yol, varsayilan); }
+
+    private boolean doktorOnlineMi() {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "").equalsIgnoreCase("doktor")) return true;
+        }
+        return false;
+    }
+
+    /** Tedavi ücreti: önce üstündeki nakitten, yetmezse banka hesabından alınıp belediye kasasına yatar. */
+    private boolean tedaviUcretiOde(Player p, double ucret) {
+        double nakit = 0.0;
+        for (ItemStack it : p.getInventory().getContents()) {
+            if (it == null) continue;
+            Double v = plugin.getMoneyValue(it);
+            if (v != null) nakit += v * it.getAmount();
+        }
+        if (nakit >= ucret) return plugin.processPaymentToKasa(p, ucret);
+        double banka = plugin.bankaHesaplari.getOrDefault(p.getUniqueId(), 0.0);
+        if (banka >= ucret) {
+            if (!plugin.kasayaParaEkle(ucret)) {
+                p.sendMessage(ChatColor.RED + "Belediye kasası aktif değil ya da dolu, ödeme alınamıyor! Yetkililere bildirin.");
+                return false;
+            }
+            plugin.bankaHesaplari.put(p.getUniqueId(), banka - ucret);
+            plugin.veriKaydet();
+            p.sendMessage(ChatColor.GRAY + "$" + ucret + " banka hesabından çekildi.");
+            return true;
+        }
+        p.sendMessage(ChatColor.RED + "Tedavi ücreti: $" + ucret + ". Nakit ve banka hesabınız yetersiz.");
+        return false;
+    }
+
+    /** Oyuncuyu tamamen iyileştirir: kırık, kanama, baygınlık ve etkiler kalkar, can dolar. */
+    private void tamTedavi(Player player) {
+        UUID id = player.getUniqueId();
+        brokenLegs.remove(id);
+        bleedingPlayers.remove(id);
+        if (downedPlayers.containsKey(id)) {
+            downedPlayers.remove(id);
+            Bukkit.dispatchCommand(player, "sit");
+        }
+        AttributeInstance maxCan = player.getAttribute(Attribute.MAX_HEALTH);
+        player.setHealth(maxCan != null ? maxCan.getValue() : 20.0);
+        for (PotionEffect effect : player.getActivePotionEffects()) {
+            player.removePotionEffect(effect.getType());
+        }
+    }
+
     public SaglikManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         this.medicalKey = new NamespacedKey(plugin, "medical_item");
@@ -133,25 +182,42 @@ public class SaglikManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.RED + "Sadece ağır yaralıyken ambulans çağırabilirsin!");
                 return true;
             }
+            boolean doktorVar = doktorOnlineMi();
+            double ucret = doktorVar ? cfg("ambulans-ucret-doktorlu", 1250.0) : cfg("ambulans-ucret-doktorsuz", 1000.0);
             double bakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
-            if (bakiye < 1500.0) {
-                player.sendMessage(ChatColor.RED + "Ambulans çağırmak için banka hesabında en az $1500 olmalı!");
+            if (bakiye < ucret) {
+                player.sendMessage(ChatColor.RED + "Ambulans çağırmak için banka hesabında en az $" + (long) ucret + " olmalı!");
                 return true;
             }
-            boolean doktorVar = false;
+            if (!doktorVar) {
+                // Doktor yok: ambulans hastayı doğrudan hastaneye götürür, tamamen iyileştirir
+                if (plugin.hapisteMi(player.getUniqueId())) {
+                    player.sendMessage(ChatColor.RED + "Hapisteyken ambulans çağıramazsın.");
+                    return true;
+                }
+                if (!plugin.kasayaParaEkle(ucret)) {
+                    player.sendMessage(ChatColor.RED + "Belediye kasası aktif değil ya da dolu, ambulans gönderilemiyor. Yetkililere bildirin.");
+                    return true;
+                }
+                plugin.bankaHesaplari.put(player.getUniqueId(), bakiye - ucret);
+                plugin.veriKaydet();
+                if (player.getVehicle() != null) player.getVehicle().removePassenger(player);
+                if (!player.getPassengers().isEmpty()) player.eject();
+                if (!hastaneYataklari.isEmpty()) {
+                    player.teleport(hastaneYataklari.get(random.nextInt(hastaneYataklari.size())));
+                }
+                tamTedavi(player);
+                player.sendMessage(ChatColor.GREEN + "Ambulans seni hastaneye getirdi ve tamamen tedavi edildin. Bankandan $" + (long) ucret + " kesildi.");
+                return true;
+            }
             for (Player p : Bukkit.getOnlinePlayers()) {
                 String meslek = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "");
                 if (meslek.equalsIgnoreCase("doktor")) {
-                    doktorVar = true;
                     p.sendMessage(ChatColor.DARK_RED + "[ACİL SERVİS] " + ChatColor.YELLOW + player.getName() + " ağır yaralı! " + ChatColor.RED + "Müdahale için: /ambulanskabul " + player.getName());
                 }
             }
-            if (!doktorVar) {
-                player.sendMessage(ChatColor.RED + "Şu an şehirde aktif doktor yok. Oyundan çıkmadan beklemelisin.");
-            } else {
-                ambulansCagrilari.put(player.getName().toLowerCase(), player.getUniqueId());
-                player.sendMessage(ChatColor.GREEN + "Ambulans çağrısı doktorlara iletildi. Biri kabul ettiğinde bankandan $1500 kesilecek.");
-            }
+            ambulansCagrilari.put(player.getName().toLowerCase(), player.getUniqueId());
+            player.sendMessage(ChatColor.GREEN + "Ambulans çağrısı doktorlara iletildi. Biri kabul ettiğinde bankandan $" + (long) ucret + " kesilecek.");
             return true;
         }
 
@@ -185,16 +251,17 @@ public class SaglikManager implements Listener, CommandExecutor {
                 return true;
             }
             
+            double ucret = cfg("ambulans-ucret-doktorlu", 1250.0);
             double hastaBakiye = plugin.bankaHesaplari.getOrDefault(targetUUID, 0.0);
-            if (hastaBakiye < 1500.0) {
+            if (hastaBakiye < ucret) {
                 player.sendMessage(ChatColor.RED + "Hastanın banka hesabında yeterli para kalmamış.");
                 ambulansCagrilari.remove(targetName);
                 return true;
             }
             
-            plugin.bankaHesaplari.put(targetUUID, hastaBakiye - 1500.0);
+            plugin.bankaHesaplari.put(targetUUID, hastaBakiye - ucret);
             double docBakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
-            plugin.bankaHesaplari.put(player.getUniqueId(), docBakiye + 1500.0);
+            plugin.bankaHesaplari.put(player.getUniqueId(), docBakiye + ucret);
             plugin.veriKaydet();
             
             ambulansCagrilari.remove(targetName);
@@ -205,12 +272,12 @@ public class SaglikManager implements Listener, CommandExecutor {
             if (!hastaneYataklari.isEmpty()) {
                 Location yatak = hastaneYataklari.get(random.nextInt(hastaneYataklari.size()));
                 target.teleport(yatak);
-                player.sendMessage(ChatColor.GREEN + "Hasta ambulans ile Acil Servis yatağına çekildi! $1500 hesabına yattı.");
-                target.sendMessage(ChatColor.GREEN + "Ambulans çağrın kabul edildi ve hastaneye kaldırıldın. Bankandan $1500 kesildi.");
+                player.sendMessage(ChatColor.GREEN + "Hasta ambulans ile Acil Servis yatağına çekildi! $" + (long) ucret + " hesabına yattı.");
+                target.sendMessage(ChatColor.GREEN + "Ambulans çağrın kabul edildi ve hastaneye kaldırıldın. Bankandan $" + (long) ucret + " kesildi.");
             } else {
                 target.teleport(player.getLocation());
-                player.sendMessage(ChatColor.GREEN + "Hastayı başarıyla yanına çektin! $1500 hesabına yattı.");
-                target.sendMessage(ChatColor.GREEN + "Doktor " + player.getName() + " seni acil müdahale için yanına çekti. Bankandan $1500 kesildi.");
+                player.sendMessage(ChatColor.GREEN + "Hastayı başarıyla yanına çektin! $" + (long) ucret + " hesabına yattı.");
+                target.sendMessage(ChatColor.GREEN + "Doktor " + player.getName() + " seni acil müdahale için yanına çekti. Bankandan $" + (long) ucret + " kesildi.");
             }
             
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
@@ -329,8 +396,8 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
 
         if (event.getCause() == EntityDamageEvent.DamageCause.FALL) {
-            if (event.getDamage() > 3.0 && !brokenLegs.containsKey(uuid)) {
-                double kirikIhtimali = 40.0; 
+            if (event.getDamage() > cfg("kirik-hasar-esigi", 6.0) && !brokenLegs.containsKey(uuid)) {
+                double kirikIhtimali = cfg("kirik-ihtimal", 20.0); 
                 ItemStack boots = player.getInventory().getBoots();
                 if (boots != null) {
                     if (boots.getType() == Material.IRON_BOOTS) kirikIhtimali -= 5.0;
@@ -359,7 +426,7 @@ public class SaglikManager implements Listener, CommandExecutor {
             applyDownedState(player, 1200); // 20 Dakika
             player.sendMessage(ChatColor.DARK_RED + "Ağır yaralandın ve bilincini kaybettin!");
             player.sendMessage(ChatColor.RED + "Bir doktor gelmezse 20 dakika içinde öleceksin.");
-            player.sendMessage(ChatColor.YELLOW + "Ambulans çağırmak için " + ChatColor.GOLD + "/ambulanscagir" + ChatColor.YELLOW + " yazabilirsin. (Ücret: $1500)");
+            player.sendMessage(ChatColor.YELLOW + "Ambulans çağırmak için " + ChatColor.GOLD + "/ambulanscagir" + ChatColor.YELLOW + " yazabilirsin. (Ücret: $" + (long) cfg("ambulans-ucret-doktorsuz", 1000.0) + ", aktif doktor varsa $" + (long) cfg("ambulans-ucret-doktorlu", 1250.0) + ")");
         }
     }
 
@@ -380,7 +447,7 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
 
         if (canBleed && !bleedingPlayers.containsKey(victim.getUniqueId())) {
-            double kanamaIhtimali = 25.0; 
+            double kanamaIhtimali = cfg("kanama-ihtimal", 12.0); 
             for (ItemStack armor : victim.getInventory().getArmorContents()) {
                 if (armor != null) {
                     if (armor.getType().name().contains("IRON")) kanamaIhtimali -= 1.5;
@@ -432,7 +499,13 @@ public class SaglikManager implements Listener, CommandExecutor {
                     Player p = Bukkit.getPlayer(uuid);
                     // Çevrimdışı oyuncular listeden silinmiyor, girdiklerinde devam edecek
                     if (p != null && p.isOnline() && !downedPlayers.containsKey(uuid) && !muafOyuncular.contains(uuid)) {
-                        p.damage(1.0); 
+                        // Kanama öldürmez: can yarım kalbe inecekse kanama kendiliğinden durur
+                        if (p.getHealth() - 1.0 < 1.0) {
+                            bleedingPlayers.remove(uuid);
+                            p.sendMessage(ChatColor.YELLOW + "Kanaman kendiliğinden durdu ama durumun çok kritik! Acilen tedavi ol.");
+                        } else {
+                            p.damage(1.0);
+                        }
                     }
                 }
             }
@@ -444,7 +517,6 @@ public class SaglikManager implements Listener, CommandExecutor {
         downedPlayers.put(uuid, time); 
         player.setHealth(2.0); 
         
-        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, Integer.MAX_VALUE, 1, false, false));
         player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, Integer.MAX_VALUE, 255, false, false));
         player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, Integer.MAX_VALUE, 250, false, false));
 
@@ -658,25 +730,9 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
 
         double tedaviUcreti = 350.0;
-        if (!plugin.processPaymentToKasa(player, tedaviUcreti)) {
-            player.sendMessage(ChatColor.RED + "Acil servis tedavi ücreti: $" + tedaviUcreti + ". Yeterli paranız yok.");
-            return;
-        }
+        if (!tedaviUcretiOde(player, tedaviUcreti)) return;
 
-        UUID id = player.getUniqueId();
-        brokenLegs.remove(id);
-        bleedingPlayers.remove(id);
-        if (downedPlayers.containsKey(id)) {
-            downedPlayers.remove(id);
-            Bukkit.dispatchCommand(player, "sit"); 
-        }
-        
-        AttributeInstance maxCan = player.getAttribute(Attribute.MAX_HEALTH);
-        player.setHealth(maxCan != null ? maxCan.getValue() : 20.0);
-        
-        for (PotionEffect effect : player.getActivePotionEffects()) {
-            player.removePotionEffect(effect.getType());
-        }
+        tamTedavi(player);
         
         player.sendMessage(ChatColor.GREEN + "Paranızı ödediniz ve Acil Serviste tamamen tedavi edildiniz!");
     }
@@ -702,6 +758,15 @@ public class SaglikManager implements Listener, CommandExecutor {
         if (event.getItem().getType() == Material.MILK_BUCKET && brokenLegs.containsKey(uuid)) {
             event.setCancelled(true);
             player.sendMessage(ChatColor.RED + "Bacağın kırıkken süt içmek seni iyileştirmez!");
+        }
+    }
+
+    // Yaralı yerde yatarken eğilip (shift) ayağa kalkamasın; sadece tedaviyle kalkar
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onYaraliEgilme(PlayerToggleSneakEvent event) {
+        Player p = event.getPlayer();
+        if (event.isSneaking() && downedPlayers.containsKey(p.getUniqueId()) && p.getVehicle() == null) {
+            event.setCancelled(true);
         }
     }
 
