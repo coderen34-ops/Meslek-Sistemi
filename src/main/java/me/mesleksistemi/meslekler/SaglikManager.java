@@ -59,8 +59,10 @@ public class SaglikManager implements Listener, CommandExecutor {
     private final HashMap<UUID, Boolean> brokenLegs = new HashMap<>();
     private final HashMap<UUID, Boolean> bleedingPlayers = new HashMap<>();
     private final HashMap<UUID, Integer> downedPlayers = new HashMap<>(); 
-    private final HashMap<String, UUID> ambulansCagrilari = new HashMap<>(); 
-    
+    private final HashMap<String, UUID> ambulansCagrilari = new HashMap<>();
+    // Hastanede tedavi gören oyuncular -> kalan saniye (tedavi bitene kadar ölüm sayacı durur)
+    private final HashMap<UUID, Integer> ambulansTedavisi = new HashMap<>();
+
     private final List<Location> hastaneYataklari = new ArrayList<>();
     // Dünyası yüklü olmayan yatak kayıtları: kaydederken silinmesinler diye ham haliyle tutulur
     private final List<String> yuklenemeyenYataklar = new ArrayList<>();
@@ -142,6 +144,46 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
     }
 
+    /** Hastanedeki tedaviyi başlatır (ya da girişte kalan süreyle devam ettirir). */
+    private void ambulansTedavisiBaslat(Player player, int sureSaniye) {
+        ambulansTedavisi.put(player.getUniqueId(), sureSaniye);
+        ambulansTedavisiTakip(player);
+    }
+
+    private void ambulansTedavisiTakip(Player player) {
+        UUID id = player.getUniqueId();
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // Çevrimdışıysa kayıt kalır, oyuncu girince kalan süreyle devam eder
+                if (!player.isOnline()) { this.cancel(); return; }
+                Integer kalan = ambulansTedavisi.get(id);
+                if (kalan == null) { this.cancel(); return; }
+                // Ölmüş ya da başka biri (adrenalin) ayağa kaldırmışsa tedavi sona erer
+                if (!downedPlayers.containsKey(id)) {
+                    ambulansTedavisi.remove(id);
+                    this.cancel();
+                    return;
+                }
+                kalan--;
+                if (kalan <= 0) {
+                    ambulansTedavisi.remove(id);
+                    tamTedavi(player);
+                    player.sendMessage(ChatColor.GREEN + "Tedavin tamamlandı, tamamen iyileştin. Geçmiş olsun!");
+                    veriKaydetSaglik();
+                    this.cancel();
+                    return;
+                }
+                ambulansTedavisi.put(id, kalan);
+                if (kalan % 60 == 0) {
+                    player.sendMessage(ChatColor.AQUA + "Tedavin sürüyor, " + (kalan / 60) + " dakika kaldı...");
+                } else if (kalan == 30) {
+                    player.sendMessage(ChatColor.AQUA + "Tedavin sürüyor, 30 saniye kaldı...");
+                }
+            }
+        }.runTaskTimer(plugin, 20L, 20L);
+    }
+
     public SaglikManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         this.medicalKey = new NamespacedKey(plugin, "medical_item");
@@ -182,6 +224,10 @@ public class SaglikManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.RED + "Sadece ağır yaralıyken ambulans çağırabilirsin!");
                 return true;
             }
+            if (ambulansTedavisi.containsKey(player.getUniqueId())) {
+                player.sendMessage(ChatColor.YELLOW + "Zaten hastanede tedavi görüyorsun, " + ambulansTedavisi.get(player.getUniqueId()) + " saniye kaldı.");
+                return true;
+            }
             boolean doktorVar = doktorOnlineMi();
             double ucret = doktorVar ? cfg("ambulans-ucret-doktorlu", 1250.0) : cfg("ambulans-ucret-doktorsuz", 1000.0);
             double bakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
@@ -190,7 +236,7 @@ public class SaglikManager implements Listener, CommandExecutor {
                 return true;
             }
             if (!doktorVar) {
-                // Doktor yok: ambulans hastayı doğrudan hastaneye götürür, tamamen iyileştirir
+                // Doktor yok: ambulans hastayı hastaneye götürür, tedavi süresi (varsayılan 3 dk) dolunca iyileşir
                 if (plugin.hapisteMi(player.getUniqueId())) {
                     player.sendMessage(ChatColor.RED + "Hapisteyken ambulans çağıramazsın.");
                     return true;
@@ -203,11 +249,15 @@ public class SaglikManager implements Listener, CommandExecutor {
                 plugin.veriKaydet();
                 if (player.getVehicle() != null) player.getVehicle().removePassenger(player);
                 if (!player.getPassengers().isEmpty()) player.eject();
-                if (!hastaneYataklari.isEmpty()) {
+                boolean hastanede = !hastaneYataklari.isEmpty();
+                if (hastanede) {
                     player.teleport(hastaneYataklari.get(random.nextInt(hastaneYataklari.size())));
                 }
-                tamTedavi(player);
-                player.sendMessage(ChatColor.GREEN + "Ambulans seni hastaneye getirdi ve tamamen tedavi edildin. Bankandan $" + (long) ucret + " kesildi.");
+                int sure = (int) Math.max(1, cfg("ambulans-tedavi-suresi-saniye", 180.0));
+                ambulansTedavisiBaslat(player, sure);
+                veriKaydetSaglik();
+                player.sendMessage(ChatColor.GREEN + (hastanede ? "Ambulans seni hastaneye getirdi." : "Ambulans sana müdahale ediyor.")
+                        + " Tedavin " + (sure >= 60 ? (sure / 60) + " dakika" : sure + " saniye") + " sürecek, bekle. Bankandan $" + (long) ucret + " kesildi.");
                 return true;
             }
             for (Player p : Bukkit.getOnlinePlayers()) {
@@ -529,6 +579,9 @@ public class SaglikManager implements Listener, CommandExecutor {
                     this.cancel(); return;
                 }
                 
+                // Hastanede tedavi görürken kan kaybı sayacı durur
+                if (ambulansTedavisi.containsKey(uuid)) return;
+
                 int currentTime = downedPlayers.get(uuid);
                 if (currentTime <= 0) {
                     downedPlayers.remove(uuid);
@@ -662,6 +715,7 @@ public class SaglikManager implements Listener, CommandExecutor {
         } 
         else if ("adrenalin".equals(type) && downedPlayers.containsKey(target.getUniqueId())) {
             downedPlayers.remove(target.getUniqueId());
+            ambulansTedavisi.remove(target.getUniqueId());
             bleedingPlayers.remove(target.getUniqueId()); 
             
             target.removePotionEffect(PotionEffectType.BLINDNESS);
@@ -813,9 +867,16 @@ public class SaglikManager implements Listener, CommandExecutor {
         
         if (downedPlayers.containsKey(uuid)) {
             player.sendMessage(ChatColor.DARK_RED + "Ağır yaralı durumun devam ediyor! Acilen doktor bulmalısın.");
-            applyDownedState(player, downedPlayers.get(uuid)); 
+            applyDownedState(player, downedPlayers.get(uuid));
+            if (ambulansTedavisi.containsKey(uuid)) {
+                player.sendMessage(ChatColor.AQUA + "Hastanedeki tedavin devam ediyor, " + ambulansTedavisi.get(uuid) + " saniye kaldı.");
+                ambulansTedavisiTakip(player);
+            }
         }
         
+        // Ağır yaralı olmayan oyuncuda artık geçerli bir tedavi kaydı kalmaz
+        if (!downedPlayers.containsKey(uuid)) ambulansTedavisi.remove(uuid);
+
         if (bleedingPlayers.containsKey(uuid)) {
             player.sendMessage(ChatColor.RED + "Kanaman durmamış! Hızla kan kaybetmeye devam ediyorsun.");
         }
@@ -840,6 +901,11 @@ public class SaglikManager implements Listener, CommandExecutor {
         plugin.getConfig().set("saglik.downed", null);
         for (UUID u : downedPlayers.keySet()) {
             plugin.getConfig().set("saglik.downed." + u.toString(), downedPlayers.get(u));
+        }
+
+        plugin.getConfig().set("saglik.tedavide", null);
+        for (UUID u : ambulansTedavisi.keySet()) {
+            plugin.getConfig().set("saglik.tedavide." + u.toString(), ambulansTedavisi.get(u));
         }
 
         plugin.saveConfig();
@@ -874,6 +940,11 @@ public class SaglikManager implements Listener, CommandExecutor {
         if (plugin.getConfig().contains("saglik.downed")) {
             for (String s : plugin.getConfig().getConfigurationSection("saglik.downed").getKeys(false)) {
                 downedPlayers.put(UUID.fromString(s), plugin.getConfig().getInt("saglik.downed." + s));
+            }
+        }
+        if (plugin.getConfig().contains("saglik.tedavide")) {
+            for (String s : plugin.getConfig().getConfigurationSection("saglik.tedavide").getKeys(false)) {
+                ambulansTedavisi.put(UUID.fromString(s), plugin.getConfig().getInt("saglik.tedavide." + s));
             }
         }
     }
