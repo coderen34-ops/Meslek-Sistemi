@@ -196,14 +196,15 @@ public class ToptanciManager implements Listener, CommandExecutor {
         
         Inventory gui = Bukkit.createInventory(null, size, title);
         for (int i = 0; i < materials.size() && i < size; i++) {
-            gui.setItem(i, createGuiItem(materials.get(i)));
+            gui.setItem(i, createGuiItem(materials.get(i), player));
         }
         player.openInventory(gui);
     }
 
-    private ItemStack createGuiItem(Material mat) {
-        double alisFiyati = getAlisFiyati(mat);
-        double satisFiyati = getSatisFiyati(mat);
+    private ItemStack createGuiItem(Material mat, Player oyuncu) {
+        double kickOran = plugin.kickOran(oyuncu);
+        double alisFiyati = getAlisFiyati(mat) * (1.0 - kickOran);
+        double satisFiyati = getSatisFiyati(mat) * (1.0 + kickOran);
         int mevcutStok = stoklar.getOrDefault(mat, 0);
 
         ItemStack item = new ItemStack(mat);
@@ -212,6 +213,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
         
         List<String> lore = new ArrayList<>();
         lore.add(ChatColor.DARK_GRAY + "-------------------------");
+        if (kickOran > 0) lore.add(ChatColor.LIGHT_PURPLE + "Kick avantajı: alırken -%" + String.format(Locale.US, "%.0f", kickOran * 100) + ", satarken +%" + String.format(Locale.US, "%.0f", kickOran * 100));
         lore.add(ChatColor.GRAY + "Pazar Stoğu: " + (mevcutStok > 0 ? ChatColor.AQUA + "" + mevcutStok : ChatColor.RED + "Tükendi!"));
         lore.add("");
         lore.add(ChatColor.GREEN + "► Alış Fiyatı (Devletten Alırken): $" + String.format(Locale.US, "%.2f", alisFiyati));
@@ -269,7 +271,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
             }
 
             int satilacakMiktar = (click == ClickType.SHIFT_RIGHT) ? oyuncudakiMiktar : 1;
-            double unitPrice = getSatisFiyati(mat);
+            double unitPrice = getSatisFiyati(mat) * (1.0 + plugin.kickOran(player));
 
             // Günlük satış tavanı: jeneratörle kasayı boşaltmayı engeller (0 = sınırsız)
             double gunlukLimit = plugin.toptanciGunlukLimit();
@@ -289,7 +291,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
                 }
                 if (satilacakMiktar > sigar) satilacakMiktar = sigar;
             }
-            double totalPrice = satilacakMiktar * unitPrice;
+            double totalPrice = Math.round(satilacakMiktar * unitPrice * 100.0) / 100.0;
 
             if (!plugin.kasadanParaCek(totalPrice)) {
                 player.sendMessage(ChatColor.RED + "Belediye Kasasında senin alacağını ödeyecek bütçe kalmamış! Başkan kasaya para koymalı.");
@@ -341,8 +343,8 @@ public class ToptanciManager implements Listener, CommandExecutor {
                 return;
             }
 
-            double unitPrice = getAlisFiyati(mat);
-            double totalPrice = alinacakMiktar * unitPrice;
+            double unitPrice = getAlisFiyati(mat) * (1.0 - plugin.kickOran(player));
+            double totalPrice = Math.round(alinacakMiktar * unitPrice * 100.0) / 100.0;
 
             if (plugin.processPaymentToKasa(player, totalPrice)) {
                 player.getInventory().addItem(new ItemStack(mat, alinacakMiktar));

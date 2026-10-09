@@ -547,6 +547,19 @@ public class MeslekSistemi extends JavaPlugin {
         kasaNotunuAyarla(kasa, kasaBakiyesi(kasa));
     }
 
+    // Kick (EreanorKick) takipçi/abone indirim oranı: 0.02 = %2. EreanorKick oyuncuya "ereanorkick_tier" metadata'sı koyar.
+    public double kickOran(Player p) {
+        try {
+            for (org.bukkit.metadata.MetadataValue m : p.getMetadata("ereanorkick_tier")) {
+                String t = m.asString();
+                if ("abone".equals(t)) return Math.max(0, getConfig().getDouble("kick-indirim.abone", 4.0)) / 100.0;
+                if ("takipci".equals(t)) return Math.max(0, getConfig().getDouble("kick-indirim.takipci", 2.0)) / 100.0;
+            }
+        } catch (Exception ignored) {
+        }
+        return 0.0;
+    }
+
     // Oyuncunun üstündeki kağıt paradan tahsil edip kasaya aktarır.
     // Kasa kurulu değilse veya doluysa ödeme alınmaz (eskiden para boşa gidiyordu).
     public boolean processPaymentToKasa(Player player, double price) {

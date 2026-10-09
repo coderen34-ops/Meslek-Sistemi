@@ -89,7 +89,7 @@ public class EhliyetManager implements Listener, CommandExecutor {
         } else {
             meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + "Elytra Uçuş Ehliyeti Al");
             meta.setLore(Arrays.asList(
-                ChatColor.YELLOW + "Ehliyet Harcı: " + ChatColor.GREEN + "$" + plugin.ehliyetFiyati,
+                ChatColor.YELLOW + "Ehliyet Harcı: " + ChatColor.GREEN + "$" + String.format(java.util.Locale.US, "%.2f", plugin.ehliyetFiyati * (1.0 - plugin.kickOran(player))) + (plugin.kickOran(player) > 0 ? ChatColor.LIGHT_PURPLE + " (Kick indirimi)" : ""),
                 ChatColor.GRAY + "Sadece lisanslı pilotlar süzülebilir.",
                 ChatColor.GRAY + "Satın almak için tıklayın."
             ));
@@ -127,7 +127,7 @@ public class EhliyetManager implements Listener, CommandExecutor {
                 }
 
                 // Parayı fiziksel olarak çekip Belediye Kasasına (Chest'e) aktarıyor
-                if (plugin.processPaymentToKasa(player, plugin.ehliyetFiyati)) {
+                if (plugin.processPaymentToKasa(player, Math.round(plugin.ehliyetFiyati * (1.0 - plugin.kickOran(player)) * 100.0) / 100.0)) {
                     plugin.elytraEhliyetleri.add(player.getUniqueId());
                     plugin.veriKaydet();
                     player.closeInventory();
