@@ -553,7 +553,6 @@ public class MeslekSistemi extends JavaPlugin {
             for (org.bukkit.metadata.MetadataValue m : p.getMetadata("ereanorkick_tier")) {
                 String t = m.asString();
                 if ("abone".equals(t)) return Math.max(0, getConfig().getDouble("kick-indirim.abone", 4.0)) / 100.0;
-                if ("takipci".equals(t)) return Math.max(0, getConfig().getDouble("kick-indirim.takipci", 2.0)) / 100.0;
             }
         } catch (Exception ignored) {
         }
