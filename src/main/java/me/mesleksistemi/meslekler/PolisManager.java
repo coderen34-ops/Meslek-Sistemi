@@ -83,6 +83,10 @@ public class PolisManager implements Listener, CommandExecutor {
     // Başkasına hasar vermiş / öldürmüş oyuncular -> suç zamanı (ms). Tutuklama için şart.
     private final HashMap<UUID, Long> sucZamani = new HashMap<>();
     private final HashMap<UUID, Long> kitBekleme = new HashMap<>();
+    // Soruşturma kararıyla aranan oyuncunun ceza süresi (saniye); coplu tutuklamada kullanılır
+    public final HashMap<String, Integer> arananCeza = new HashMap<>();
+    // İfade yazan polis -> dosya
+    private final java.util.concurrent.ConcurrentHashMap<UUID, UUID> ifadeYazan = new java.util.concurrent.ConcurrentHashMap<>();
     private static final String SUC_SURE_YOLU = "polis.suc-gecerlilik-dakika";
     
     public Location amirKursuKonumu = null;
@@ -247,27 +251,75 @@ public class PolisManager implements Listener, CommandExecutor {
             }
             
             Sikayet sikayet = aktifSikayetler.get(sikayetId);
-            aktifSikayetler.remove(sikayetId);
-            plugin.veriKaydet();
-            
-            if (karar.equalsIgnoreCase("kapat")) {
+            String k = karar.toLowerCase();
+
+            if (k.equals("kapat") || k.equals("haksiz")) {
+                aktifSikayetler.remove(sikayetId);
+                ifadeYazan.values().remove(sikayetId);
+                plugin.veriKaydet();
                 player.sendMessage(ChatColor.YELLOW + "Şikayet dosyası kapatıldı ve arşivlendi.");
-            } else if (karar.equalsIgnoreCase("sorusturma")) {
-                arananOyuncular.add(sikayet.sikayetEdilen.toLowerCase());
+                Player m = Bukkit.getPlayer(sikayet.sikayetEden);
+                if (m != null && k.equals("haksiz")) m.sendMessage(ChatColor.DARK_RED + "[Emniyet] " + ChatColor.YELLOW + sikayet.sikayetEdilen + " hakkındaki şikayetin soruşturma sonucunda haksız bulunarak kapatıldı.");
+            } else if (k.equals("adliye")) {
+                aktifSikayetler.remove(sikayetId);
+                plugin.veriKaydet();
+                if (plugin.adliyeManager != null) {
+                    me.mesleksistemi.adliye.DavaDosyasi dava = new me.mesleksistemi.adliye.DavaDosyasi(
+                        UUID.randomUUID(), sikayet.sikayetEden, sikayet.sikayetEdilen, 0.0, sikayet.sebep);
+                    plugin.adliyeManager.aktifDavalar.put(dava.id, dava);
+                    plugin.adliyeManager.veriKaydetAdliye();
+                    for (Player p : Bukkit.getOnlinePlayers()) {
+                        if (plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas").equalsIgnoreCase("avukat")) {
+                            p.sendMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.YELLOW + "Emniyetten yönlendirilen yeni bir dava dosyası düştü! NPC üzerinden kontrol edin.");
+                        }
+                    }
+                    Player m = Bukkit.getPlayer(sikayet.sikayetEden);
+                    if (m != null) m.sendMessage(ChatColor.DARK_RED + "[Emniyet] " + ChatColor.GREEN + "Şikayetin adliyeye yönlendirildi. Bir avukatın davanı üstlenmesini bekle.");
+                    player.sendMessage(ChatColor.GREEN + "Dosya adliyeye yönlendirildi (dava havuzuna düştü).");
+                } else {
+                    player.sendMessage(ChatColor.RED + "Adliye sistemi kapalı, dosya yönlendirilemedi.");
+                    aktifSikayetler.put(sikayetId, sikayet);
+                }
+            } else if (k.equals("sorusturma")) {
+                if (!sikayet.durum.equals("BEKLIYOR")) { openSikayetKitabi(player, sikayet); return true; }
+                sikayet.durum = "SIKAYETCI_IFADE";
+                sikayet.ustlenen = player.getName();
+                plugin.veriKaydet();
+                Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + sikayet.sikayetEdilen + ChatColor.RED + " hakkında soruşturma başlatıldı.");
+                player.sendMessage(ChatColor.GREEN + "Dosyayı üstlendin. Önce şikayetçinin ifadesini al.");
+                openSikayetKitabi(player, sikayet);
+                return true;
+            } else if (k.equals("sikayetcicagir") || k.equals("supheliicagir")) {
+                String isim = k.equals("sikayetcicagir") ? sikayet.sikayetEden : sikayet.sikayetEdilen;
+                Player hedef = Bukkit.getPlayerExact(isim);
+                if (hedef == null) {
+                    player.sendMessage(ChatColor.RED + isim + " şu an oyunda değil.");
+                } else {
+                    hedef.sendMessage(ChatColor.DARK_RED + "[Emniyet] " + ChatColor.YELLOW + "Memur " + player.getName() + " seni ifade vermek üzere karakola çağırıyor!");
+                    hedef.playSound(hedef.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_BELL, 1f, 1f);
+                    player.sendMessage(ChatColor.GREEN + isim + " ifade için çağrıldı.");
+                }
+                openSikayetKitabi(player, sikayet);
+                return true;
+            } else if (k.equals("ifadeyaz")) {
+                if (!sikayet.durum.equals("SIKAYETCI_IFADE") && !sikayet.durum.equals("SUPHELI_IFADE")) return true;
+                ifadeYazan.put(player.getUniqueId(), sikayetId);
+                String kim = sikayet.durum.equals("SIKAYETCI_IFADE") ? sikayet.sikayetEden : sikayet.sikayetEdilen;
+                player.sendMessage(ChatColor.YELLOW + kim + " kişisinin ifadesini sohbete tek mesajla yaz (en fazla 250 karakter, iptal için 'iptal').");
+                return true;
+            } else if (k.equals("hakli5") || k.equals("hakli15") || k.equals("hakli30")) {
+                if (!sikayet.durum.equals("KARAR")) { openSikayetKitabi(player, sikayet); return true; }
+                int dk = Integer.parseInt(k.substring(5));
+                aktifSikayetler.remove(sikayetId);
+                String hedefAd = sikayet.sikayetEdilen.toLowerCase();
+                arananOyuncular.add(hedefAd);
+                arananCeza.put(hedefAd, dk * 60);
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag setsuffix " + sikayet.sikayetEdilen + " Aranıyor");
-                
-                ItemStack davaDosyasi = new ItemStack(Material.WRITTEN_BOOK);
-                BookMeta bMeta = (BookMeta) davaDosyasi.getItemMeta();
-                bMeta.setTitle("Dava Dosyası: " + sikayet.sikayetEdilen);
-                bMeta.setAuthor("Emniyet Müdürlüğü");
-                bMeta.addPage(ChatColor.DARK_RED + "ARAMA EMRİ & DAVA\n\n" + ChatColor.BLACK + "Şüpheli: " + ChatColor.DARK_GRAY + sikayet.sikayetEdilen + "\n\n" + ChatColor.BLACK + "Müşteki: " + ChatColor.DARK_GRAY + sikayet.sikayetEden + "\n\n" + ChatColor.DARK_RED + "Olay:\n" + ChatColor.BLACK + sikayet.sebep);
-                bMeta.getPersistentDataContainer().set(davaDosyasiKey, PersistentDataType.STRING, sikayet.sikayetEdilen);
-                davaDosyasi.setItemMeta(bMeta);
-                
-                player.getInventory().addItem(davaDosyasi);
-                
-                Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + "DİKKAT: " + ChatColor.RED + sikayet.sikayetEdilen + ChatColor.YELLOW + " hakkında soruşturma başlatılmıştır!");
-                player.sendMessage(ChatColor.GREEN + "Soruşturma başlatıldı. Dava dosyası envanterinize eklendi!");
+                plugin.veriKaydet();
+                Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + "DİKKAT: " + ChatColor.RED + sikayet.sikayetEdilen
+                    + ChatColor.YELLOW + " soruşturma sonucunda suçlu bulundu, hakkında arama kararı çıktı! (Ceza: " + dk + " dk)");
+                Player m = Bukkit.getPlayer(sikayet.sikayetEden);
+                if (m != null) m.sendMessage(ChatColor.DARK_RED + "[Emniyet] " + ChatColor.GREEN + "Şikayetin haklı bulundu, şüpheli için arama kararı çıktı.");
             }
             player.closeInventory();
             return true;
@@ -393,6 +445,10 @@ public class PolisManager implements Listener, CommandExecutor {
             
             List<String> lore = new ArrayList<>();
             lore.add(ChatColor.GRAY + "Şikayet Eden: " + ChatColor.YELLOW + s.sikayetEden);
+            String durumYazi = s.durum.equals("BEKLIYOR") ? "Bekliyor" : s.durum.equals("SIKAYETCI_IFADE") ? "Şikayetçi ifadesi bekleniyor"
+                : s.durum.equals("SUPHELI_IFADE") ? "Şüpheli ifadesi bekleniyor" : "Karar bekliyor";
+            lore.add(ChatColor.GRAY + "Durum: " + ChatColor.AQUA + durumYazi);
+            if (!s.ustlenen.isEmpty()) lore.add(ChatColor.GRAY + "Üstlenen: " + ChatColor.YELLOW + s.ustlenen);
             lore.add(ChatColor.DARK_GRAY + "Tıklayarak detaylı ifadeyi oku.");
             meta.setLore(lore);
             
@@ -468,6 +524,8 @@ public class PolisManager implements Listener, CommandExecutor {
             if (clickedMat == Material.IRON_BARS || clickedMat == Material.COBWEB || clickedMat == Material.NETHERITE_BLOCK) {
                 if (jailCells.isEmpty()) {
                     player.sendMessage(ChatColor.RED + "Hücre ayarlanmamış!");
+                } else if (plugin.saglikManager == null || !plugin.saglikManager.agirYaraliMi(target.getUniqueId())) {
+                    player.sendMessage(ChatColor.RED + "Şüpheliyi nezarete atmak için önce bayıltmalısın!");
                 } else {
                     int sure = 0;
                     String mesajSeviyesi = "";
@@ -503,6 +561,12 @@ public class PolisManager implements Listener, CommandExecutor {
         }
     }
 
+    private TextComponent kitapDugme(String yazi, ChatColor renk, String komut) {
+        TextComponent t = new TextComponent(renk + ChatColor.BOLD.toString() + yazi);
+        t.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, komut));
+        return t;
+    }
+
     private void openSikayetKitabi(Player amir, Sikayet sikayet) {
         ItemStack book = new ItemStack(Material.WRITTEN_BOOK);
         BookMeta meta = (BookMeta) book.getItemMeta();
@@ -536,14 +600,39 @@ public class PolisManager implements Listener, CommandExecutor {
             pages.add(new BaseComponent[]{new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "İFADE\n\n" + ChatColor.BLACK + parca)});
         }
 
-        TextComponent sonSayfa = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "AMİR KARARI\n\n\n");
-        TextComponent redBtn = new TextComponent(ChatColor.DARK_GRAY + ChatColor.BOLD.toString() + "[DOSYAYI KAPAT]\n\n\n");
-        redBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sikayetkarar " + sikayet.id.toString() + " kapat"));
-        
-        TextComponent kabulBtn = new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "[SORUŞTURMA BAŞLAT]");
-        kabulBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sikayetkarar " + sikayet.id.toString() + " sorusturma"));
-        
-        sonSayfa.addExtra(redBtn); sonSayfa.addExtra(kabulBtn);
+        String cmdBase = "/sikayetkarar " + sikayet.id.toString() + " ";
+        if (!sikayet.ifadeSikayetci.isEmpty()) {
+            pages.add(new BaseComponent[]{new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "ŞİKAYETÇİ İFADESİ\n\n" + ChatColor.BLACK + sikayet.ifadeSikayetci)});
+        }
+        if (!sikayet.ifadeSupheli.isEmpty()) {
+            pages.add(new BaseComponent[]{new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "ŞÜPHELİ İFADESİ\n\n" + ChatColor.BLACK + sikayet.ifadeSupheli)});
+        }
+
+        TextComponent sonSayfa;
+        switch (sikayet.durum) {
+            case "SIKAYETCI_IFADE":
+                sonSayfa = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "ADIM 1/2\nŞikayetçi ifadesi\n\n");
+                sonSayfa.addExtra(kitapDugme("[ŞİKAYETÇİYİ ÇAĞIR]\n\n", ChatColor.DARK_GREEN, cmdBase + "sikayetcicagir"));
+                sonSayfa.addExtra(kitapDugme("[İFADE YAZ]", ChatColor.DARK_RED, cmdBase + "ifadeyaz"));
+                break;
+            case "SUPHELI_IFADE":
+                sonSayfa = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "ADIM 2/2\nŞüpheli ifadesi\n\n");
+                sonSayfa.addExtra(kitapDugme("[ŞÜPHELİYİ ÇAĞIR]\n\n", ChatColor.DARK_GREEN, cmdBase + "supheliicagir"));
+                sonSayfa.addExtra(kitapDugme("[İFADE YAZ]", ChatColor.DARK_RED, cmdBase + "ifadeyaz"));
+                break;
+            case "KARAR":
+                sonSayfa = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "KARAR\n\n");
+                sonSayfa.addExtra(kitapDugme("[HAKLI - 5 DK]\n", ChatColor.DARK_RED, cmdBase + "hakli5"));
+                sonSayfa.addExtra(kitapDugme("[HAKLI - 15 DK]\n", ChatColor.DARK_RED, cmdBase + "hakli15"));
+                sonSayfa.addExtra(kitapDugme("[HAKLI - 30 DK]\n\n", ChatColor.DARK_RED, cmdBase + "hakli30"));
+                sonSayfa.addExtra(kitapDugme("[HAKSIZ - KAPAT]", ChatColor.DARK_GRAY, cmdBase + "haksiz"));
+                break;
+            default:
+                sonSayfa = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "AMİR KARARI\n\n");
+                sonSayfa.addExtra(kitapDugme("[DOSYAYI KAPAT]\n\n", ChatColor.DARK_GRAY, cmdBase + "kapat"));
+                sonSayfa.addExtra(kitapDugme("[SORUŞTURMA BAŞLAT]\n\n", ChatColor.DARK_RED, cmdBase + "sorusturma"));
+                sonSayfa.addExtra(kitapDugme("[ADLİYEYE YÖNLENDİR]", ChatColor.DARK_BLUE, cmdBase + "adliye"));
+        }
         pages.add(new BaseComponent[]{sonSayfa});
 
         for (BaseComponent[] page : pages) { meta.spigot().addPage(page); }
@@ -553,6 +642,12 @@ public class PolisManager implements Listener, CommandExecutor {
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
+        if (ifadeYazan.containsKey(player.getUniqueId())) {
+            event.setCancelled(true);
+            String ifade = event.getMessage().trim();
+            Bukkit.getScheduler().runTask(plugin, () -> { if (player.isOnline()) ifadeKaydet(player, ifade); });
+            return;
+        }
         if (!sikayetAdimi.containsKey(player.getUniqueId())) return;
         event.setCancelled(true);
         String msg = event.getMessage().trim();
@@ -560,6 +655,24 @@ public class PolisManager implements Listener, CommandExecutor {
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (player.isOnline()) sikayetMesajiIsle(player, msg);
         });
+    }
+
+    private void ifadeKaydet(Player polis, String ifade) {
+        UUID dosyaId = ifadeYazan.remove(polis.getUniqueId());
+        if (dosyaId == null) return;
+        Sikayet sk = aktifSikayetler.get(dosyaId);
+        if (sk == null) { polis.sendMessage(ChatColor.RED + "Dosya bulunamadı."); return; }
+        if (ifade.equalsIgnoreCase("iptal")) { polis.sendMessage(ChatColor.YELLOW + "İfade alma iptal edildi."); openSikayetKitabi(polis, sk); return; }
+        if (ifade.length() > 250) ifade = ifade.substring(0, 250);
+        if (sk.durum.equals("SIKAYETCI_IFADE")) {
+            sk.ifadeSikayetci = ifade; sk.durum = "SUPHELI_IFADE";
+            polis.sendMessage(ChatColor.GREEN + "Şikayetçi ifadesi kaydedildi. Şimdi şüpheliyi çağırıp ifadesini al.");
+        } else if (sk.durum.equals("SUPHELI_IFADE")) {
+            sk.ifadeSupheli = ifade; sk.durum = "KARAR";
+            polis.sendMessage(ChatColor.GREEN + "Şüpheli ifadesi kaydedildi. Karar aşamasına geçildi.");
+        }
+        plugin.veriKaydet();
+        openSikayetKitabi(polis, sk);
     }
 
     private void sikayetMesajiIsle(Player player, String msg) {
@@ -660,8 +773,8 @@ public class PolisManager implements Listener, CommandExecutor {
                 if (jailedPlayers.containsKey(targetPlayer.getUniqueId())) { copPlayer.sendMessage(ChatColor.RED + "Bu oyuncu zaten hapiste!"); return; }
 
                 // Tutuklama şartı: hedef daha önce birine hasar vermiş/öldürmüş olmalı ve polis tarafından bayıltılmış olmalı
-                if (!sucluMu(targetPlayer.getUniqueId())) {
-                    copPlayer.sendMessage(ChatColor.RED + "Bu oyuncu tutuklanamaz: kimseye zarar verdiği görülmedi.");
+                if (!sucluMu(targetPlayer.getUniqueId()) && !arananOyuncular.contains(targetPlayer.getName().toLowerCase())) {
+                    copPlayer.sendMessage(ChatColor.RED + "Bu oyuncu tutuklanamaz: kimseye zarar verdiği görülmedi ve hakkında arama kararı yok.");
                     return;
                 }
                 if (plugin.saglikManager == null || !plugin.saglikManager.agirYaraliMi(targetPlayer.getUniqueId())) {
@@ -669,6 +782,7 @@ public class PolisManager implements Listener, CommandExecutor {
                     return;
                 }
 
+                Integer kararCezasi = arananCeza.remove(targetPlayer.getName().toLowerCase());
                 if (arananOyuncular.contains(targetPlayer.getName().toLowerCase())) {
                     arananOyuncular.remove(targetPlayer.getName().toLowerCase());
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + targetPlayer.getName()); 
@@ -677,7 +791,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
                 preJailLocations.put(targetPlayer.getUniqueId(), targetPlayer.getLocation());
                 int mod = getCopMod(item);
-                int durationSeconds = mod == 1 ? 300 : mod == 2 ? 600 : 1800; 
+                int durationSeconds = kararCezasi != null ? kararCezasi : (mod == 1 ? 300 : mod == 2 ? 600 : 1800);
                 
                 jailPlayer(targetPlayer, durationSeconds);
                 copPlayer.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + targetPlayer.getName() + " başarıyla hapse atıldı!");
@@ -1141,6 +1255,10 @@ public class PolisManager implements Listener, CommandExecutor {
             plugin.getConfig().set("sikayetler." + sid + ".eden", s.sikayetEden);
             plugin.getConfig().set("sikayetler." + sid + ".edilen", s.sikayetEdilen);
             plugin.getConfig().set("sikayetler." + sid + ".sebep", s.sebep);
+            plugin.getConfig().set("sikayetler." + sid + ".durum", s.durum);
+            plugin.getConfig().set("sikayetler." + sid + ".ifadeSikayetci", s.ifadeSikayetci);
+            plugin.getConfig().set("sikayetler." + sid + ".ifadeSupheli", s.ifadeSupheli);
+            plugin.getConfig().set("sikayetler." + sid + ".ustlenen", s.ustlenen);
         }
 
         plugin.getConfig().set("jail_esyalar", null);
@@ -1154,6 +1272,8 @@ public class PolisManager implements Listener, CommandExecutor {
         }
 
         plugin.getConfig().set("arananlar", new ArrayList<>(arananOyuncular));
+        plugin.getConfig().set("aranan_ceza", null);
+        for (Map.Entry<String, Integer> e : arananCeza.entrySet()) plugin.getConfig().set("aranan_ceza." + e.getKey(), e.getValue());
         plugin.saveConfig();
     }
 
@@ -1223,7 +1343,12 @@ public class PolisManager implements Listener, CommandExecutor {
                 String eden = plugin.getConfig().getString("sikayetler." + sid + ".eden");
                 String edilen = plugin.getConfig().getString("sikayetler." + sid + ".edilen");
                 String sebep = plugin.getConfig().getString("sikayetler." + sid + ".sebep");
-                aktifSikayetler.put(id, new Sikayet(id, eden, edilen, sebep));
+                Sikayet yuklenen = new Sikayet(id, eden, edilen, sebep);
+                yuklenen.durum = plugin.getConfig().getString("sikayetler." + sid + ".durum", "BEKLIYOR");
+                yuklenen.ifadeSikayetci = plugin.getConfig().getString("sikayetler." + sid + ".ifadeSikayetci", "");
+                yuklenen.ifadeSupheli = plugin.getConfig().getString("sikayetler." + sid + ".ifadeSupheli", "");
+                yuklenen.ustlenen = plugin.getConfig().getString("sikayetler." + sid + ".ustlenen", "");
+                aktifSikayetler.put(id, yuklenen);
             }
         }
 
@@ -1238,6 +1363,12 @@ public class PolisManager implements Listener, CommandExecutor {
             }
         }
 
+        if (plugin.getConfig().contains("aranan_ceza")) {
+            for (String n : plugin.getConfig().getConfigurationSection("aranan_ceza").getKeys(false)) {
+                arananCeza.put(n, plugin.getConfig().getInt("aranan_ceza." + n));
+            }
+        }
+
         if (plugin.getConfig().contains("arananlar")) {
             arananOyuncular.addAll(plugin.getConfig().getStringList("arananlar"));
         }
@@ -1245,6 +1376,9 @@ public class PolisManager implements Listener, CommandExecutor {
 
     public static class Sikayet {
         UUID id; String sikayetEden; String sikayetEdilen; String sebep;
+        // BEKLIYOR -> SIKAYETCI_IFADE -> SUPHELI_IFADE -> KARAR
+        String durum = "BEKLIYOR";
+        String ifadeSikayetci = ""; String ifadeSupheli = ""; String ustlenen = "";
         public Sikayet(UUID id, String eden, String edilen, String sebep) {
             this.id = id; this.sikayetEden = eden; this.sikayetEdilen = edilen; this.sebep = sebep;
         }
