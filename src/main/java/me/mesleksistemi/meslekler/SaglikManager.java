@@ -108,7 +108,10 @@ public class SaglikManager implements Listener, CommandExecutor {
 
     private boolean doktorOnlineMi() {
         for (Player p : Bukkit.getOnlinePlayers()) {
-            if (plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "").equalsIgnoreCase("doktor")) return true;
+            if (!plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "").equalsIgnoreCase("doktor")) continue;
+            // Kendisi baygın/hastanede olan doktor müdahale edemez; tek doktor yaralıysa sunucuda doktor yok sayılır
+            if (downedPlayers.containsKey(p.getUniqueId()) || ambulansTedavisi.containsKey(p.getUniqueId())) continue;
+            return true;
         }
         return false;
     }
@@ -184,10 +187,9 @@ public class SaglikManager implements Listener, CommandExecutor {
                     return;
                 }
                 ambulansTedavisi.put(id, kalan);
-                if (kalan % 60 == 0) {
-                    player.sendMessage(ChatColor.AQUA + "Tedavin sürüyor, " + (kalan / 60) + " dakika kaldı...");
-                } else if (kalan == 30) {
-                    player.sendMessage(ChatColor.AQUA + "Tedavin sürüyor, 30 saniye kaldı...");
+                if (kalan % 30 == 0 || kalan == 10 || kalan <= 3) {
+                    String sureYazi = kalan >= 60 ? (kalan / 60) + " dk" + (kalan % 60 != 0 ? " " + (kalan % 60) + " sn" : "") : kalan + " sn";
+                    player.sendMessage(ChatColor.AQUA + "Tedavin sürüyor, " + sureYazi + " kaldı...");
                 }
             }
         }.runTaskTimer(plugin, 20L, 20L);
@@ -271,7 +273,7 @@ public class SaglikManager implements Listener, CommandExecutor {
             }
             for (Player p : Bukkit.getOnlinePlayers()) {
                 String meslek = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "");
-                if (meslek.equalsIgnoreCase("doktor")) {
+                if (meslek.equalsIgnoreCase("doktor") && !downedPlayers.containsKey(p.getUniqueId()) && !ambulansTedavisi.containsKey(p.getUniqueId())) {
                     p.sendMessage(ChatColor.DARK_RED + "[ACİL SERVİS] " + ChatColor.YELLOW + player.getName() + " ağır yaralı! " + ChatColor.RED + "Müdahale için: /ambulanskabul " + player.getName());
                 }
             }
@@ -284,6 +286,10 @@ public class SaglikManager implements Listener, CommandExecutor {
             String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
             if (!meslek.equalsIgnoreCase("doktor")) {
                 player.sendMessage(ChatColor.RED + "Bu komutu sadece doktorlar kullanabilir.");
+                return true;
+            }
+            if (downedPlayers.containsKey(player.getUniqueId())) {
+                player.sendMessage(ChatColor.RED + "Sen de yaralısın, çağrıyı kabul edemezsin.");
                 return true;
             }
             if (args.length == 0) {
