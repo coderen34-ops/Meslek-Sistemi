@@ -123,6 +123,12 @@ commands:
     description: Karakola sikayet alma NPC'sini kurar veya siler.
     usage: /sikayetnpc <kur|sil>
     permission: polis.admin
+  odulkoy:
+    description: Aranan bir firarinin basina odul koyar.
+    usage: /odulkoy <oyuncu>
+  oduller:
+    description: Basina odul konmus firarileri listeler.
+    usage: /oduller
   polisKit:
     description: Polis kiti (elmas set, Koruma IV)
     usage: /polisKit

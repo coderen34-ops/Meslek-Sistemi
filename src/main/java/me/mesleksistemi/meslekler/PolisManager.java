@@ -32,6 +32,12 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.Event;
+import org.bukkit.Tag;
+import org.bukkit.block.data.Openable;
+import org.bukkit.block.data.type.Door;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.enchantments.Enchantment;
@@ -83,6 +89,11 @@ public class PolisManager implements Listener, CommandExecutor {
     // Başkasına hasar vermiş / öldürmüş oyuncular -> suç zamanı (ms). Tutuklama için şart.
     private final HashMap<UUID, Long> sucZamani = new HashMap<>();
     private final HashMap<UUID, Long> kitBekleme = new HashMap<>();
+    // Aranan kişinin claim'indeki sandığı inceleyen polisler (eşya alamaz/koyamaz)
+    private final HashSet<UUID> aramaYapanlar = new HashSet<>();
+    // Ödüller: hedef (küçük harf) -> {miktar, son artış zamanı ms}
+    public final HashMap<String, double[]> oduller = new HashMap<>();
+    private Object gpDataStore; private java.lang.reflect.Method gpClaimAt; private java.lang.reflect.Method gpOwnerId;
     private final HashMap<UUID, long[]> copUyari = new HashMap<>(); // hedef -> {vuruş sayısı, son vuruş zamanı}
     private final HashMap<UUID, Long> sonTutuklamaPrimi = new HashMap<>();
     // Soruşturma kararıyla aranan oyuncunun ceza süresi (saniye); coplu tutuklamada kullanılır
@@ -118,6 +129,8 @@ public class PolisManager implements Listener, CommandExecutor {
         this.modKey = new NamespacedKey(plugin, "cop_modu");
         this.sikayetNpcKey = new NamespacedKey(plugin, "sikayet_npc");
         this.davaDosyasiKey = new NamespacedKey(plugin, "dava_hedefi");
+
+        Bukkit.getScheduler().runTaskTimer(plugin, this::odulleriGuncelle, 1200L, 1200L);
 
         // Liste config'de görünsün ki yöneticiler düzenleyebilsin
         if (!plugin.getConfig().contains(IZINLI_KOMUTLAR_YOLU)) {
@@ -167,6 +180,36 @@ public class PolisManager implements Listener, CommandExecutor {
             return true;
         }
         
+        if (commandName.equalsIgnoreCase("odulkoy")) {
+            String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
+            if (!meslek.equalsIgnoreCase("polis") && !player.hasPermission("polis.admin")) {
+                player.sendMessage(ChatColor.RED + "Sadece emniyet mensupları ödül koyabilir!");
+                return true;
+            }
+            if (args.length < 1) { player.sendMessage(ChatColor.RED + "Kullanım: /odulkoy <oyuncu>"); return true; }
+            String hedef = args[0].toLowerCase();
+            if (!arananOyuncular.contains(hedef)) {
+                player.sendMessage(ChatColor.RED + "Ödül sadece hakkında arama kararı olan kişilere konabilir.");
+                return true;
+            }
+            if (oduller.containsKey(hedef)) { player.sendMessage(ChatColor.RED + "Bu kişinin başında zaten ödül var."); return true; }
+            double baslangic = plugin.getConfig().getDouble("odul.baslangic", 1000.0);
+            oduller.put(hedef, new double[]{baslangic, System.currentTimeMillis()});
+            plugin.veriKaydet();
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + args[0] + ChatColor.RED + " firari! Başına $" + (long) baslangic
+                + " ödül konuldu. Yakalayan polise belediye kasasından ödenecek.");
+            return true;
+        }
+
+        if (commandName.equalsIgnoreCase("oduller")) {
+            if (oduller.isEmpty()) { player.sendMessage(ChatColor.YELLOW + "Şu an başına ödül konmuş kimse yok."); return true; }
+            player.sendMessage(ChatColor.DARK_RED + "--- Aranan Firariler ---");
+            for (Map.Entry<String, double[]> e : oduller.entrySet()) {
+                player.sendMessage(ChatColor.YELLOW + e.getKey() + ChatColor.GRAY + " - " + ChatColor.GOLD + "$" + (long) e.getValue()[0]);
+            }
+            return true;
+        }
+
         if (commandName.equalsIgnoreCase("polisKit")) {
             String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
             if (!meslek.equalsIgnoreCase("polis")) {
@@ -850,8 +893,149 @@ public class PolisManager implements Listener, CommandExecutor {
         if (jailedPlayers.containsKey(event.getPlayer().getUniqueId())) event.setCancelled(true);
     }
 
+    // ---- Ödül ----
+    private void odulleriGuncelle() {
+        if (oduller.isEmpty()) return;
+        long simdi = System.currentTimeMillis();
+        double yuzde = plugin.getConfig().getDouble("odul.artis-yuzde", 1.5) / 100.0;
+        long aralik = plugin.getConfig().getLong("odul.artis-aralik-dakika", 30) * 60_000L;
+        double ust = plugin.getConfig().getDouble("odul.ust-sinir", 10000.0);
+        boolean degisti = false;
+        java.util.Iterator<Map.Entry<String, double[]>> it = oduller.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, double[]> e = it.next();
+            if (!arananOyuncular.contains(e.getKey())) { it.remove(); degisti = true; continue; } // suçlama düştü / yakalandı
+            double[] v = e.getValue();
+            long periyot = aralik > 0 ? (long) ((simdi - (long) v[1]) / aralik) : 0;
+            if (periyot > 0) {
+                v[0] = Math.min(ust, Math.round(v[0] * Math.pow(1 + yuzde, periyot) * 100.0) / 100.0);
+                v[1] = v[1] + periyot * aralik;
+                degisti = true;
+            }
+        }
+        if (degisti) plugin.veriKaydet();
+    }
+
+    private void oduluOde(Player cop, Player hedef) {
+        double[] o = oduller.remove(hedef.getName().toLowerCase());
+        if (o == null) return;
+        double miktar = o[0];
+        if (plugin.kasadanParaCek(miktar)) {
+            plugin.bankaHesaplari.put(cop.getUniqueId(), plugin.bankaHesaplari.getOrDefault(cop.getUniqueId(), 0.0) + miktar);
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.GREEN + "Firari " + hedef.getName() + " yakalandı! Memur " + cop.getName() + " $" + (long) miktar + " ödül kazandı.");
+            cop.sendMessage(ChatColor.AQUA + "Ödül olarak banka hesabınıza $" + (long) miktar + " yatırıldı!");
+        } else {
+            cop.sendMessage(ChatColor.RED + "Belediye kasasında ödül için yeterli para yok ($" + (long) miktar + "). Ödül iptal edildi.");
+        }
+        plugin.veriKaydet();
+    }
+
+    // ---- Aranan kişinin claim'i (GriefPrevention, yansıma ile) ----
+    private UUID claimSahibi(Location loc) {
+        try {
+            if (gpClaimAt == null) {
+                org.bukkit.plugin.Plugin gp = Bukkit.getPluginManager().getPlugin("GriefPrevention");
+                if (gp == null || !gp.isEnabled()) return null;
+                Object ds = gp.getClass().getField("dataStore").get(gp);
+                java.lang.reflect.Method bulunan = null;
+                for (java.lang.reflect.Method m : ds.getClass().getMethods()) {
+                    if (!m.getName().equals("getClaimAt")) continue;
+                    if (m.getParameterCount() == 3 && m.getParameterTypes()[0] == Location.class) { bulunan = m; break; }
+                    if (m.getParameterCount() == 4 && m.getParameterTypes()[0] == Location.class && bulunan == null) bulunan = m;
+                }
+                if (bulunan == null) return null;
+                gpDataStore = ds; gpClaimAt = bulunan;
+            }
+            Object claim = gpClaimAt.getParameterCount() == 3
+                ? gpClaimAt.invoke(gpDataStore, loc, true, null)
+                : gpClaimAt.invoke(gpDataStore, loc, true, false, null);
+            if (claim == null) return null;
+            if (gpOwnerId == null) gpOwnerId = claim.getClass().getMethod("getOwnerID");
+            return (UUID) gpOwnerId.invoke(claim);
+        } catch (Exception e) {
+            plugin.getLogger().warning("[Polis] GriefPrevention claim bilgisi okunamadı: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private boolean aranandanMi(Location loc, Player polis) {
+        UUID sahip = claimSahibi(loc);
+        if (sahip == null || sahip.equals(polis.getUniqueId())) return false;
+        String ad = Bukkit.getOfflinePlayer(sahip).getName();
+        return ad != null && arananOyuncular.contains(ad.toLowerCase());
+    }
+
+    private boolean aramaKonteyneri(Material m) {
+        return m == Material.CHEST || m == Material.TRAPPED_CHEST || m == Material.BARREL || Tag.SHULKER_BOXES.isTagged(m);
+    }
+
+    // Polis, aranan kişinin claim'indeki kapıları açabilir; sandıkları açıp bakabilir ama eşya alamaz
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onArananClaimKullan(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getHand() != EquipmentSlot.HAND) return;
+        Block b = event.getClickedBlock();
+        if (b == null) return;
+        Player p = event.getPlayer();
+        Material m = b.getType();
+        boolean kapi = Tag.DOORS.isTagged(m) || Tag.TRAPDOORS.isTagged(m) || Tag.FENCE_GATES.isTagged(m);
+        boolean kutu = aramaKonteyneri(m);
+        if (!kapi && !kutu) return;
+        if (!plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas").equalsIgnoreCase("polis")) return;
+        if (jailedPlayers.containsKey(p.getUniqueId())) return;
+        if (!aranandanMi(b.getLocation(), p)) return;
+
+        event.setCancelled(false);
+        event.setUseItemInHand(Event.Result.DENY); // elindeki blok/eşya yerleşmesin
+        event.setUseInteractedBlock(Event.Result.ALLOW);
+
+        if (kapi && (m == Material.IRON_DOOR || m == Material.IRON_TRAPDOOR)) {
+            // Demir kapılar elle açılmaz: polis yetkisiyle aç/kapat
+            event.setUseInteractedBlock(Event.Result.DENY);
+            if (b.getBlockData() instanceof Door) {
+                Door d = (Door) b.getBlockData();
+                Block diger = b.getRelative(d.getHalf() == org.bukkit.block.data.Bisected.Half.BOTTOM ? org.bukkit.block.BlockFace.UP : org.bukkit.block.BlockFace.DOWN);
+                boolean yeni = !d.isOpen();
+                d.setOpen(yeni); b.setBlockData(d);
+                if (diger.getBlockData() instanceof Door) { Door d2 = (Door) diger.getBlockData(); d2.setOpen(yeni); diger.setBlockData(d2); }
+            } else if (b.getBlockData() instanceof Openable) {
+                Openable o = (Openable) b.getBlockData();
+                o.setOpen(!o.isOpen()); b.setBlockData(o);
+            }
+        }
+        if (kutu) {
+            aramaYapanlar.add(p.getUniqueId());
+            UUID pid = p.getUniqueId();
+            // Konteyner gerçekten açılmadıysa işaret kalmasın
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                Player pp = Bukkit.getPlayer(pid);
+                if (pp == null || pp.getOpenInventory().getTopInventory().getType() == org.bukkit.event.inventory.InventoryType.CRAFTING) aramaYapanlar.remove(pid);
+            }, 3L);
+            p.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GRAY + "Arama yetkisiyle sandığı inceliyorsun (eşya alamazsın).");
+        }
+        UUID sahip = claimSahibi(b.getLocation());
+        plugin.getLogger().info("[Polis] " + p.getName() + " aranan kişinin claim'inde " + m + " kullandı @ " + b.getX() + "," + b.getY() + "," + b.getZ());
+        Player sp = sahip == null ? null : Bukkit.getPlayer(sahip);
+        if (sp != null) sp.sendMessage(ChatColor.DARK_RED + "[Emniyet] " + ChatColor.YELLOW + "Memur " + p.getName() + " arama kararıyla bölgenizde arama yapıyor!");
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onAramaTikla(InventoryClickEvent event) {
+        if (event.getWhoClicked() instanceof Player && aramaYapanlar.contains(event.getWhoClicked().getUniqueId())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onAramaSurukle(InventoryDragEvent event) {
+        if (event.getWhoClicked() instanceof Player && aramaYapanlar.contains(event.getWhoClicked().getUniqueId())) event.setCancelled(true);
+    }
+
+    @EventHandler
+    public void onAramaKapat(InventoryCloseEvent event) {
+        aramaYapanlar.remove(event.getPlayer().getUniqueId());
+    }
+
     /** Her tutuklanan kişi için polise belediye kasasından prim. Aynı kişi için 10 dk içinde tekrar ödenmez. */
     private void tutuklamaPrimi(Player cop, Player hedef) {
+        oduluOde(cop, hedef);
         double prim = plugin.getConfig().getDouble("polis.tutuklama-primi", 200.0);
         if (prim <= 0 || cop.getUniqueId().equals(hedef.getUniqueId())) return;
         long simdi = System.currentTimeMillis();
@@ -1300,6 +1484,11 @@ public class PolisManager implements Listener, CommandExecutor {
         }
 
         plugin.getConfig().set("arananlar", new ArrayList<>(arananOyuncular));
+        plugin.getConfig().set("oduller", null);
+        for (Map.Entry<String, double[]> e : oduller.entrySet()) {
+            plugin.getConfig().set("oduller." + e.getKey() + ".miktar", e.getValue()[0]);
+            plugin.getConfig().set("oduller." + e.getKey() + ".son", (long) e.getValue()[1]);
+        }
         plugin.getConfig().set("aranan_ceza", null);
         for (Map.Entry<String, Integer> e : arananCeza.entrySet()) plugin.getConfig().set("aranan_ceza." + e.getKey(), e.getValue());
         plugin.saveConfig();
@@ -1388,6 +1577,12 @@ public class PolisManager implements Listener, CommandExecutor {
                 } catch (Exception ex) {
                     plugin.getLogger().warning("[Polis] Mahkum eşyaları yüklenemedi: " + u);
                 }
+            }
+        }
+
+        if (plugin.getConfig().contains("oduller")) {
+            for (String n : plugin.getConfig().getConfigurationSection("oduller").getKeys(false)) {
+                oduller.put(n, new double[]{plugin.getConfig().getDouble("oduller." + n + ".miktar"), plugin.getConfig().getLong("oduller." + n + ".son")});
             }
         }
 
