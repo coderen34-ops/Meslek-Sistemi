@@ -175,7 +175,7 @@ public class MeslekSistemi extends JavaPlugin {
         // ENTEGRASYON 3: PolisManager
         this.polisManager = new PolisManager(this);
         getServer().getPluginManager().registerEvents(this.polisManager, this);
-        String[] polisCmds = {"hucreolustur", "hucresil", "copal", "serbestbirak", "amirkursu", "sikayetnpc", "sikayetkarar"};
+        String[] polisCmds = {"hucreolustur", "hucresil", "copal", "polisKit", "serbestbirak", "amirkursu", "sikayetnpc", "sikayetkarar"};
         for (String c : polisCmds) {
             if (getCommand(c) != null) getCommand(c).setExecutor(this.polisManager);
         }

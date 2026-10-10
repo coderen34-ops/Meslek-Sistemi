@@ -85,6 +85,15 @@ public class SaglikManager implements Listener, CommandExecutor {
         return muafOyuncular.contains(oyuncu);
     }
 
+    /** Hapse giren oyuncunun baygınlığı/yarası geçer; hiç bayılmamış gibi devam eder. */
+    public void hapseGirdiIyilestir(Player player) {
+        UUID id = player.getUniqueId();
+        ambulansTedavisi.remove(id);
+        yaralayanlar.remove(id);
+        tamTedavi(player);
+        veriKaydetSaglik();
+    }
+
     public boolean agirYaraliMi(UUID oyuncu) {
         return downedPlayers.containsKey(oyuncu);
     }

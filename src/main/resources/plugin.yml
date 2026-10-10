@@ -123,6 +123,9 @@ commands:
     description: Karakola sikayet alma NPC'sini kurar veya siler.
     usage: /sikayetnpc <kur|sil>
     permission: polis.admin
+  polisKit:
+    description: Polis kiti (elmas set, Koruma IV)
+    usage: /polisKit
   copal:
     description: Emniyet mensuplari icin ayarlanabilir polis copu verir.
     usage: /copal
