@@ -83,6 +83,8 @@ public class PolisManager implements Listener, CommandExecutor {
     // Başkasına hasar vermiş / öldürmüş oyuncular -> suç zamanı (ms). Tutuklama için şart.
     private final HashMap<UUID, Long> sucZamani = new HashMap<>();
     private final HashMap<UUID, Long> kitBekleme = new HashMap<>();
+    private final HashMap<UUID, long[]> copUyari = new HashMap<>(); // hedef -> {vuruş sayısı, son vuruş zamanı}
+    private final HashMap<UUID, Long> sonTutuklamaPrimi = new HashMap<>();
     // Soruşturma kararıyla aranan oyuncunun ceza süresi (saniye); coplu tutuklamada kullanılır
     public final HashMap<String, Integer> arananCeza = new HashMap<>();
     // İfade yazan polis -> dosya
@@ -314,7 +316,7 @@ public class PolisManager implements Listener, CommandExecutor {
                 String hedefAd = sikayet.sikayetEdilen.toLowerCase();
                 arananOyuncular.add(hedefAd);
                 arananCeza.put(hedefAd, dk * 60);
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag setsuffix " + sikayet.sikayetEdilen + " Aranıyor");
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag setsuffix " + sikayet.sikayetEdilen + " araniyor");
                 plugin.veriKaydet();
                 Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + "DİKKAT: " + ChatColor.RED + sikayet.sikayetEdilen
                     + ChatColor.YELLOW + " soruşturma sonucunda suçlu bulundu, hakkında arama kararı çıktı! (Ceza: " + dk + " dk)");
@@ -538,6 +540,7 @@ public class PolisManager implements Listener, CommandExecutor {
                     preJailLocations.put(target.getUniqueId(), target.getLocation());
                     
                     jailPlayer(target, sure); 
+                    tutuklamaPrimi(player, target);
                     
                     Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + target.getName() + ChatColor.GREEN + " tutuklanarak nezarete gönderildi! [" + mesajSeviyesi + "]");
                     elindekiDosyayiSil(player);
@@ -772,15 +775,26 @@ public class PolisManager implements Listener, CommandExecutor {
                 if (jailCells.isEmpty()) { copPlayer.sendMessage(ChatColor.RED + "Hiç hücre ayarlanmamış!"); return; }
                 if (jailedPlayers.containsKey(targetPlayer.getUniqueId())) { copPlayer.sendMessage(ChatColor.RED + "Bu oyuncu zaten hapiste!"); return; }
 
-                // Tutuklama şartı: hedef daha önce birine hasar vermiş/öldürmüş olmalı ve polis tarafından bayıltılmış olmalı
-                if (!sucluMu(targetPlayer.getUniqueId()) && !arananOyuncular.contains(targetPlayer.getName().toLowerCase())) {
-                    copPlayer.sendMessage(ChatColor.RED + "Bu oyuncu tutuklanamaz: kimseye zarar verdiği görülmedi ve hakkında arama kararı yok.");
-                    return;
+                // Tutuklama: (suçlu ya da aranan) + bayılmış ise hemen; aksi halde 3 cop vuruşunda (2 uyarı, 3. vuruşta hapis)
+                UUID hid = targetPlayer.getUniqueId();
+                boolean suclu = sucluMu(hid) || arananOyuncular.contains(targetPlayer.getName().toLowerCase());
+                boolean baygin = plugin.saglikManager != null && plugin.saglikManager.agirYaraliMi(hid);
+                if (!(suclu && baygin)) {
+                    long simdi = System.currentTimeMillis();
+                    long[] kayit = copUyari.computeIfAbsent(hid, x -> new long[]{0, 0});
+                    long sure = plugin.getConfig().getLong("polis.uyari-gecerlilik-dakika", 10) * 60_000L;
+                    if (simdi - kayit[1] > sure) kayit[0] = 0;
+                    if (simdi - kayit[1] < 1500 && kayit[0] > 0) return; // hızlı tıklamalar tek vuruş sayılır
+                    kayit[0]++; kayit[1] = simdi;
+                    if (kayit[0] < 3) {
+                        long kalan = 3 - kayit[0];
+                        targetPlayer.sendMessage(ChatColor.DARK_RED + "[Polis] " + ChatColor.RED + "Çoplandınız! " + kalan + " vuruş sonra hapse gireceksiniz. Uyarıya uyun!");
+                        copPlayer.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.YELLOW + targetPlayer.getName() + " uyarıldı (" + kayit[0] + "/3). " + kalan + " vuruş sonra hapse girecek.");
+                        return;
+                    }
+                    copUyari.remove(hid);
                 }
-                if (plugin.saglikManager == null || !plugin.saglikManager.agirYaraliMi(targetPlayer.getUniqueId())) {
-                    copPlayer.sendMessage(ChatColor.RED + "Suçluyu tutuklamak için önce etkisiz hale getirip bayıltmalısın!");
-                    return;
-                }
+                copUyari.remove(hid);
 
                 Integer kararCezasi = arananCeza.remove(targetPlayer.getName().toLowerCase());
                 if (arananOyuncular.contains(targetPlayer.getName().toLowerCase())) {
@@ -795,6 +809,7 @@ public class PolisManager implements Listener, CommandExecutor {
                 
                 jailPlayer(targetPlayer, durationSeconds);
                 copPlayer.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + targetPlayer.getName() + " başarıyla hapse atıldı!");
+                tutuklamaPrimi(copPlayer, targetPlayer);
             }
         }
     }
@@ -833,6 +848,19 @@ public class PolisManager implements Listener, CommandExecutor {
     @EventHandler(ignoreCancelled = true)
     public void onMahkumOkTopla(PlayerPickupArrowEvent event) {
         if (jailedPlayers.containsKey(event.getPlayer().getUniqueId())) event.setCancelled(true);
+    }
+
+    /** Her tutuklanan kişi için polise belediye kasasından prim. Aynı kişi için 10 dk içinde tekrar ödenmez. */
+    private void tutuklamaPrimi(Player cop, Player hedef) {
+        double prim = plugin.getConfig().getDouble("polis.tutuklama-primi", 200.0);
+        if (prim <= 0 || cop.getUniqueId().equals(hedef.getUniqueId())) return;
+        long simdi = System.currentTimeMillis();
+        if (simdi - sonTutuklamaPrimi.getOrDefault(hedef.getUniqueId(), 0L) < 10 * 60_000L) return;
+        if (!plugin.kasadanParaCek(prim)) return;
+        sonTutuklamaPrimi.put(hedef.getUniqueId(), simdi);
+        plugin.bankaHesaplari.put(cop.getUniqueId(), plugin.bankaHesaplari.getOrDefault(cop.getUniqueId(), 0.0) + prim);
+        plugin.veriKaydet();
+        cop.sendMessage(ChatColor.AQUA + "Devlet, tutuklama primi olarak banka hesabınıza $" + prim + " yatırdı!");
     }
 
     private boolean sucluMu(UUID id) {
@@ -1118,7 +1146,7 @@ public class PolisManager implements Listener, CommandExecutor {
             else if (iadeEdilecekMeslek.equalsIgnoreCase("belediyecalisani")) tagAd = "Memur";
             else tagAd = iadeEdilecekMeslek.substring(0, 1).toUpperCase() + iadeEdilecekMeslek.substring(1).toLowerCase();
         }
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " " + tagAd);
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " " + iadeEdilecekMeslek);
         
         esyalariIade(player);
         player.sendMessage(ChatColor.GREEN + "Cezanız doldu! Eski sivil hayatınıza ve [" + tagAd + "] unvanınıza geri döndünüz!");
