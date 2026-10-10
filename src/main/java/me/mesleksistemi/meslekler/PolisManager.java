@@ -947,8 +947,8 @@ public class PolisManager implements Listener, CommandExecutor {
                 gpDataStore = ds; gpClaimAt = bulunan;
             }
             Object claim = gpClaimAt.getParameterCount() == 3
-                ? gpClaimAt.invoke(gpDataStore, loc, true, null)
-                : gpClaimAt.invoke(gpDataStore, loc, true, false, null);
+                ? gpClaimAt.invoke(gpDataStore, loc, false, null)
+                : gpClaimAt.invoke(gpDataStore, loc, false, false, null);
             if (claim == null) return null;
             if (gpOwnerId == null) gpOwnerId = claim.getClass().getMethod("getOwnerID");
             return (UUID) gpOwnerId.invoke(claim);
