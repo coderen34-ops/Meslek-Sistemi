@@ -116,6 +116,7 @@ public class PolisManager implements Listener, CommandExecutor {
     private final Map<String, Map<String, Object>> yuklenemeyenDonusKonumlari = new HashMap<>();
 
     // Hapisteyken kullanılabilecek komutlar (beyaz liste). Config: hapis.izinli_komutlar
+    private static final java.util.Set<String> HER_ZAMAN_IZINLI = java.util.Set.of("login", "l", "log", "register", "reg", "changepassword", "cp");
     private static final String IZINLI_KOMUTLAR_YOLU = "hapis.izinli_komutlar";
     private static final List<String> VARSAYILAN_IZINLI_KOMUTLAR = Arrays.asList(
             "msg", "tell", "w", "r", "reply", "m",
@@ -825,7 +826,7 @@ public class PolisManager implements Listener, CommandExecutor {
                 if (!(suclu && baygin)) {
                     long simdi = System.currentTimeMillis();
                     long[] kayit = copUyari.computeIfAbsent(hid, x -> new long[]{0, 0});
-                    long sure = plugin.getConfig().getLong("polis.uyari-gecerlilik-dakika", 10) * 60_000L;
+                    long sure = plugin.getConfig().getLong("polis.uyari-gecerlilik-dakika", 2) * 60_000L;
                     if (simdi - kayit[1] > sure) kayit[0] = 0;
                     if (simdi - kayit[1] < 1500 && kayit[0] > 0) return; // hızlı tıklamalar tek vuruş sayılır
                     kayit[0]++; kayit[1] = simdi;
@@ -1193,6 +1194,9 @@ public class PolisManager implements Listener, CommandExecutor {
         if (player.hasPermission("polis.admin")) return;
 
         String komut = MeslekSistemi.komutAdi(event.getMessage());
+
+        // Giriş komutları her zaman serbest: mahkumken çıkan oyuncu AuthMe ile giriş yapabilmeli
+        if (HER_ZAMAN_IZINLI.contains(komut.toLowerCase())) return;
 
         List<String> izinli = plugin.getConfig().getStringList(IZINLI_KOMUTLAR_YOLU);
         for (String izin : izinli) {
