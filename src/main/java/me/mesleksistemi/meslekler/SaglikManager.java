@@ -830,6 +830,65 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
     }
 
+    // ---- Baygın (yaralı) oyuncu hiçbir şey yapamasın: vuramaz, kullanamaz, kıramaz, atamaz ----
+    private boolean baygin(Player p) {
+        return p != null && downedPlayers.containsKey(p.getUniqueId()) && !muafOyuncular.contains(p.getUniqueId());
+    }
+
+    private Player saldiranBaygin(Entity damager) {
+        Entity e = damager;
+        if (e instanceof org.bukkit.entity.Projectile) {
+            Object shooter = ((org.bukkit.entity.Projectile) e).getShooter();
+            if (shooter instanceof Entity) e = (Entity) shooter;
+        }
+        return (e instanceof Player && baygin((Player) e)) ? (Player) e : null;
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginVurma(EntityDamageByEntityEvent event) {
+        if (saldiranBaygin(event.getDamager()) != null) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginEtkilesim(PlayerInteractEvent event) {
+        if (baygin(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginVarlikEtkilesim(PlayerInteractEntityEvent event) {
+        if (baygin(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginKirma(org.bukkit.event.block.BlockBreakEvent event) {
+        if (baygin(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginKoyma(org.bukkit.event.block.BlockPlaceEvent event) {
+        if (baygin(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginAtma(org.bukkit.event.player.PlayerDropItemEvent event) {
+        if (baygin(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginEldegistir(org.bukkit.event.player.PlayerSwapHandItemsEvent event) {
+        if (baygin(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginOk(org.bukkit.event.entity.EntityShootBowEvent event) {
+        if (event.getEntity() instanceof Player && baygin((Player) event.getEntity())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onBayginFirlatma(org.bukkit.event.entity.ProjectileLaunchEvent event) {
+        if (saldiranBaygin(event.getEntity()) != null) event.setCancelled(true);
+    }
+
     // Yaralı yerde yatarken eğilip (shift) ayağa kalkamasın; sadece tedaviyle kalkar
     @EventHandler(priority = EventPriority.LOWEST)
     public void onYaraliEgilme(PlayerToggleSneakEvent event) {
