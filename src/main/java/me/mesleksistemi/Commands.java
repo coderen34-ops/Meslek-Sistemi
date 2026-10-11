@@ -70,6 +70,61 @@ public class Commands implements CommandExecutor {
             return true;
         }
 
+        if (command.getName().equalsIgnoreCase("paragor") && sender.hasPermission("meslek.admin")) {
+            if (args.length >= 1 && args[0].equalsIgnoreCase("liste")) {
+                int adet = 15;
+                if (args.length >= 2) { try { adet = Math.max(1, Math.min(50, Integer.parseInt(args[1]))); } catch (NumberFormatException ignored) {} }
+                java.util.List<java.util.Map.Entry<java.util.UUID, Double>> sirali = new java.util.ArrayList<>(plugin.bankaHesaplari.entrySet());
+                sirali.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+                double toplam = 0;
+                for (java.util.Map.Entry<java.util.UUID, Double> e : sirali) toplam += e.getValue();
+                sender.sendMessage(ChatColor.GOLD + "--- En Zengin " + Math.min(adet, sirali.size()) + " Banka Hesabı ---");
+                int sira = 1;
+                for (java.util.Map.Entry<java.util.UUID, Double> e : sirali) {
+                    if (sira > adet) break;
+                    String ad = Bukkit.getOfflinePlayer(e.getKey()).getName();
+                    boolean online = Bukkit.getPlayer(e.getKey()) != null;
+                    sender.sendMessage(ChatColor.YELLOW + "" + sira + ". " + (ad != null ? ad : e.getKey().toString().substring(0, 8))
+                        + ChatColor.GRAY + " - " + ChatColor.GREEN + "$" + String.format(java.util.Locale.US, "%.2f", e.getValue())
+                        + (online ? ChatColor.AQUA + " (çevrimiçi)" : ""));
+                    sira++;
+                }
+                sender.sendMessage(ChatColor.GRAY + "Toplam banka parası: " + ChatColor.GREEN + "$" + String.format(java.util.Locale.US, "%.2f", toplam)
+                    + ChatColor.GRAY + " (" + sirali.size() + " hesap)");
+                return true;
+            }
+            if (args.length < 1) {
+                sender.sendMessage(ChatColor.RED + "Kullanım: /paragor <oyuncu>  veya  /paragor liste [adet]");
+                return true;
+            }
+            org.bukkit.OfflinePlayer hedefOp = Bukkit.getOfflinePlayer(args[0]);
+            Player hedef = Bukkit.getPlayerExact(args[0]);
+            if (hedef == null && !hedefOp.hasPlayedBefore()) {
+                sender.sendMessage(ChatColor.RED + "Bu oyuncu sunucuya hiç girmemiş: " + args[0]);
+                return true;
+            }
+            double banka = plugin.bankaHesaplari.getOrDefault(hedefOp.getUniqueId(), 0.0);
+            sender.sendMessage(ChatColor.GOLD + "--- " + args[0] + " Para Durumu ---");
+            sender.sendMessage(ChatColor.YELLOW + "Banka: " + ChatColor.GREEN + "$" + String.format(java.util.Locale.US, "%.2f", banka));
+            if (hedef != null) {
+                double envanter = 0, sandik = 0;
+                for (org.bukkit.inventory.ItemStack it : hedef.getInventory().getContents()) {
+                    Double v = plugin.getMoneyValue(it);
+                    if (v != null) envanter += v * it.getAmount();
+                }
+                for (org.bukkit.inventory.ItemStack it : hedef.getEnderChest().getContents()) {
+                    Double v = plugin.getMoneyValue(it);
+                    if (v != null) sandik += v * it.getAmount();
+                }
+                sender.sendMessage(ChatColor.YELLOW + "Üstündeki nakit: " + ChatColor.GREEN + "$" + String.format(java.util.Locale.US, "%.2f", envanter));
+                sender.sendMessage(ChatColor.YELLOW + "Ender sandığındaki nakit: " + ChatColor.GREEN + "$" + String.format(java.util.Locale.US, "%.2f", sandik));
+                sender.sendMessage(ChatColor.GRAY + "Toplam: " + ChatColor.GREEN + "$" + String.format(java.util.Locale.US, "%.2f", banka + envanter + sandik));
+            } else {
+                sender.sendMessage(ChatColor.GRAY + "Oyuncu çevrimdışı, nakit durumu görülemiyor (sadece banka).");
+            }
+            return true;
+        }
+
         if (command.getName().equalsIgnoreCase("yasalar")) {
             if (!(sender instanceof Player)) return true;
             Player player = (Player) sender;

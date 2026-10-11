@@ -78,6 +78,10 @@ commands:
   yasakursuayarla:
     description: Yasa kursusunun konumunu ayarlar.
     usage: /yasakursuayarla
+  paragor:
+    description: Oyuncunun banka ve nakit parasini gosterir (admin).
+    usage: /paragor <oyuncu> | /paragor liste [adet]
+    permission: meslek.admin
   primver:
     description: Belirli bir meslek grubuna prim dagitir.
     usage: /primver <meslek> <miktar>

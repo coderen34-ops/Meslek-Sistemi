@@ -231,7 +231,7 @@ public class MeslekSistemi extends JavaPlugin {
 
         Commands cmdExecutor = new Commands(this);
         String[] cmds = {
-            "meslekata", "primver", "kasaayarla", "kursuayarla", "mesleknpc", "bankanpc", 
+            "meslekata", "primver", "paragor", "kasaayarla", "kursuayarla", "mesleknpc", "bankanpc", 
             "nufusnpc", "tapunpc", "kimlikbiyomsec", "meslekler", "basvurular", 
             "basvurucevapla", "tapumenusu", "ohal", "maaslar", "yasayayinla", "yasakursuayarla", "yasalar", "rehber"
         };
