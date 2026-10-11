@@ -70,6 +70,7 @@ public class PolisManager implements Listener, CommandExecutor {
     private final MeslekSistemi plugin;
     
     private final NamespacedKey copKey;
+    private final NamespacedKey kitKey;
     private final NamespacedKey modKey;
     private final NamespacedKey sikayetNpcKey;
     private final NamespacedKey davaDosyasiKey;
@@ -127,11 +128,13 @@ public class PolisManager implements Listener, CommandExecutor {
     public PolisManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         this.copKey = new NamespacedKey(plugin, "polis_copu");
+        this.kitKey = new NamespacedKey(plugin, "polis_kiti");
         this.modKey = new NamespacedKey(plugin, "cop_modu");
         this.sikayetNpcKey = new NamespacedKey(plugin, "sikayet_npc");
         this.davaDosyasiKey = new NamespacedKey(plugin, "dava_hedefi");
 
         Bukkit.getScheduler().runTaskTimer(plugin, this::odulleriGuncelle, 1200L, 1200L);
+        Bukkit.getScheduler().runTaskTimer(plugin, this::polisEsyalariniTemizle, 100L, 100L);
 
         // Liste config'de görünsün ki yöneticiler düzenleyebilsin
         if (!plugin.getConfig().contains(IZINLI_KOMUTLAR_YOLU)) {
@@ -1071,6 +1074,7 @@ public class PolisManager implements Listener, CommandExecutor {
         ItemStack kilic = new ItemStack(Material.DIAMOND_SWORD);
         ItemMeta km = kilic.getItemMeta();
         km.setDisplayName(ChatColor.BLUE + "Polis Kılıcı");
+        km.getPersistentDataContainer().set(kitKey, PersistentDataType.BYTE, (byte) 1);
         kilic.setItemMeta(km);
         tasanVer(p, kilic);
         boolean copVar = false;
@@ -1078,11 +1082,61 @@ public class PolisManager implements Listener, CommandExecutor {
         if (!copVar) tasanVer(p, createCop(1));
     }
 
+    // ---- Meslekten çıkan oyuncunun polis eşyaları ----
+    private boolean polisEsyasiMi(ItemStack it) {
+        if (it == null || it.getType() == Material.AIR) return false;
+        if (isCop(it)) return true;
+        if (!it.hasItemMeta()) return false;
+        ItemMeta m = it.getItemMeta();
+        if (m.getPersistentDataContainer().has(kitKey, PersistentDataType.BYTE)) return true;
+        // Etiketsiz eski kitler: ada göre tanı
+        if (!m.hasDisplayName()) return false;
+        String ad = ChatColor.stripColor(m.getDisplayName());
+        switch (it.getType()) {
+            case DIAMOND_HELMET: return ad.equals("Polis Kaskı");
+            case DIAMOND_CHESTPLATE: return ad.equals("Polis Yeleği");
+            case DIAMOND_LEGGINGS: return ad.equals("Polis Pantolonu");
+            case DIAMOND_BOOTS: return ad.equals("Polis Botları");
+            case DIAMOND_SWORD: return ad.equals("Polis Kılıcı");
+            default: return false;
+        }
+    }
+
+    private void polisEsyalariniTemizle() {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            String meslek = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
+            if (meslek.equalsIgnoreCase("polis") || meslek.equalsIgnoreCase("mahkum")) continue;
+            if (jailedPlayers.containsKey(p.getUniqueId())) continue;
+            int silinen = 0;
+            org.bukkit.inventory.PlayerInventory inv = p.getInventory();
+            ItemStack[] icerik = inv.getContents();
+            for (int i = 0; i < icerik.length; i++) {
+                if (polisEsyasiMi(icerik[i])) { inv.setItem(i, null); silinen++; }
+            }
+            ItemStack[] zirh = inv.getArmorContents();
+            boolean zirhDegisti = false;
+            for (int i = 0; i < zirh.length; i++) {
+                if (polisEsyasiMi(zirh[i])) { zirh[i] = null; zirhDegisti = true; silinen++; }
+            }
+            if (zirhDegisti) inv.setArmorContents(zirh);
+            if (polisEsyasiMi(inv.getItemInOffHand())) { inv.setItemInOffHand(null); silinen++; }
+            org.bukkit.inventory.Inventory ec = p.getEnderChest();
+            for (int i = 0; i < ec.getSize(); i++) {
+                if (polisEsyasiMi(ec.getItem(i))) { ec.setItem(i, null); silinen++; }
+            }
+            if (silinen > 0) {
+                p.updateInventory();
+                p.sendMessage(ChatColor.GRAY + "Polis olmadığın için polis ekipmanların (" + silinen + " parça) geri alındı.");
+            }
+        }
+    }
+
     private ItemStack kitParca(Material m, String ad) {
         ItemStack it = new ItemStack(m);
         ItemMeta meta = it.getItemMeta();
         meta.setDisplayName(ChatColor.BLUE + ad);
         meta.addEnchant(Enchantment.PROTECTION, 4, true);
+        meta.getPersistentDataContainer().set(kitKey, PersistentDataType.BYTE, (byte) 1);
         it.setItemMeta(meta);
         return it;
     }
