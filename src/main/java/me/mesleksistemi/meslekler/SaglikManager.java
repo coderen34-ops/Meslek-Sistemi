@@ -203,6 +203,7 @@ public class SaglikManager implements Listener, CommandExecutor {
 
         veriYukleSaglik();
         startBleedingTask();
+        startKanParcacikTask();
     }
 
     @Override
@@ -554,6 +555,28 @@ public class SaglikManager implements Listener, CommandExecutor {
         player.removePotionEffect(PotionEffectType.BLINDNESS);
         player.removePotionEffect(PotionEffectType.SLOWNESS);
         player.removePotionEffect(PotionEffectType.JUMP_BOOST);
+    }
+
+    // Baygın ve kanayan oyuncuların üstünden kırmızı (kan) parçacıkları dökülür
+    private void startKanParcacikTask() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (UUID uuid : downedPlayers.keySet()) {
+                    Player p = Bukkit.getPlayer(uuid);
+                    if (p == null || !p.isOnline() || muafOyuncular.contains(uuid)) continue;
+                    p.getWorld().spawnParticle(org.bukkit.Particle.BLOCK, p.getLocation().add(0, 0.3, 0),
+                            8, 0.35, 0.15, 0.35, 0.0, Material.REDSTONE_BLOCK.createBlockData());
+                }
+                for (UUID uuid : bleedingPlayers.keySet()) {
+                    if (downedPlayers.containsKey(uuid)) continue;
+                    Player p = Bukkit.getPlayer(uuid);
+                    if (p == null || !p.isOnline() || muafOyuncular.contains(uuid)) continue;
+                    p.getWorld().spawnParticle(org.bukkit.Particle.BLOCK, p.getLocation().add(0, 1.0, 0),
+                            4, 0.25, 0.4, 0.25, 0.0, Material.REDSTONE_BLOCK.createBlockData());
+                }
+            }
+        }.runTaskTimer(plugin, 10L, 10L);
     }
 
     private void startBleedingTask() {
