@@ -113,6 +113,8 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
     private static final int SLOT_YORUM_BIRAK = 14;
     private static final int SLOT_YORUM_GOR = 16;
     private static final int SLOT_CIKAR = 22;
+    private static final int SLOT_PARA = 24;
+    private static final double PARA_MIN = 1.0;
     private static final int SLOT_ONAY = 11;
     private static final int SLOT_VAZGEC = 15;
     private static final int SLOT_GERI = 49;
@@ -130,6 +132,7 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
 
     // yorum yazmayı bekleyenler: yazar -> hedef
     private final Map<UUID, UUID> yorumBekleyen = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> paraBekleyen = new ConcurrentHashMap<>();
     private final Map<String, Long> sonYorum = new HashMap<>();
     private boolean kayitPlanlandi = false;
 
@@ -370,6 +373,9 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
                     ChatColor.GRAY + "Yorum herkese değil, bu oyuncunun profiline gider."));
             inv.setItem(SLOT_YORUM_GOR, esya(Material.BOOK, ChatColor.AQUA + "" + ChatColor.BOLD + "Yorumları Gör",
                     ChatColor.GRAY + "Bu oyuncuya bırakılan yorumlar."));
+            inv.setItem(SLOT_PARA, esya(Material.GOLD_INGOT, ChatColor.YELLOW + "" + ChatColor.BOLD + "Para Gönder",
+                    ChatColor.GRAY + "Banka hesabından bu oyuncunun hesabına para aktar.",
+                    ChatColor.GRAY + "Tıkla, sonra sohbete miktarı yaz."));
             Player hedefOyuncu = Bukkit.getPlayer(hedef);
             if (baskanMi(izleyen) && hedefOyuncu != null && plugin.koyManager != null
                     && plugin.koyManager.cikarilamazNedeni(hedefOyuncu) == null) {
@@ -528,6 +534,21 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
             onayMenu(p, hp);
             return;
         }
+        if (slot == SLOT_PARA) {
+            String mk = meslekOf(p);
+            p.closeInventory();
+            if (mk.equalsIgnoreCase("mahkum")) {
+                p.sendMessage(ChatColor.RED + "Hapisteyken para gönderemezsin.");
+                return;
+            }
+            paraBekleyen.put(p.getUniqueId(), hedef);
+            yorumBekleyen.remove(p.getUniqueId());
+            double bak = plugin.bankaHesaplari.getOrDefault(p.getUniqueId(), 0.0);
+            p.sendMessage(ChatColor.GOLD + "--- Para Gönder: " + ChatColor.YELLOW + adOf(hedef) + ChatColor.GOLD + " ---");
+            p.sendMessage(ChatColor.GREEN + "Göndermek istediğin miktarı sohbete yaz. Banka bakiyen: " + ChatColor.YELLOW + "$" + String.format(Locale.US, "%.2f", bak));
+            p.sendMessage(ChatColor.GRAY + "(Vazgeçmek için 'iptal' yaz)");
+            return;
+        }
         if (slot != SLOT_BEGEN && slot != SLOT_BEGENME && slot != SLOT_YORUM_BIRAK) return;
 
         String neden = katilamazNedeni(p);
@@ -539,6 +560,7 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
 
         if (slot == SLOT_YORUM_BIRAK) {
             p.closeInventory();
+            paraBekleyen.remove(p.getUniqueId());
             yorumBekleyen.put(p.getUniqueId(), hedef);
             p.sendMessage(ChatColor.GOLD + "--- Yorum: " + ChatColor.YELLOW + adOf(hedef) + ChatColor.GOLD + " ---");
             p.sendMessage(ChatColor.GREEN + "Yorumunu sohbete yaz (" + yorumMin() + "-" + yorumMax() + " karakter). Herkese gitmez, o oyuncunun profiline kaydedilir.");
@@ -573,12 +595,63 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
     @EventHandler(priority = EventPriority.LOWEST)
     public void onSohbet(AsyncChatEvent event) {
         Player p = event.getPlayer();
-        if (!yorumBekleyen.containsKey(p.getUniqueId())) return;
+        boolean para = paraBekleyen.containsKey(p.getUniqueId());
+        if (!para && !yorumBekleyen.containsKey(p.getUniqueId())) return;
         event.setCancelled(true);
         final String mesaj = PlainTextComponentSerializer.plainText().serialize(event.message()).trim();
         Bukkit.getScheduler().runTask(plugin, () -> {
-            if (p.isOnline()) yorumIsle(p, mesaj);
+            if (!p.isOnline()) return;
+            if (paraBekleyen.containsKey(p.getUniqueId())) paraIsle(p, mesaj);
+            else yorumIsle(p, mesaj);
         });
+    }
+
+    private void paraIsle(Player p, String ham) {
+        UUID hedef = paraBekleyen.remove(p.getUniqueId());
+        if (hedef == null) return;
+        if (ham.equalsIgnoreCase("iptal")) {
+            p.sendMessage(ChatColor.YELLOW + "Para gönderme iptal edildi.");
+            return;
+        }
+        double miktar;
+        try {
+            miktar = Double.parseDouble(ham.replace(",", ".").replace("$", "").trim());
+        } catch (NumberFormatException e) {
+            p.sendMessage(ChatColor.RED + "Geçerli bir miktar yazmalısın. Tekrar denemek için menüden yeniden seç.");
+            return;
+        }
+        if (Double.isNaN(miktar) || Double.isInfinite(miktar)) {
+            p.sendMessage(ChatColor.RED + "Geçersiz miktar.");
+            return;
+        }
+        miktar = Math.round(miktar * 100.0) / 100.0;
+        if (miktar < PARA_MIN) {
+            p.sendMessage(ChatColor.RED + "En az $" + (int) PARA_MIN + " gönderebilirsin.");
+            return;
+        }
+        if (meslekOf(p).equalsIgnoreCase("mahkum")) {
+            p.sendMessage(ChatColor.RED + "Hapisteyken para gönderemezsin.");
+            return;
+        }
+        if (p.getUniqueId().equals(hedef)) return;
+        double bakiye = plugin.bankaHesaplari.getOrDefault(p.getUniqueId(), 0.0);
+        if (bakiye < miktar) {
+            p.sendMessage(ChatColor.RED + "Banka hesabında yeterli bakiye yok! Bakiyen: $" + String.format(Locale.US, "%.2f", bakiye));
+            return;
+        }
+        plugin.bankaHesaplari.put(p.getUniqueId(), bakiye - miktar);
+        plugin.bankaHesaplari.merge(hedef, miktar, Double::sum);
+        plugin.veriKaydet();
+
+        String ad = adOf(hedef);
+        String yazi = "$" + String.format(Locale.US, "%.2f", miktar);
+        p.sendMessage(ChatColor.GREEN + ad + " oyuncusuna " + ChatColor.YELLOW + yazi + ChatColor.GREEN + " gönderildi.");
+        Player hp = Bukkit.getPlayer(hedef);
+        if (hp != null) {
+            hp.sendMessage(ChatColor.GOLD + "[Banka] " + ChatColor.YELLOW + p.getName() + ChatColor.GREEN + " sana " + ChatColor.YELLOW + yazi + ChatColor.GREEN + " gönderdi.");
+            hp.playSound(hp.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.2f);
+        }
+        plugin.getLogger().info("[PARA] " + p.getName() + " -> " + ad + " " + yazi);
     }
 
     private void yorumIsle(Player p, String ham) {
@@ -633,6 +706,7 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
     @EventHandler
     public void onCikis(PlayerQuitEvent event) {
         yorumBekleyen.remove(event.getPlayer().getUniqueId());
+        paraBekleyen.remove(event.getPlayer().getUniqueId());
     }
 
     // ------------------------------------------------------------------ komut

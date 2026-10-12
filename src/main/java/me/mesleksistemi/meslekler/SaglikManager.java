@@ -819,13 +819,21 @@ public class SaglikManager implements Listener, CommandExecutor {
         if (event.getEntity() instanceof Player) {
             Player passenger = (Player) event.getEntity();
             
-            // İniş yukarıda engellendiyse (hâlâ yatıyor) tekrar "lay" yazma: o komut ayağa kaldırır
-            if (!event.isCancelled() && downedPlayers.containsKey(passenger.getUniqueId())) {
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    if (passenger.isOnline() && downedPlayers.containsKey(passenger.getUniqueId())) {
-                        Bukkit.dispatchCommand(passenger, "lay");
-                    }
-                }, 5L); 
+            // İniş yukarıda engellendiyse (hâlâ yatıyor) tekrar "lay" yazma: o komut ayağa kaldırır.
+            // Doktorun sırtından inen yaralı: yatış koltuğunda değilse (ayaktaysa) tekrar yatırılır.
+            // Birkaç kez denenir; her denemede hâlâ bir binekteyse (yatıyorsa) dokunulmaz.
+            if (!event.isCancelled() && downedPlayers.containsKey(passenger.getUniqueId())
+                    && event.getDismounted() instanceof Player) {
+                final UUID id = passenger.getUniqueId();
+                for (long gecikme : new long[]{5L, 15L, 40L}) {
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        Player p = Bukkit.getPlayer(id);
+                        if (p != null && p.isOnline() && downedPlayers.containsKey(id)
+                                && !p.isInsideVehicle()) {
+                            Bukkit.dispatchCommand(p, "lay");
+                        }
+                    }, gecikme);
+                }
             }
         }
     }
