@@ -821,6 +821,7 @@ public class PolisManager implements Listener, CommandExecutor {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        lpGrubunuSenkronla(player);
         if (jailedPlayers.containsKey(player.getUniqueId())) {
             int timeLeft = jailedPlayers.get(player.getUniqueId());
             startJailTimer(player, timeLeft); 
@@ -931,8 +932,7 @@ public class PolisManager implements Listener, CommandExecutor {
             jailedPlayers.put(uuid, saniye);
             plugin.oyuncuMeslekCache.put(uuid, "mahkum");
             if (isim != null) {
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent clear");
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent add mahkum");
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent set mahkum");
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag remove " + isim);
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + isim + " Mahkum");
             }
@@ -967,6 +967,26 @@ public class PolisManager implements Listener, CommandExecutor {
         if (cell != null) player.teleport(cell);
     }
 
+    /**
+     * LuckPerms komutları arka planda sırasız çalışabildiği için art arda hapis/serbest bırakma işlemlerinde
+     * oyuncunun grubu bozulabiliyordu (örn. başkan "default" grubuna düşüyordu). Bu yüzden son rol kısa bir
+     * süre sonra ve her girişte, sadece ekleme/çıkarma yapan (diğer grupları silmeyen) komutlarla doğrulanır.
+     */
+    private void lpGrubunuSenkronla(Player p) {
+        final UUID id = p.getUniqueId();
+        final String ad = p.getName();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            Player online = Bukkit.getPlayer(id);
+            if (online == null) return;
+            String rol = plugin.oyuncuMeslekCache.get(id);
+            if (rol == null || rol.isEmpty() || rol.equalsIgnoreCase("default")) return;
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + ad + " parent add " + rol);
+            if (!rol.equalsIgnoreCase("mahkum")) {
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + ad + " parent remove mahkum");
+            }
+        }, 60L);
+    }
+
     private void jailPlayer(Player player, int seconds) {
         // İŞTE BURASI: Oyuncu hapse girmeden hemen önce eski mesleğini hafızaya alıyoruz.
         String eskiMeslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
@@ -979,13 +999,13 @@ public class PolisManager implements Listener, CommandExecutor {
         if (cell != null) player.teleport(cell);
         
         plugin.oyuncuMeslekCache.put(player.getUniqueId(), "mahkum");
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent clear");
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent add mahkum");
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent set mahkum");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag remove " + player.getName());
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " Mahkum");
         
         player.sendMessage(ChatColor.DARK_RED + "Hapse atıldınız! Yeni Statünüz: Mahkum. Ceza süreniz: " + (seconds / 60) + " dakika.");
         startJailTimer(player, seconds);
+        lpGrubunuSenkronla(player);
         plugin.veriKaydet();
     }
 
@@ -1001,8 +1021,7 @@ public class PolisManager implements Listener, CommandExecutor {
         preJailRoles.remove(player.getUniqueId()); // İade ettikten sonra hafızadan siliyoruz
         
         plugin.oyuncuMeslekCache.put(player.getUniqueId(), iadeEdilecekMeslek);
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent clear");
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent add " + iadeEdilecekMeslek);
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent set " + iadeEdilecekMeslek);
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag remove " + player.getName());
         
         // Ana sınıftaki görünüm adını ("Doktor", "Polis" gibi) çekip başının üstüne onu yazdırıyoruz
@@ -1015,6 +1034,7 @@ public class PolisManager implements Listener, CommandExecutor {
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " " + tagAd);
         
         player.sendMessage(ChatColor.GREEN + "Cezanız doldu! Eski sivil hayatınıza ve [" + tagAd + "] unvanınıza geri döndünüz!");
+        lpGrubunuSenkronla(player);
         
         yuklenemeyenDonusKonumlari.remove(player.getUniqueId().toString());
         if (preJailLocations.containsKey(player.getUniqueId())) {
