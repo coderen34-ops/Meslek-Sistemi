@@ -133,12 +133,12 @@ public class MeslekSistemi extends JavaPlugin {
         meslekGorunumAdlari.put("taseron", "Taseron"); meslekGorunumAdlari.put("hakim", "Hakim"); 
         meslekGorunumAdlari.put("belediyecalisani", "Belediye Calisani");
         meslekGorunumAdlari.put("belediyebaskani", "Belediye Baskani"); 
-        meslekGorunumAdlari.put("mahkum", "Mahkum"); meslekGorunumAdlari.put("oduncu", "Oduncu");
+        meslekGorunumAdlari.put("amir", "Amir"); meslekGorunumAdlari.put("mahkum", "Mahkum"); meslekGorunumAdlari.put("oduncu", "Oduncu");
         
         // MAAŞ MİKTARLARI
         maasMiktarlari.put("vatandas", 50.0); maasMiktarlari.put("taseron", 80.0);
         maasMiktarlari.put("madenci", 100.0); maasMiktarlari.put("avukat", 150.0);
-        maasMiktarlari.put("belediyecalisani", 150.0); maasMiktarlari.put("polis", 250.0); 
+        maasMiktarlari.put("belediyecalisani", 150.0); maasMiktarlari.put("polis", 250.0); maasMiktarlari.put("amir", 350.0); 
         maasMiktarlari.put("doktor", 300.0); maasMiktarlari.put("hakim", 400.0); 
         maasMiktarlari.put("belediyebaskani", 500.0); maasMiktarlari.put("oduncu", 100.0);
 

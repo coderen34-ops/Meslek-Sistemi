@@ -80,6 +80,11 @@ public class PolisManager implements Listener, CommandExecutor {
     private final java.util.concurrent.ConcurrentHashMap<UUID, Integer> sikayetAdimi = new java.util.concurrent.ConcurrentHashMap<>(); 
     private final java.util.concurrent.ConcurrentHashMap<UUID, String> geciciSikayetHedef = new java.util.concurrent.ConcurrentHashMap<>(); 
     
+    // Belediye başkanının sağ tık menülerinde seçtiği polis/amir (başkan -> hedef)
+    private final java.util.concurrent.ConcurrentHashMap<UUID, UUID> menuHedefleri = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final String BASKAN_MENU = ChatColor.DARK_BLUE + "Başkan İşlemleri";
+    private static final String RUTBE_MENU = ChatColor.GOLD + "Rütbe İşlemleri";
+
     private final Random random = new Random();
 
     // Dünyası şu an yüklü olmayan kayıtlar: kaydederken silinmesinler diye ham haliyle saklanır
@@ -140,7 +145,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
         if (commandName.equalsIgnoreCase("copal")) {
             String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
-            if (!meslek.equalsIgnoreCase("polis")) {
+            if (!polisMi(meslek)) {
                 player.sendMessage(ChatColor.RED + "Sadece emniyet mensupları cop alabilir!");
                 return true;
             }
@@ -151,7 +156,7 @@ public class PolisManager implements Listener, CommandExecutor {
         
         if (commandName.equalsIgnoreCase("serbestbirak")) {
             String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
-            if (!meslek.equalsIgnoreCase("polis")) return true;
+            if (!polisMi(meslek)) return true;
             if (args.length == 0) return true;
             Player target = Bukkit.getPlayer(args[0]);
             if (target != null && jailedPlayers.containsKey(target.getUniqueId())) {
@@ -202,7 +207,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
         if (commandName.equalsIgnoreCase("sikayetkarar")) {
             String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
-            if (!meslek.equalsIgnoreCase("polis")) return true;
+            if (!polisMi(meslek)) return true;
             if (args.length < 2) return true;
             UUID sikayetId;
             try { sikayetId = UUID.fromString(args[0]); }
@@ -271,8 +276,123 @@ public class PolisManager implements Listener, CommandExecutor {
                         player.sendMessage(ChatColor.RED + "Bu dava dosyası " + target.getName() + " için değil, " + arananHedef + " için!");
                     }
                 }
+            } else if (item.getType() == Material.AIR && !player.isSneaking()) {
+                // Boş elle sağ tık: başkan -> rütbe/şikayet menüsü, vatandaş -> doğrudan şikayet
+                bosElleEtkilesim(event, player, target);
             }
         }
+    }
+
+    // ===================== AMİR ROLÜ / RÜTBE / ŞİKAYET (BOŞ ELLE SAĞ TIK) =====================
+
+    private boolean polisMi(String meslek) {
+        return meslek != null && (meslek.equalsIgnoreCase("polis") || meslek.equalsIgnoreCase("amir"));
+    }
+
+    private String meslekOf(Player p) {
+        return plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
+    }
+
+    private void bosElleEtkilesim(PlayerInteractEntityEvent event, Player player, Player target) {
+        if (player.getUniqueId().equals(target.getUniqueId())) return;
+        if (!polisMi(meslekOf(target))) return; // sadece polis ve amirler hedef olabilir
+
+        String kendi = meslekOf(player);
+        if (kendi.equalsIgnoreCase("belediyebaskani")) {
+            event.setCancelled(true);
+            menuHedefleri.put(player.getUniqueId(), target.getUniqueId());
+            openBaskanMenu(player, target);
+        } else if (!polisMi(kendi)
+                && !kendi.equalsIgnoreCase("mahkum")
+                && !kendi.equalsIgnoreCase("gocmen")
+                && !kendi.equalsIgnoreCase("default")) {
+            event.setCancelled(true);
+            if (sikayetAdimi.containsKey(player.getUniqueId())) {
+                player.sendMessage(ChatColor.RED + "Zaten devam eden bir şikayet işleminiz var. İptal etmek için sohbete 'iptal' yazın.");
+                return;
+            }
+            sikayetBaslat(player, target.getName());
+        }
+    }
+
+    private void sikayetBaslat(Player player, String hedefAdi) {
+        geciciSikayetHedef.put(player.getUniqueId(), hedefAdi);
+        sikayetAdimi.put(player.getUniqueId(), 2);
+
+        player.sendMessage(ChatColor.YELLOW + "--- EMNİYET MÜDÜRLÜĞÜ ---");
+        player.sendMessage(ChatColor.GREEN + "Şüpheli: " + ChatColor.RED + hedefAdi);
+        player.sendMessage(ChatColor.GREEN + "Lütfen olayın detayını tek bir mesaj halinde anlatın:");
+        player.sendMessage(ChatColor.GRAY + "(İptal etmek için 'iptal' yazın)");
+    }
+
+    private ItemStack hedefKafasi(Player target) {
+        ItemStack head = new ItemStack(Material.PLAYER_HEAD);
+        SkullMeta meta = (SkullMeta) head.getItemMeta();
+        meta.setOwningPlayer(target);
+        meta.setDisplayName(ChatColor.YELLOW + target.getName());
+        String rutbe = meslekOf(target).equalsIgnoreCase("amir") ? "Amir" : "Polis";
+        meta.setLore(Collections.singletonList(ChatColor.GRAY + "Mevcut rütbe: " + ChatColor.WHITE + rutbe));
+        head.setItemMeta(meta);
+        return head;
+    }
+
+    private ItemStack menuEsyasi(Material mat, String ad, String aciklama) {
+        ItemStack item = new ItemStack(mat);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(ad);
+        meta.setLore(Collections.singletonList(ChatColor.GRAY + aciklama));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private void openBaskanMenu(Player baskan, Player target) {
+        Inventory gui = Bukkit.createInventory(null, 27, BASKAN_MENU);
+        gui.setItem(4, hedefKafasi(target));
+        gui.setItem(11, menuEsyasi(Material.GOLD_INGOT, ChatColor.GOLD + "" + ChatColor.BOLD + "Terfi / Rütbe İşlemleri",
+                "Amir yap veya polise düşür."));
+        gui.setItem(15, menuEsyasi(Material.WRITABLE_BOOK, ChatColor.RED + "" + ChatColor.BOLD + "Şikayet Et",
+                "Bu emniyet mensubunu şikayet et."));
+        baskan.openInventory(gui);
+    }
+
+    private void openRutbeMenu(Player baskan, Player target) {
+        Inventory gui = Bukkit.createInventory(null, 27, RUTBE_MENU);
+        gui.setItem(4, hedefKafasi(target));
+        gui.setItem(11, menuEsyasi(Material.NETHER_STAR, ChatColor.GOLD + "" + ChatColor.BOLD + "Amir Yap",
+                "Polisi amirliğe terfi ettirir."));
+        gui.setItem(15, menuEsyasi(Material.IRON_INGOT, ChatColor.RED + "" + ChatColor.BOLD + "Polise Düşür",
+                "Amiri tekrar polis rütbesine düşürür."));
+        baskan.openInventory(gui);
+    }
+
+    private void rutbeDegistir(Player baskan, Player target, String yeniMeslek) {
+        String eski = meslekOf(target);
+        if (!polisMi(eski)) {
+            baskan.sendMessage(ChatColor.RED + target.getName() + " artık emniyet mensubu değil!");
+            return;
+        }
+        boolean amirYap = yeniMeslek.equalsIgnoreCase("amir");
+        String yeniAd = amirYap ? "Amir" : "Polis";
+        if (eski.equalsIgnoreCase(yeniMeslek)) {
+            baskan.sendMessage(ChatColor.YELLOW + target.getName() + " zaten " + yeniAd + "!");
+            return;
+        }
+
+        plugin.oyuncuMeslekCache.put(target.getUniqueId(), yeniMeslek);
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + target.getName() + " parent set " + yeniMeslek);
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + target.getName() + " " + yeniMeslek);
+        plugin.veriKaydet();
+
+        if (amirYap) {
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + target.getName() + ChatColor.GREEN
+                    + ", Belediye Başkanı " + baskan.getName() + " tarafından " + ChatColor.GOLD + "AMİRLİĞE" + ChatColor.GREEN + " terfi ettirildi!");
+            target.sendMessage(ChatColor.GREEN + "Tebrikler! Amir rütbesine terfi ettiniz.");
+        } else {
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + target.getName() + ChatColor.RED
+                    + ", Belediye Başkanı " + baskan.getName() + " tarafından " + ChatColor.GOLD + "POLİS" + ChatColor.RED + " rütbesine düşürüldü.");
+            target.sendMessage(ChatColor.RED + "Amir rütbeniz alındı, polis rütbesine düşürüldünüz.");
+        }
+        baskan.sendMessage(ChatColor.GREEN + target.getName() + " artık " + yeniAd + ".");
     }
     
     private void openDavaKararMenu(Player cop, Player target) {
@@ -339,7 +459,7 @@ public class PolisManager implements Listener, CommandExecutor {
                     event.setCancelled(true); 
                     Player player = event.getPlayer();
                     String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
-                    if (meslek.equalsIgnoreCase("polis")) {
+                    if (polisMi(meslek)) {
                         openAmirMenu(player);
                     } else {
                         player.sendMessage(ChatColor.RED + "Bu dosyalara sadece emniyet mensupları erişebilir!");
@@ -379,7 +499,57 @@ public class PolisManager implements Listener, CommandExecutor {
         if (!(event.getWhoClicked() instanceof Player)) return;
         String title = event.getView().getTitle();
         Player player = (Player) event.getWhoClicked();
-        
+
+        // BAŞKAN MENÜLERİ: (1) Terfi / Şikayet seçimi, (2) Amir Yap / Polise Düşür
+        if (title.equals(BASKAN_MENU) || title.equals(RUTBE_MENU)) {
+            event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
+            ItemStack clicked = event.getCurrentItem();
+            if (clicked == null || clicked.getType() == Material.AIR || clicked.getType() == Material.PLAYER_HEAD) return;
+
+            UUID hedefId = menuHedefleri.get(player.getUniqueId());
+            Player target = hedefId == null ? null : Bukkit.getPlayer(hedefId);
+            if (!meslekOf(player).equalsIgnoreCase("belediyebaskani")) {
+                player.closeInventory();
+                player.sendMessage(ChatColor.RED + "Bu menüyü sadece Belediye Başkanı kullanabilir!");
+                return;
+            }
+            if (target == null || !target.isOnline()) {
+                player.closeInventory();
+                menuHedefleri.remove(player.getUniqueId());
+                player.sendMessage(ChatColor.RED + "Seçtiğiniz oyuncu oyunda değil!");
+                return;
+            }
+
+            Material mat = clicked.getType();
+            if (title.equals(BASKAN_MENU)) {
+                if (mat == Material.GOLD_INGOT) {
+                    if (!polisMi(meslekOf(target))) {
+                        player.closeInventory();
+                        player.sendMessage(ChatColor.RED + target.getName() + " artık emniyet mensubu değil!");
+                        return;
+                    }
+                    openRutbeMenu(player, target);
+                } else if (mat == Material.WRITABLE_BOOK) {
+                    player.closeInventory();
+                    if (sikayetAdimi.containsKey(player.getUniqueId())) {
+                        player.sendMessage(ChatColor.RED + "Zaten devam eden bir şikayet işleminiz var. İptal etmek için sohbete 'iptal' yazın.");
+                        return;
+                    }
+                    sikayetBaslat(player, target.getName());
+                }
+            } else {
+                if (mat == Material.NETHER_STAR) {
+                    rutbeDegistir(player, target, "amir");
+                    player.closeInventory();
+                } else if (mat == Material.IRON_INGOT) {
+                    rutbeDegistir(player, target, "polis");
+                    player.closeInventory();
+                }
+            }
+            return;
+        }
+
         if (title.equals(ChatColor.DARK_RED + "Şüpheli Seçimi")) {
             event.setCancelled(true);
             if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
@@ -389,13 +559,7 @@ public class PolisManager implements Listener, CommandExecutor {
             String targetName = ChatColor.stripColor(clicked.getItemMeta().getDisplayName());
             player.closeInventory();
             
-            geciciSikayetHedef.put(player.getUniqueId(), targetName);
-            sikayetAdimi.put(player.getUniqueId(), 2); 
-            
-            player.sendMessage(ChatColor.YELLOW + "--- EMNİYET MÜDÜRLÜĞÜ ---");
-            player.sendMessage(ChatColor.GREEN + "Şüpheli: " + ChatColor.RED + targetName);
-            player.sendMessage(ChatColor.GREEN + "Lütfen olayın detayını tek bir mesaj halinde anlatın:");
-            player.sendMessage(ChatColor.GRAY + "(İptal etmek için 'iptal' yazın)");
+            sikayetBaslat(player, targetName);
             return;
         }
         
@@ -555,7 +719,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
             for (Player p : Bukkit.getOnlinePlayers()) {
                 String pMeslek = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
-                if (pMeslek.equalsIgnoreCase("polis")) {
+                if (polisMi(pMeslek)) {
                     p.sendMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + "Karakola yeni bir ihbar/şikayet ulaştı! Amir Masasını kontrol edin.");
                 }
             }
@@ -619,7 +783,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
             if (isCop(item)) {
                 String meslek = plugin.oyuncuMeslekCache.getOrDefault(copPlayer.getUniqueId(), "vatandas");
-                if (!meslek.equalsIgnoreCase("polis")) return; 
+                if (!polisMi(meslek)) return; 
                 // Arena savaşındaki oyuncular (sağlık muafiyetli) copla hapse atılmaz; vuruş normal hasar sayılır
                 if (savastaMi(targetPlayer.getUniqueId()) || savastaMi(copPlayer.getUniqueId())) return;
                 event.setCancelled(true); 
