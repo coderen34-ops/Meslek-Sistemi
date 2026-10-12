@@ -91,6 +91,8 @@ public class MeslekSistemi extends JavaPlugin {
     // YENİ ENTEGRE YÖNETİCİLER (Erişilebilir yapıldı)
     public SaglikManager saglikManager;
     public me.mesleksistemi.sistem.AdminCagriManager adminCagriManager;
+    public me.mesleksistemi.sistem.KoyManager koyManager;
+    public me.mesleksistemi.sistem.EtkilesimManager etkilesimManager;
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
     public KiraManager kiraManager;
@@ -191,6 +193,19 @@ public class MeslekSistemi extends JavaPlugin {
             }
         }
 
+        // Köy sınırı (/koyayarla) ve oyuncu etkileşim sistemi (sağ tık menüsü, /profil)
+        this.koyManager = new me.mesleksistemi.sistem.KoyManager(this);
+        if (getCommand("koyayarla") != null) {
+            getCommand("koyayarla").setExecutor(this.koyManager);
+            getCommand("koyayarla").setTabCompleter(this.koyManager);
+        }
+        this.etkilesimManager = new me.mesleksistemi.sistem.EtkilesimManager(this);
+        getServer().getPluginManager().registerEvents(this.etkilesimManager, this);
+        if (getCommand("profil") != null) {
+            getCommand("profil").setExecutor(this.etkilesimManager);
+            getCommand("profil").setTabCompleter(this.etkilesimManager);
+        }
+
         // ENTEGRASYON 4: AdliyeManager (BÖLÜNMÜŞ HALİYLE KAYDEDİLİYOR)
         this.adliyeManager = new AdliyeManager(this);
         getServer().getPluginManager().registerEvents(new AdliyeListener(this, this.adliyeManager), this);
@@ -277,6 +292,7 @@ public class MeslekSistemi extends JavaPlugin {
         if (this.saglikManager != null) this.saglikManager.veriKaydetSaglik();
         if (this.toptanciManager != null) this.toptanciManager.veriKaydetStok();
         if (this.secimManager != null) this.secimManager.onDisable();
+        if (this.etkilesimManager != null) this.etkilesimManager.onDisable();
         veriKaydet();
         kayitlarBiriktiriliyor = false;
 

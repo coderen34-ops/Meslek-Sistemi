@@ -243,6 +243,15 @@ commands:
     usage: /cagrilar [liste|isinlan <id>|coz <id>]
     permission: admincagri.yonet
 
+  koyayarla:
+    description: Koy sinirini belirler (pos1, pos2, bilgi, sil).
+    usage: /koyayarla <pos1|pos2|bilgi|sil>
+    permission: koy.admin
+  profil:
+    description: Oyuncu profilini ve ona birakilan yorumlari gosterir.
+    usage: /profil [oyuncu]
+    aliases: [yorumlarim]
+
 permissions:
   admincagri.yonet:
     description: Admin cagrilarini gorme, cagrilara isinlanma ve kapatma yetkisi
@@ -283,3 +292,9 @@ permissions:
   kira.kiraver:
     description: Oyuncunun kendi claim'indeki evi veya odayi kiraya verebilme yetkisi
     default: true
+  koy.admin:
+    description: Koy sinirini (pos1/pos2) belirleme yetkisi
+    default: op
+  etkilesim.yonet:
+    description: Oyuncu profillerindeki herkesin yorumunu silebilme yetkisi
+    default: op

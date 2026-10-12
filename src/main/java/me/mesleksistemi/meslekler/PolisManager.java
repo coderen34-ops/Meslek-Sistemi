@@ -277,7 +277,7 @@ public class PolisManager implements Listener, CommandExecutor {
                     }
                 }
             } else if (item.getType() == Material.AIR && !player.isSneaking()) {
-                // Boş elle sağ tık: başkan -> rütbe/şikayet menüsü, vatandaş -> doğrudan şikayet
+                // Boş elle sağ tık: başkan -> rütbe/şikayet menüsü, vatandaş -> şüpheli seçim menüsü (polis şikayet memuru)
                 bosElleEtkilesim(event, player, target);
             }
         }
@@ -311,7 +311,8 @@ public class PolisManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.RED + "Zaten devam eden bir şikayet işleminiz var. İptal etmek için sohbete 'iptal' yazın.");
                 return;
             }
-            sikayetBaslat(player, target.getName());
+            // Polis, şikayet memuru (NPC) gibi davranır: şüpheli oyuncu menüden seçilir
+            openSikayetSecimMenu(player);
         }
     }
 
@@ -352,6 +353,8 @@ public class PolisManager implements Listener, CommandExecutor {
                 "Amir yap veya polise düşür."));
         gui.setItem(15, menuEsyasi(Material.WRITABLE_BOOK, ChatColor.RED + "" + ChatColor.BOLD + "Şikayet Et",
                 "Bu emniyet mensubunu şikayet et."));
+        gui.setItem(22, menuEsyasi(Material.BARRIER, ChatColor.DARK_RED + "" + ChatColor.BOLD + "Vatandaşlıktan Çıkar",
+                "Göçmen yapar ve köyün dışına ışınlar."));
         baskan.openInventory(gui);
     }
 
@@ -541,7 +544,10 @@ public class PolisManager implements Listener, CommandExecutor {
                         player.sendMessage(ChatColor.RED + "Zaten devam eden bir şikayet işleminiz var. İptal etmek için sohbete 'iptal' yazın.");
                         return;
                     }
-                    sikayetBaslat(player, target.getName());
+                    openSikayetSecimMenu(player);
+                } else if (mat == Material.BARRIER) {
+                    player.closeInventory();
+                    if (plugin.koyManager != null) plugin.koyManager.vatandasliktanCikar(player, target);
                 }
             } else {
                 if (mat == Material.NETHER_STAR) {
