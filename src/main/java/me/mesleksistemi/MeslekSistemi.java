@@ -90,6 +90,7 @@ public class MeslekSistemi extends JavaPlugin {
     
     // YENİ ENTEGRE YÖNETİCİLER (Erişilebilir yapıldı)
     public SaglikManager saglikManager;
+    public me.mesleksistemi.sistem.AdminCagriManager adminCagriManager;
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
     public KiraManager kiraManager;
@@ -178,6 +179,16 @@ public class MeslekSistemi extends JavaPlugin {
         String[] polisCmds = {"hucreolustur", "hucresil", "copal", "serbestbirak", "amirkursu", "sikayetnpc", "sikayetkarar"};
         for (String c : polisCmds) {
             if (getCommand(c) != null) getCommand(c).setExecutor(this.polisManager);
+        }
+
+        // Admin çağırma: /calladmin (oyuncu) ve /cagrilar (yetkili menüsü)
+        this.adminCagriManager = new me.mesleksistemi.sistem.AdminCagriManager(this);
+        getServer().getPluginManager().registerEvents(this.adminCagriManager, this);
+        for (String c : new String[]{"calladmin", "cagrilar"}) {
+            if (getCommand(c) != null) {
+                getCommand(c).setExecutor(this.adminCagriManager);
+                getCommand(c).setTabCompleter(this.adminCagriManager);
+            }
         }
 
         // ENTEGRASYON 4: AdliyeManager (BÖLÜNMÜŞ HALİYLE KAYDEDİLİYOR)

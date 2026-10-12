@@ -234,7 +234,19 @@ commands:
     description: Kimlik icin dogum yeri biyomunu secer.
     usage: /kimlikbiyomsec
 
+  calladmin:
+    description: Yetkililere cagri gonderir (sebep yazilir). Cok sik kullanilamaz.
+    usage: /calladmin <sebep>
+    aliases: [admincagir, yetkili]
+  cagrilar:
+    description: Bekleyen admin cagrilarini listeler, cagrida bulunana isinlanir veya cagriyi kapatir.
+    usage: /cagrilar [liste|isinlan <id>|coz <id>]
+    permission: admincagri.yonet
+
 permissions:
+  admincagri.yonet:
+    description: Admin cagrilarini gorme, cagrilara isinlanma ve kapatma yetkisi
+    default: op
   meslek.admin:
     description: NPC kurma, kasa ve kursu ayarlama, meslek atama ve prim verme yetkisi
     default: op
