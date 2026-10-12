@@ -38,6 +38,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
@@ -761,11 +762,45 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
     }
 
-    // Yaralı yerde yatarken eğilip (shift) ayağa kalkamasın; sadece tedaviyle kalkar
+    // Baygın oyuncu eğilemez (shift hiçbir şey yapmaz): yatış koltuğu/binek üzerindeyken de geçerli.
+    // Sadece tedaviyle kalkar. Önceki sürümde "binekte değilse" şartı vardı; yatma eklentisi oyuncuyu
+    // görünmez bir binek üzerinde yatırdığı için shift ile ayağa kalkılabiliyordu.
     @EventHandler(priority = EventPriority.LOWEST)
     public void onYaraliEgilme(PlayerToggleSneakEvent event) {
         Player p = event.getPlayer();
-        if (event.isSneaking() && downedPlayers.containsKey(p.getUniqueId()) && p.getVehicle() == null) {
+        if (event.isSneaking() && downedPlayers.containsKey(p.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    // Baygın oyuncu hiçbir yöne yürüyemez, zıplayamaz (yukarı çıkamaz); sadece yer çekimiyle düşebilir.
+    // Bakış yönü (yaw/pitch) serbest. Işınlanma ve taşınma bu olayı tetiklemez, onlar etkilenmez.
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onYaraliHareket(PlayerMoveEvent event) {
+        Player p = event.getPlayer();
+        if (!downedPlayers.containsKey(p.getUniqueId()) || p.isInsideVehicle()) return;
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        if (to == null) return;
+        double dx = to.getX() - from.getX();
+        double dz = to.getZ() - from.getZ();
+        double dy = to.getY() - from.getY();
+        if (dx * dx + dz * dz > 0.0001 || dy > 0.0) {
+            Location yeni = from.clone();
+            yeni.setYaw(to.getYaw());
+            yeni.setPitch(to.getPitch());
+            event.setTo(yeni);
+        }
+    }
+
+    // Baygın oyuncu yatış binekinden (görünmez koltuk) herhangi bir yolla inerse engelle.
+    // Doktorun sırtından inme ayrıca aşağıdaki onDismount ile yeniden yatırılıyor.
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onYaraliBinektenInme(EntityDismountEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
+        if (event.getDismounted() instanceof Player) return; // doktor taşıması: onDismount halleder
+        Player p = (Player) event.getEntity();
+        if (p.isOnline() && downedPlayers.containsKey(p.getUniqueId()) && event.isCancellable()) {
             event.setCancelled(true);
         }
     }
@@ -781,10 +816,11 @@ public class SaglikManager implements Listener, CommandExecutor {
 
     @EventHandler
     public void onDismount(EntityDismountEvent event) {
-        if (event.getEntity() instanceof Player && event.getDismounted() instanceof Player) {
+        if (event.getEntity() instanceof Player) {
             Player passenger = (Player) event.getEntity();
             
-            if (downedPlayers.containsKey(passenger.getUniqueId())) {
+            // İniş yukarıda engellendiyse (hâlâ yatıyor) tekrar "lay" yazma: o komut ayağa kaldırır
+            if (!event.isCancelled() && downedPlayers.containsKey(passenger.getUniqueId())) {
                 Bukkit.getScheduler().runTaskLater(plugin, () -> {
                     if (passenger.isOnline() && downedPlayers.containsKey(passenger.getUniqueId())) {
                         Bukkit.dispatchCommand(passenger, "lay");
