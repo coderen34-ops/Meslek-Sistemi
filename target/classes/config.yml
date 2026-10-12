@@ -1,0 +1,27 @@
+# KoninskiKalkan ayarlari. Degisiklikten sonra: /kalkan reload
+
+# Kullanici adi kurali (Minecraft'ta gecerli adlar). Bunun disindaki adlar baglanti kurmadan reddedilir.
+kullanici-adi-regex: "^[A-Za-z0-9_]{3,16}$"
+
+# Ayni IP'den kisa surede cok baglanti denemesi = engel
+baglanti:
+  pencere-sn: 20          # bu kadar saniyelik pencerede say
+  max-deneme: 6           # penceredeki en fazla deneme
+  engel-dk: 10            # asilirsa IP bu kadar dakika engellenir
+
+# Ayni IP'den ayni anda en fazla kac oyuncu online olabilir (kalkan.muaf izni olan hesaplar sayilmaz)
+ip-basina-max-online: 3
+
+# Saldiri modu: kisa surede cok farkli IP baglanti denerse acilir.
+# Modda sadece daha once basariyla giris yapmis IP'ler girebilir.
+saldiri-modu:
+  pencere-sn: 10
+  esik-farkli-ip: 8       # penceredeki farkli IP sayisi bunu asarsa saldiri modu acilir
+  sure-sn: 300            # mod bu kadar sure acik kalir (yeni saldiri gelirse uzar)
+  sadece-bilinen-ip: true
+
+# Her zaman girebilen IP'ler (ev, yonetici vb.)
+guvenilir-ipler: []
+
+# Tekrar eden engel loglari bu kadar saniyede bir yazilir
+log-aralik-sn: 30
