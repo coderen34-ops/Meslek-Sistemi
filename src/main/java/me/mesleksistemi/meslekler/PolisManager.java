@@ -1083,37 +1083,79 @@ public class PolisManager implements Listener, CommandExecutor {
         }
     }
 
-    /** Claim içinde normalde PVP kapalı olsa da, taraflardan biri polis/amir ise (baskın/arama
-     *  sırasında aile bireylerinin kendini savunması için) vuruşa izin verilir. Sivil-sivil PVP
-     *  claim içinde hâlâ GriefPrevention tarafından engellenir, burada dokunulmaz. */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onClaimIcindePolisPvp(EntityDamageByEntityEvent event) {
-        if (!event.isCancelled()) return;
-        if (!(event.getEntity() instanceof Player) || !(event.getDamager() instanceof Player)) return;
+    /** Vuruşu yapan oyuncu: doğrudan vuran ya da attığı ok/kartopu vb. mermisinin sahibi. */
+    private Player saldiranOyuncuBul(Entity hasarVeren) {
+        if (hasarVeren instanceof Player) return (Player) hasarVeren;
+        if (hasarVeren instanceof org.bukkit.entity.Projectile) {
+            Object atan = ((org.bukkit.entity.Projectile) hasarVeren).getShooter();
+            if (atan instanceof Player) return (Player) atan;
+        }
+        return null;
+    }
+
+    /** Bu claim'in içinde şu an aranan (şikayetli) bir oyuncu var mı? Varsa orada polis baskını/araması sayılır. */
+    private boolean claimdeArananVarMi(me.ryanhamshire.GriefPrevention.Claim claim) {
+        if (claim == null) return false;
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (arananOyuncular.contains(online.getName().toLowerCase())
+                    && claim.contains(online.getLocation(), false, false)) return true;
+        }
+        return false;
+    }
+
+    /** POLİS ↔ SİVİL VURUŞ KURALI. Polis/amir ile sivil birbirine ancak baskın/kovalamaca sırasında vurabilir:
+     *   - o claim'de baskın zaten aktifse (son 3 dk içinde vuruş olmuşsa) ya da claim'de aranan biri varsa, ya da
+     *   - sivil taraf meşru sebepli ise (aranan/şikayetli, yakın zamanda öldürmüş, baygın bıraktığı biri var).
+     *  Bunların hiçbiri yoksa vuruş iptal edilir (claim içinde de dışında da). Polis-polis, sivil-sivil ve arena
+     *  savaşı vuruşlarına dokunulmaz.
+     *
+     *  ÖNEMLİ: LOW önceliği bilerek seçildi. GriefPrevention claim PVP korumasını LOWEST'te iptal eder; biz onun
+     *  hemen ardından (LOW) kararı veririz. Böylece SaglikManager'in NORMAL'deki "ölümcül vuruş → baygın" işleyicisi
+     *  bizden SONRA çalışır ve baskında vurulanlar ölmek yerine baygın düşer. (Eskiden HIGHEST'te iptali geri
+     *  alıyorduk; bu, sağlık sisteminin iptal ettiği ölümcül vuruşu da geri açıp oyuncuyu öldürüyordu.) */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onPolisSivilPvp(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
         Player magdur = (Player) event.getEntity();
-        Player saldiran = (Player) event.getDamager();
+        Player saldiran = saldiranOyuncuBul(event.getDamager());
+        if (saldiran == null || saldiran.getUniqueId().equals(magdur.getUniqueId())) return;
 
-        String magdurMeslek = plugin.oyuncuMeslekCache.getOrDefault(magdur.getUniqueId(), "vatandas");
-        String saldiranMeslek = plugin.oyuncuMeslekCache.getOrDefault(saldiran.getUniqueId(), "vatandas");
-        if (!polisMi(magdurMeslek) && !polisMi(saldiranMeslek)) return; // iki taraf da sivil: claim koruması aynen kalsın
+        // Arena savaşındaki oyuncular (sağlık muafiyetli) kendi kurallarına tabi
+        if (savastaMi(magdur.getUniqueId()) || savastaMi(saldiran.getUniqueId())) return;
 
+        boolean magdurPolis = polisMi(plugin.oyuncuMeslekCache.getOrDefault(magdur.getUniqueId(), "vatandas"));
+        boolean saldiranPolis = polisMi(plugin.oyuncuMeslekCache.getOrDefault(saldiran.getUniqueId(), "vatandas"));
+        if (magdurPolis == saldiranPolis) return; // polis-polis ya da sivil-sivil: bu kuralın konusu değil
+
+        Player sivil = saldiranPolis ? magdur : saldiran;
+
+        me.ryanhamshire.GriefPrevention.Claim claim = null;
         try {
-            me.ryanhamshire.GriefPrevention.Claim claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+            claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
                     .dataStore.getClaimAt(magdur.getLocation(), false, null);
-            if (claim == null) return; // vahşi doğa, PVP zaten kendi kuralına göre işliyor
-            event.setCancelled(false);
-
-            // Bu vuruşla claim için baskın başlar/yenilenir.
-            baskinaAktiviteKaydet(claim);
-
-            // Taraflardan sivil olanı aranansa, "kendini savunma" sayacı başlar (yoksa dokunulmaz).
-            Player sivil = null;
-            if (polisMi(saldiranMeslek) && !polisMi(magdurMeslek)) sivil = magdur;
-            else if (polisMi(magdurMeslek) && !polisMi(saldiranMeslek)) sivil = saldiran;
-            if (sivil != null && arananOyuncular.contains(sivil.getName().toLowerCase())) {
-                savunmaDurumlari.putIfAbsent(sivil.getUniqueId(), new SavunmaDurumu(claim.getID(), System.currentTimeMillis()));
-            }
         } catch (Exception ignored) {
+        }
+
+        boolean baskinVar = claim != null && (baskinAktifMi(claim) || claimdeArananVarMi(claim));
+        boolean izin = baskinVar || adaletliSebepVarMi(sivil);
+
+        if (!izin) {
+            event.setCancelled(true);
+            if (saldiran.isOnline()) {
+                saldiran.sendMessage(ChatColor.RED + (saldiranPolis
+                        ? "[Polis] " + magdur.getName() + " hakkında şikayet ya da aktif bir baskın yok; masum bir vatandaşa vuramazsınız."
+                        : "Aktif bir baskın yokken polise vuramazsınız."));
+            }
+            return;
+        }
+
+        // Claim içinde GriefPrevention PVP'yi kapatmış olsa bile baskın/meşru sebep varsa vuruşa izin ver.
+        if (event.isCancelled() && claim != null) event.setCancelled(false);
+        if (claim != null) baskinaAktiviteKaydet(claim);
+
+        // Aranan sivil, baskında "kendini savunma" sayacını başlatır (5 dk dayanırsa aranmalık düşer).
+        if (claim != null && arananOyuncular.contains(sivil.getName().toLowerCase())) {
+            savunmaDurumlari.putIfAbsent(sivil.getUniqueId(), new SavunmaDurumu(claim.getID(), System.currentTimeMillis()));
         }
     }
 
