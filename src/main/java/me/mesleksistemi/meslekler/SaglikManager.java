@@ -88,6 +88,16 @@ public class SaglikManager implements Listener, CommandExecutor {
         return downedPlayers.containsKey(oyuncu);
     }
 
+    /** Bu oyuncu, şu an hâlâ baygın durumda olan birini mi bayıltmış/yaralamış?
+     *  Polis sistemi: masum bir vatandaşı şikayet olmadan hapse atabilmek için bu "meşru sebep" sayılır.
+     *  Kurban tedavi edilip baygınlıktan çıkınca bu otomatik olarak geçersiz hâle gelir. */
+    public boolean birisiniBayginaDusurduMu(UUID saldirganUuid) {
+        for (UUID kurban : downedPlayers.keySet()) {
+            if (saldirganUuid.equals(yaralayanlar.get(kurban))) return true;
+        }
+        return false;
+    }
+
     // Ağır yaralıyken kullanılamayan ışınlanma komutları
     private static final Set<String> YARALIYKEN_YASAK_KOMUTLAR = Set.of(
             "tpa", "call", "tpaccept", "tpdeny", "tpahere", "warp", "spawn", "home");

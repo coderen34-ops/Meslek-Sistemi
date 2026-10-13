@@ -93,6 +93,13 @@ public class PolisManager implements Listener, CommandExecutor {
     private final java.util.concurrent.ConcurrentHashMap<UUID, Long> sonSaldirganlikZamani = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long COP_COOLDOWN_MS = 3 * 60 * 1000L;
 
+    // GENEL KURAL: Hakkında şikayet/arama olmayan, kimseyi öldürmemiş/bayıltmamış masum bir vatandaş
+    // copla hapse atılamaz, sadece uyarı alır. "Öldürmüş" sayılması için cinayetin üzerinden bu kadar
+    // zaman geçmemiş olmalı (sonsuza dek "meşru sebep" sayılmasın diye). Bayıltma durumu ise kurban
+    // tedavi oluna kadar kendiliğinden geçerli kalır (SaglikManager.birisiniBayginaDusurduMu).
+    private final java.util.concurrent.ConcurrentHashMap<UUID, Long> sonOlumZamani = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long GENEL_SEBEP_PENCERESI_MS = 20 * 60 * 1000L;
+
     private final Random random = new Random();
 
     // Dünyası şu an yüklü olmayan kayıtlar: kaydederken silinmesinler diye ham haliyle saklanır
@@ -818,7 +825,68 @@ public class PolisManager implements Listener, CommandExecutor {
     @EventHandler
     public void onOlum(org.bukkit.event.entity.PlayerDeathEvent event) {
         Player katil = event.getEntity().getKiller();
-        if (katil != null) sonSaldirganlikZamani.put(katil.getUniqueId(), System.currentTimeMillis());
+        if (katil != null) {
+            long simdi = System.currentTimeMillis();
+            sonSaldirganlikZamani.put(katil.getUniqueId(), simdi);
+            sonOlumZamani.put(katil.getUniqueId(), simdi);
+        }
+    }
+
+    /** Masum bir vatandaşı (hakkında şikayet/arama yok) copla hapse atmak için meşru bir sebep var mı?
+     *  Üç durumdan biri yeterli: (1) aranan/şikayetli, (2) yakın zamanda birini öldürmüş,
+     *  (3) şu an hâlâ baygın olan birini bayıltmış olması. Yoksa polis sadece uyarı alır, hapse atamaz. */
+    private boolean adaletliSebepVarMi(Player target) {
+        if (arananOyuncular.contains(target.getName().toLowerCase())) return true;
+        Long olum = sonOlumZamani.get(target.getUniqueId());
+        if (olum != null && System.currentTimeMillis() - olum < GENEL_SEBEP_PENCERESI_MS) return true;
+        return plugin.saglikManager != null && plugin.saglikManager.birisiniBayginaDusurduMu(target.getUniqueId());
+    }
+
+    /** Hedef şu an, erişim izni olmadığı bir GriefPrevention claim'inin içinde duruyorsa (izinsiz
+     *  misafir/tecavüzcü), onu hapse atmak yerine claim'in dışına ışınlar. Hedef o claim'e zaten
+     *  erişebiliyorsa (sahibi/trusted/wilderness) hiçbir şey yapmaz ve false döner. */
+    private boolean claimdenTahliyeEt(Player copPlayer, Player target) {
+        try {
+            me.ryanhamshire.GriefPrevention.Claim claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+                    .dataStore.getClaimAt(target.getLocation(), false, null);
+            if (claim == null) return false;
+            if (claim.allowAccess(target) == null) return false; // erişimi var, misafir değil
+
+            Location disari = claimDisariIsinlaKonumu(claim, target.getLocation());
+            if (disari == null) return false;
+
+            target.teleport(disari);
+            target.sendMessage(ChatColor.RED + "Bu alana girme izniniz yok! Polis sizi dışarı çıkardı.");
+            copPlayer.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + target.getName()
+                    + " izinsiz girdiği alandan tahliye edildi.");
+            return true;
+        } catch (Exception e) {
+            return false; // GriefPrevention beklenmedik bir şey döndürürse sessizce atla
+        }
+    }
+
+    /** Claim'in en yakın kenarının 2 blok dışında, o noktadaki en üst zemine göre güvenli bir konum. */
+    private Location claimDisariIsinlaKonumu(me.ryanhamshire.GriefPrevention.Claim claim, Location icerde) {
+        Location kucuk = claim.getLesserBoundaryCorner();
+        Location buyuk = claim.getGreaterBoundaryCorner();
+        double x = icerde.getX(), z = icerde.getZ();
+
+        double solaUzaklik = x - kucuk.getX();
+        double sagaUzaklik = buyuk.getX() - x;
+        double onUzaklik = z - kucuk.getZ();
+        double arkaUzaklik = buyuk.getZ() - z;
+        double min = Math.min(Math.min(solaUzaklik, sagaUzaklik), Math.min(onUzaklik, arkaUzaklik));
+
+        double yeniX = x, yeniZ = z;
+        if (min == solaUzaklik) yeniX = kucuk.getX() - 2;
+        else if (min == sagaUzaklik) yeniX = buyuk.getX() + 2;
+        else if (min == onUzaklik) yeniZ = kucuk.getZ() - 2;
+        else yeniZ = buyuk.getZ() + 2;
+
+        org.bukkit.World world = icerde.getWorld();
+        if (world == null) return null;
+        int topY = world.getHighestBlockYAt((int) Math.floor(yeniX), (int) Math.floor(yeniZ));
+        return new Location(world, yeniX + 0.5, topY + 1, yeniZ + 0.5, icerde.getYaw(), icerde.getPitch());
     }
 
     @EventHandler
@@ -843,6 +911,16 @@ public class PolisManager implements Listener, CommandExecutor {
                     return;
                 }
 
+                // Masum vatandaş: hakkında şikayet/arama yok, kimseyi öldürmemiş ya da bayıltmamış.
+                // Copla hapse atılamaz; sadece uyarı alır. İzinsiz bir claim'deyse oradan tahliye edilir.
+                if (!adaletliSebepVarMi(targetPlayer)) {
+                    if (!claimdenTahliyeEt(copPlayer, targetPlayer)) {
+                        copPlayer.sendMessage(ChatColor.YELLOW + "[Polis] " + ChatColor.GRAY + targetPlayer.getName()
+                                + " hakkında herhangi bir şikayet bulunmamaktadır. Bu kişi masumdur, sebepsiz yere hapse atılamaz.");
+                    }
+                    return;
+                }
+
                 if (arananOyuncular.contains(targetPlayer.getName().toLowerCase())) {
                     arananOyuncular.remove(targetPlayer.getName().toLowerCase());
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + targetPlayer.getName()); 
@@ -856,6 +934,80 @@ public class PolisManager implements Listener, CommandExecutor {
                 jailPlayer(targetPlayer, durationSeconds);
                 copPlayer.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + targetPlayer.getName() + " başarıyla hapse atıldı!");
             }
+        }
+    }
+
+    /** ARAMA İZNİ: Aranan/şikayetli bir oyuncu bir claim'in içindeyse, polis/amir o claim'e ait
+     *  kapı/kapak/geçide (Openable) erişimi olmasa da girebilir — sadece girer, bloklara dokunamaz.
+     *  Aranan kimse o claim'de değilse GriefPrevention'ın normal "erişimin yok" engeli geçerli kalır. */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onAramaIzniKapiGecisi(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        Block block = event.getClickedBlock();
+        if (block == null) return;
+        org.bukkit.block.data.BlockData data = block.getBlockData();
+        if (!(data instanceof org.bukkit.block.data.Openable)) return;
+
+        Player player = event.getPlayer();
+        String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
+        if (!polisMi(meslek)) return;
+
+        try {
+            me.ryanhamshire.GriefPrevention.Claim claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+                    .dataStore.getClaimAt(block.getLocation(), false, null);
+            if (claim == null) return; // vahşi doğa, GriefPrevention zaten engellemiyor
+            if (claim.allowAccess(player) == null) return; // polisin zaten erişimi var, karışmaya gerek yok
+
+            boolean arananIcerde = false;
+            for (Player online : Bukkit.getOnlinePlayers()) {
+                if (arananOyuncular.contains(online.getName().toLowerCase())
+                        && claim.contains(online.getLocation(), false, false)) {
+                    arananIcerde = true;
+                    break;
+                }
+            }
+            if (!arananIcerde) return; // arama izni için gerekçe yok, GP'nin engeli geçerli kalsın
+
+            event.setCancelled(true);
+            final org.bukkit.block.data.Openable openable = (org.bukkit.block.data.Openable) data;
+            openable.setOpen(true);
+            block.setBlockData(openable);
+            player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN
+                    + "Arama izniniz var, bu claim'e girebilirsiniz.");
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                org.bukkit.block.data.BlockData guncel = block.getBlockData();
+                if (guncel instanceof org.bukkit.block.data.Openable) {
+                    org.bukkit.block.data.Openable o2 = (org.bukkit.block.data.Openable) guncel;
+                    o2.setOpen(false);
+                    block.setBlockData(o2);
+                }
+            }, 60L);
+        } catch (Exception ignored) {
+            // GriefPrevention API beklenmedik bir şey döndürürse normal davranışa dokunma
+        }
+    }
+
+    /** Claim içinde normalde PVP kapalı olsa da, taraflardan biri polis/amir ise (baskın/arama
+     *  sırasında aile bireylerinin kendini savunması için) vuruşa izin verilir. Sivil-sivil PVP
+     *  claim içinde hâlâ GriefPrevention tarafından engellenir, burada dokunulmaz. */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onClaimIcindePolisPvp(EntityDamageByEntityEvent event) {
+        if (!event.isCancelled()) return;
+        if (!(event.getEntity() instanceof Player) || !(event.getDamager() instanceof Player)) return;
+        Player magdur = (Player) event.getEntity();
+        Player saldiran = (Player) event.getDamager();
+
+        String magdurMeslek = plugin.oyuncuMeslekCache.getOrDefault(magdur.getUniqueId(), "vatandas");
+        String saldiranMeslek = plugin.oyuncuMeslekCache.getOrDefault(saldiran.getUniqueId(), "vatandas");
+        if (!polisMi(magdurMeslek) && !polisMi(saldiranMeslek)) return; // iki taraf da sivil: claim koruması aynen kalsın
+
+        try {
+            me.ryanhamshire.GriefPrevention.Claim claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+                    .dataStore.getClaimAt(magdur.getLocation(), false, null);
+            if (claim == null) return; // vahşi doğa, PVP zaten kendi kuralına göre işliyor
+            event.setCancelled(false);
+        } catch (Exception ignored) {
         }
     }
 
