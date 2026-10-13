@@ -392,7 +392,7 @@ public class PolisManager implements Listener, CommandExecutor {
         plugin.oyuncuMeslekCache.put(target.getUniqueId(), yeniMeslek);
         // "amir" tag tanımı yoksa TagPlugin'e oluşturtur (varsa dokunmaz); aksi halde "tag set" sessizce başarısız olurdu
         if (amirYap) {
-            String amirTag = plugin.getConfig().getString("amir.tag-format", "&o&9[Amir]");
+            String amirTag = plugin.getConfig().getString("amir.tag-format", "&o&1[Amir]");
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag ensure amir " + amirTag);
         }
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + target.getName() + " parent set " + yeniMeslek);
