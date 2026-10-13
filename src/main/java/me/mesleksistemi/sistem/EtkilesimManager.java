@@ -709,9 +709,49 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
         paraBekleyen.remove(event.getPlayer().getUniqueId());
     }
 
+    // ------------------------------------------------------------------ liderlik tablosu
+    private void liderlikGonder(CommandSender sender) {
+        // hedef -> (begeni, begenmeme) sayilari
+        Map<UUID, int[]> sayac = new HashMap<>();
+        for (Map.Entry<UUID, Map<UUID, Integer>> e : oylar.entrySet()) {
+            int begeni = 0, begenmeme = 0;
+            for (int v : e.getValue().values()) {
+                if (v > 0) begeni++; else if (v < 0) begenmeme++;
+            }
+            sayac.put(e.getKey(), new int[]{begeni, begenmeme});
+        }
+        List<Map.Entry<UUID, int[]>> enCokBegeni = new ArrayList<>(sayac.entrySet());
+        enCokBegeni.removeIf(e -> e.getValue()[0] <= 0);
+        enCokBegeni.sort((a, b) -> b.getValue()[0] - a.getValue()[0]);
+        List<Map.Entry<UUID, int[]>> enCokBegenmeme = new ArrayList<>(sayac.entrySet());
+        enCokBegenmeme.removeIf(e -> e.getValue()[1] <= 0);
+        enCokBegenmeme.sort((a, b) -> b.getValue()[1] - a.getValue()[1]);
+
+        sender.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "--- En Çok Beğenilenler ---");
+        if (enCokBegeni.isEmpty()) sender.sendMessage(ChatColor.GRAY + "Henüz kimse beğenilmemiş.");
+        int sira = 1;
+        for (Map.Entry<UUID, int[]> e : enCokBegeni) {
+            if (sira > 10) break;
+            sender.sendMessage(ChatColor.YELLOW + "" + sira + ". " + ChatColor.WHITE + adOf(e.getKey()) + ChatColor.GREEN + " (" + e.getValue()[0] + " beğeni)");
+            sira++;
+        }
+        sender.sendMessage(ChatColor.DARK_RED + "" + ChatColor.BOLD + "--- En Çok Beğenilmeyenler ---");
+        if (enCokBegenmeme.isEmpty()) sender.sendMessage(ChatColor.GRAY + "Henüz kimse beğenilmemiş (olumsuz).");
+        sira = 1;
+        for (Map.Entry<UUID, int[]> e : enCokBegenmeme) {
+            if (sira > 10) break;
+            sender.sendMessage(ChatColor.YELLOW + "" + sira + ". " + ChatColor.WHITE + adOf(e.getKey()) + ChatColor.RED + " (" + e.getValue()[1] + " beğenmeme)");
+            sira++;
+        }
+    }
+
     // ------------------------------------------------------------------ komut
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (command.getName().equalsIgnoreCase("begeniliderlik")) {
+            liderlikGonder(sender);
+            return true;
+        }
         if (!(sender instanceof Player)) {
             sender.sendMessage("Bu komut oyun içinden kullanılır.");
             return true;

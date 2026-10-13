@@ -68,8 +68,8 @@ public class MeslekSistemi extends JavaPlugin {
     // TAPU VE EHLİYET VERİLERİ
     public HashSet<UUID> tapuSahipleri = new HashSet<>();
     public java.util.concurrent.ConcurrentHashMap<UUID, String> tapuIslemBekleyenler = new java.util.concurrent.ConcurrentHashMap<>();
-    public double ilkTapuBlokFiyati = 300.0;
-    public double genisletmeBlokFiyati = 1000.0;
+    public double ilkTapuBlokFiyati = 150.0;
+    public double genisletmeBlokFiyati = 500.0;
     
     public HashSet<UUID> elytraEhliyetleri = new HashSet<>();
     public double ehliyetFiyati = 50000.0; 
@@ -205,6 +205,9 @@ public class MeslekSistemi extends JavaPlugin {
             getCommand("profil").setExecutor(this.etkilesimManager);
             getCommand("profil").setTabCompleter(this.etkilesimManager);
         }
+        if (getCommand("begeniliderlik") != null) {
+            getCommand("begeniliderlik").setExecutor(this.etkilesimManager);
+        }
 
         // ENTEGRASYON 4: AdliyeManager (BÖLÜNMÜŞ HALİYLE KAYDEDİLİYOR)
         this.adliyeManager = new AdliyeManager(this);
@@ -259,7 +262,8 @@ public class MeslekSistemi extends JavaPlugin {
         String[] cmds = {
             "meslekata", "primver", "kasaayarla", "kursuayarla", "mesleknpc", "bankanpc", 
             "nufusnpc", "tapunpc", "kimlikbiyomsec", "meslekler", "basvurular", 
-            "basvurucevapla", "tapumenusu", "ohal", "maaslar", "yasayayinla", "yasakursuayarla", "yasalar", "rehber"
+            "basvurucevapla", "tapumenusu", "ohal", "maaslar", "yasayayinla", "yasakursuayarla", "yasalar", "rehber",
+            "zenginler", "bakiyegor"
         };
         for (String c : cmds) {
             if (getCommand(c) != null) getCommand(c).setExecutor(cmdExecutor);

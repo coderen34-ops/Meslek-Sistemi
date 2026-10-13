@@ -16,6 +16,9 @@ import org.bukkit.entity.Villager;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class Commands implements CommandExecutor {
@@ -254,6 +257,40 @@ public class Commands implements CommandExecutor {
                 basvuruPrimiOde(player, basvuranUUID, basvuru, islem.equalsIgnoreCase("kabulet") ? "KABUL" : "RED");
             }
             player.closeInventory(); plugin.veriKaydet(); return true;
+        }
+
+        if (command.getName().equalsIgnoreCase("zenginler")) {
+            List<Map.Entry<UUID, Double>> siralanmis = new ArrayList<>(plugin.bankaHesaplari.entrySet());
+            siralanmis.removeIf(e -> e.getValue() == null || e.getValue() <= 0.0);
+            siralanmis.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+            sender.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "--- En Zengin 10 Oyuncu ---");
+            if (siralanmis.isEmpty()) sender.sendMessage(ChatColor.GRAY + "Henüz kimsenin banka bakiyesi yok.");
+            int sira = 1;
+            for (Map.Entry<UUID, Double> e : siralanmis) {
+                if (sira > 10) break;
+                String ad = Bukkit.getOfflinePlayer(e.getKey()).getName();
+                if (ad == null) ad = e.getKey().toString().substring(0, 8);
+                sender.sendMessage(ChatColor.YELLOW + "" + sira + ". " + ChatColor.WHITE + ad + ChatColor.GREEN + " - $" + String.format(java.util.Locale.US, "%,.2f", e.getValue()));
+                sira++;
+            }
+            return true;
+        }
+
+        if (command.getName().equalsIgnoreCase("bakiyegor") && sender.hasPermission("meslek.admin")) {
+            if (args.length < 1) { sender.sendMessage(ChatColor.RED + "Kullanim: /bakiyegor <oyuncu>"); return true; }
+            org.bukkit.OfflinePlayer hedef = null;
+            Player online = Bukkit.getPlayerExact(args[0]);
+            if (online != null) {
+                hedef = online;
+            } else {
+                for (org.bukkit.OfflinePlayer op : Bukkit.getOfflinePlayers()) {
+                    if (args[0].equalsIgnoreCase(op.getName())) { hedef = op; break; }
+                }
+            }
+            if (hedef == null) { sender.sendMessage(ChatColor.RED + "Oyuncu bulunamadi: " + args[0]); return true; }
+            double bakiye = plugin.bankaHesaplari.getOrDefault(hedef.getUniqueId(), 0.0);
+            sender.sendMessage(ChatColor.GOLD + hedef.getName() + ChatColor.GRAY + " adli oyuncunun banka bakiyesi: " + ChatColor.GREEN + "$" + String.format(java.util.Locale.US, "%,.2f", bakiye));
+            return true;
         }
         return false;
     }
