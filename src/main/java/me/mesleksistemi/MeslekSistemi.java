@@ -200,6 +200,13 @@ public class MeslekSistemi extends JavaPlugin {
             getCommand("koyayarla").setExecutor(this.koyManager);
             getCommand("koyayarla").setTabCompleter(this.koyManager);
         }
+        // Poster sistemi (/poster): görseli harita parçalarına bölüp duvara dizer
+        me.mesleksistemi.sistem.PosterManager posterManager = new me.mesleksistemi.sistem.PosterManager(this);
+        getServer().getPluginManager().registerEvents(posterManager, this);
+        if (getCommand("poster") != null) {
+            getCommand("poster").setExecutor(posterManager);
+            getCommand("poster").setTabCompleter(posterManager);
+        }
         this.etkilesimManager = new me.mesleksistemi.sistem.EtkilesimManager(this);
         getServer().getPluginManager().registerEvents(this.etkilesimManager, this);
         if (getCommand("profil") != null) {

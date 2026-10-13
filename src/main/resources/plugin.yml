@@ -264,6 +264,10 @@ commands:
     description: Bir oyuncunun banka bakiyesini gosterir (admin).
     usage: /bakiyegor <oyuncu>
     permission: meslek.admin
+  poster:
+    description: Posterler klasorundeki bir gorseli harita parcalarina bolup duvara dizer (admin).
+    usage: /poster <dosya> [genislik] [yukseklik] | /poster liste | /poster sil
+    permission: meslek.admin
 
 permissions:
   admincagri.yonet:
