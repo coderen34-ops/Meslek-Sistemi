@@ -748,7 +748,7 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
     // ------------------------------------------------------------------ komut
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (command.getName().equalsIgnoreCase("begeniliderlik")) {
+        if (command.getName().equalsIgnoreCase("topbegeni")) {
             liderlikGonder(sender);
             return true;
         }

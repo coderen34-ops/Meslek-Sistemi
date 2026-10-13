@@ -205,8 +205,8 @@ public class MeslekSistemi extends JavaPlugin {
             getCommand("profil").setExecutor(this.etkilesimManager);
             getCommand("profil").setTabCompleter(this.etkilesimManager);
         }
-        if (getCommand("begeniliderlik") != null) {
-            getCommand("begeniliderlik").setExecutor(this.etkilesimManager);
+        if (getCommand("topbegeni") != null) {
+            getCommand("topbegeni").setExecutor(this.etkilesimManager);
         }
 
         // ENTEGRASYON 4: AdliyeManager (BÖLÜNMÜŞ HALİYLE KAYDEDİLİYOR)

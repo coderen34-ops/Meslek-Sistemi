@@ -251,9 +251,9 @@ commands:
     description: Oyuncu profilini ve ona birakilan yorumlari gosterir.
     usage: /profil [oyuncu]
     aliases: [yorumlarim]
-  begeniliderlik:
+  topbegeni:
     description: En cok begenilen ve begenilmeyen 10 oyuncuyu gosterir.
-    usage: /begeniliderlik
+    usage: /topbegeni
   zenginler:
     description: Banka bakiyesine gore en zengin 10 oyuncuyu gosterir.
     usage: /zenginler
