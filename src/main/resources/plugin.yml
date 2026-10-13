@@ -132,6 +132,9 @@ commands:
   sikayetkarar:
     description: (Sistem Komutu) Amir menusundeki dosya kararlarini isler.
     usage: /sikayetkarar <id> <karar>
+  davakapat:
+    description: Supheli cevrimdisi/kacmis olsa veya dava dosyasi kaybolmus olsa bile sorusturmayi/aramayi zorla kapatir.
+    usage: /davakapat <oyuncu>
 
   # ==========================================
   # ADLİYE, AVUKAT VE HAKİM KOMUTLARI

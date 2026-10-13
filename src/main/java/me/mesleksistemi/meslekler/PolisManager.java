@@ -71,7 +71,10 @@ public class PolisManager implements Listener, CommandExecutor {
     
     // İŞTE YENİ HAFIZAMIZ: Oyuncu hapse girmeden önceki mesleğini burada tutuyoruz.
     public HashMap<UUID, String> preJailRoles = new HashMap<>();
-    
+
+    // Mahkumların hapse girerken geçici olarak el konulan eşyaları (ceza bitince iade edilir)
+    private final HashMap<UUID, ItemStack[]> elKonulanEsyalar = new HashMap<>();
+
     private final HashMap<UUID, Long> dropConfirmations = new HashMap<>();
     
     public Location amirKursuKonumu = null;
@@ -209,6 +212,40 @@ public class PolisManager implements Listener, CommandExecutor {
             }
             return true;
         }
+
+        // Şüpheli oyun dışıysa, kaçmışsa ya da dava dosyası kitabı kaybolmuşsa/düşmüşse normal
+        // "dava dosyasıyla şüpheliye sağ tık" akışı çalışmaz. Bu, soruşturmayı her durumda kapatabilen
+        // bir güvenlik kapısı: /davakapat <oyuncu>
+        if (commandName.equalsIgnoreCase("davakapat")) {
+            String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
+            if (!polisMi(meslek)) {
+                player.sendMessage(ChatColor.RED + "Sadece emniyet mensupları soruşturma kapatabilir!");
+                return true;
+            }
+            if (args.length == 0) {
+                player.sendMessage(ChatColor.RED + "Kullanım: /davakapat <oyuncu>");
+                return true;
+            }
+            String hedefAd = args[0];
+            String hedefAdKucuk = hedefAd.toLowerCase();
+            if (!arananOyuncular.contains(hedefAdKucuk)) {
+                player.sendMessage(ChatColor.RED + hedefAd + " hakkında açık bir soruşturma/arama kaydı bulunamadı.");
+                return true;
+            }
+            arananOyuncular.remove(hedefAdKucuk);
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + hedefAd);
+            plugin.veriKaydet();
+
+            Player hedefOnline = Bukkit.getPlayerExact(hedefAd);
+            String gercekAd = hedefOnline != null ? hedefOnline.getName() : hedefAd;
+            if (hedefOnline != null) {
+                hedefOnline.sendMessage(ChatColor.GREEN + "Hakkınızdaki arama/soruşturma kaldırıldı.");
+            }
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + gercekAd
+                    + ChatColor.GREEN + " hakkındaki soruşturma " + player.getName() + " tarafından kapatıldı, arananlar listesinden çıkarıldı.");
+            player.sendMessage(ChatColor.GREEN + gercekAd + " için soruşturma kapatıldı.");
+            return true;
+        }
         
         if (commandName.equalsIgnoreCase("amirkursu")) {
             if (!player.hasPermission("polis.admin")) return true;
@@ -300,7 +337,7 @@ public class PolisManager implements Listener, CommandExecutor {
             Villager npc = (Villager) event.getRightClicked();
             if (npc.getPersistentDataContainer().has(sikayetNpcKey, PersistentDataType.BYTE)) {
                 event.setCancelled(true);
-                openSikayetSecimMenu(player);
+                openSikayetSecimMenu(player, true); // Şikayet NPC'si: polisler de dahil, herkes şikayet edilebilir
                 return;
             }
         }
@@ -355,8 +392,10 @@ public class PolisManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.RED + "Zaten devam eden bir şikayet işleminiz var. İptal etmek için sohbete 'iptal' yazın.");
                 return;
             }
-            // Polis, şikayet memuru (NPC) gibi davranır: şüpheli oyuncu menüden seçilir
-            openSikayetSecimMenu(player);
+            // Polis, şikayet memuru (NPC) gibi davranır: şüpheli oyuncu menüden seçilir.
+            // Bu kısayol sadece sivil vatandaşlar içindir (yukarıdaki polisMi kontrolüne bakın);
+            // emniyet mensupları listede gözükmez, onlar için şikayet NPC'si veya başka bir memur gerekir.
+            openSikayetSecimMenu(player, false);
         }
     }
 
@@ -393,10 +432,12 @@ public class PolisManager implements Listener, CommandExecutor {
     private void openBaskanMenu(Player baskan, Player target) {
         Inventory gui = Bukkit.createInventory(null, 27, BASKAN_MENU);
         gui.setItem(4, hedefKafasi(target));
-        gui.setItem(11, menuEsyasi(Material.GOLD_INGOT, ChatColor.GOLD + "" + ChatColor.BOLD + "Terfi / Rütbe İşlemleri",
+        gui.setItem(10, menuEsyasi(Material.GOLD_INGOT, ChatColor.GOLD + "" + ChatColor.BOLD + "Terfi / Rütbe İşlemleri",
                 "Amir yap veya polise düşür."));
-        gui.setItem(15, menuEsyasi(Material.WRITABLE_BOOK, ChatColor.RED + "" + ChatColor.BOLD + "Şikayet Et",
-                "Bu emniyet mensubunu şikayet et."));
+        gui.setItem(13, menuEsyasi(Material.WRITABLE_BOOK, ChatColor.RED + "" + ChatColor.BOLD + "Şikayet Et",
+                "Bu oyuncuyu şikayet et."));
+        gui.setItem(16, menuEsyasi(Material.LIME_DYE, ChatColor.GREEN + "" + ChatColor.BOLD + "Beğeni / Etkileşim",
+                "Beğen, yorum bırak veya para gönder."));
         gui.setItem(22, menuEsyasi(Material.BARRIER, ChatColor.DARK_RED + "" + ChatColor.BOLD + "Vatandaşlıktan Çıkar",
                 "Göçmen yapar ve köyün dışına ışınlar."));
         baskan.openInventory(gui);
@@ -481,13 +522,19 @@ public class PolisManager implements Listener, CommandExecutor {
         cop.openInventory(gui);
     }
     
-    private void openSikayetSecimMenu(Player player) {
+    /**
+     * @param polisGorunsun true ise listede polis/amirler de şüpheli olarak seçilebilir (şikayet NPC'si akışı).
+     *                      false ise polis/amirler listeden gizlenir: bir emniyet mensubu, sadece başka bir
+     *                      emniyet mensubu tarafından (NPC üzerinden) ya da şikayet NPC'sinden şikayet edilebilir.
+     */
+    private void openSikayetSecimMenu(Player player, boolean polisGorunsun) {
         Inventory gui = Bukkit.createInventory(null, 54, ChatColor.DARK_RED + "Şüpheli Seçimi");
         int slot = 0;
         for (Player target : Bukkit.getOnlinePlayers()) {
-            if (target.getUniqueId().equals(player.getUniqueId())) continue; 
+            if (target.getUniqueId().equals(player.getUniqueId())) continue;
+            if (!polisGorunsun && polisMi(meslekOf(target))) continue;
             if (slot > 53) break;
-            
+
             ItemStack head = new ItemStack(Material.PLAYER_HEAD);
             SkullMeta meta = (SkullMeta) head.getItemMeta();
             meta.setOwningPlayer(target);
@@ -588,7 +635,13 @@ public class PolisManager implements Listener, CommandExecutor {
                         player.sendMessage(ChatColor.RED + "Zaten devam eden bir şikayet işleminiz var. İptal etmek için sohbete 'iptal' yazın.");
                         return;
                     }
-                    openSikayetSecimMenu(player);
+                    // Başkan menüsündeki "Şikayet Et" artık genel bir şikayet kısayolu (normal oyuncular için de
+                    // geçerli), bu yüzden emniyet mensuplarını listede gizliyoruz; bir memuru şikayet etmek için
+                    // şikayet NPC'si veya başka bir memur kullanılmalı.
+                    openSikayetSecimMenu(player, false);
+                } else if (mat == Material.LIME_DYE) {
+                    player.closeInventory();
+                    if (plugin.etkilesimManager != null) plugin.etkilesimManager.menuAc(player, target.getUniqueId());
                 } else if (mat == Material.BARRIER) {
                     player.closeInventory();
                     if (plugin.koyManager != null) plugin.koyManager.vatandasliktanCikar(player, target);
@@ -1109,6 +1162,14 @@ public class PolisManager implements Listener, CommandExecutor {
 
     /** 5 saniyede bir: aranan sivillerin 5 dakikalık "kendini savunma" süresini ve baskında bayılan
      *  polislerin hastanedeki (2 dakikalık) iyileşme sürecini kontrol eder. */
+    /** Milisaniyeyi "dakika:saniye" olarak yazar, aksiyon çubuğu geri sayımları için. */
+    private String sureYaz(long ms) {
+        long saniyeToplam = Math.max(0, ms / 1000);
+        long dk = saniyeToplam / 60;
+        long sn = saniyeToplam % 60;
+        return dk + ":" + (sn < 10 ? "0" + sn : String.valueOf(sn));
+    }
+
     private void baskinGorevleriniBaslat() {
         Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             long simdi = System.currentTimeMillis();
@@ -1133,6 +1194,13 @@ public class PolisManager implements Listener, CommandExecutor {
                     halaAyniClaimde = false;
                 }
                 if (!halaAyniClaimde) { it.remove(); continue; }
+
+                long kalanMs = SAVUNMA_SURESI_MS - (simdi - sd.baslangic);
+                if (kalanMs > 0) {
+                    p.sendActionBar(net.kyori.adventure.text.Component.text(
+                            "⚔ Kendini savun! Aranmalık düşmesine kalan süre: " + sureYaz(kalanMs))
+                            .color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                }
 
                 if (simdi - sd.baslangic >= SAVUNMA_SURESI_MS) {
                     arananOyuncular.remove(p.getName().toLowerCase());
@@ -1170,6 +1238,12 @@ public class PolisManager implements Listener, CommandExecutor {
                     p.sendMessage(ChatColor.GREEN + "Hastaneye ulaştın, iyileşme süreci başladı. (" + (BASKIN_HASTANE_SURESI_MS / 1000 / 60) + " dakika)");
                     continue;
                 }
+                long kalanMs = BASKIN_HASTANE_SURESI_MS - (simdi - bilgi.hastaneBaslangic);
+                if (kalanMs > 0) {
+                    p.sendActionBar(net.kyori.adventure.text.Component.text(
+                            "🏥 Tedavi sürüyor, kalan süre: " + sureYaz(kalanMs))
+                            .color(net.kyori.adventure.text.format.NamedTextColor.GREEN));
+                }
                 if (simdi - bilgi.hastaneBaslangic >= BASKIN_HASTANE_SURESI_MS) {
                     plugin.saglikManager.tamTedavi(p);
                     p.sendMessage(ChatColor.GREEN + "Hastanede kendine geldin ve tamamen iyileştin!");
@@ -1184,8 +1258,10 @@ public class PolisManager implements Listener, CommandExecutor {
         Player player = event.getPlayer();
         lpGrubunuSenkronla(player);
         if (jailedPlayers.containsKey(player.getUniqueId())) {
+            esyalariAl(player);
+            plugin.veriKaydet();
             int timeLeft = jailedPlayers.get(player.getUniqueId());
-            startJailTimer(player, timeLeft); 
+            startJailTimer(player, timeLeft);
             player.sendMessage(ChatColor.DARK_RED + "Cezanız devam ediyor! Kalan süre: " + Math.max(1, timeLeft / 60) + " dakika.");
             
             if (!jailCells.isEmpty()) {
@@ -1315,6 +1391,7 @@ public class PolisManager implements Listener, CommandExecutor {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!p.isOnline() || !jailedPlayers.containsKey(uuid) || jailTasks.containsKey(uuid)) return;
             preJailLocations.putIfAbsent(uuid, p.getLocation());
+            esyalariAl(p);
             Location cell = getBestCell();
             if (cell != null) p.teleport(cell);
             startJailTimer(p, jailedPlayers.get(uuid));
@@ -1348,6 +1425,55 @@ public class PolisManager implements Listener, CommandExecutor {
         }, 60L);
     }
 
+    // ---- Mahkum eşyaları: hapse girerken geçici el koyma, çıkınca iade ----
+    private void esyalariAl(Player p) {
+        UUID id = p.getUniqueId();
+        if (elKonulanEsyalar.containsKey(id)) return;
+        ItemStack[] icerik = p.getInventory().getContents().clone();
+        boolean bos = true;
+        for (ItemStack it : icerik) if (it != null && it.getType() != Material.AIR) { bos = false; break; }
+        ItemStack[] zirh = p.getInventory().getArmorContents().clone();
+        boolean zirhBos = true;
+        for (ItemStack it : zirh) if (it != null && it.getType() != Material.AIR) { zirhBos = false; break; }
+        ItemStack ofHand = p.getInventory().getItemInOffHand();
+        boolean ofHandBos = ofHand == null || ofHand.getType() == Material.AIR;
+        if (bos && zirhBos && ofHandBos) return;
+
+        // Zırh ve sol el de ana envanter dizisiyle birlikte tek parça olarak saklanır (36 slot + 4 zırh + 1 offhand)
+        ItemStack[] tumu = new ItemStack[icerik.length + zirh.length + 1];
+        System.arraycopy(icerik, 0, tumu, 0, icerik.length);
+        System.arraycopy(zirh, 0, tumu, icerik.length, zirh.length);
+        tumu[tumu.length - 1] = ofHand;
+
+        elKonulanEsyalar.put(id, tumu);
+        p.getInventory().clear();
+        p.getInventory().setArmorContents(new ItemStack[4]);
+        p.getInventory().setItemInOffHand(null);
+        p.updateInventory();
+        p.sendMessage(ChatColor.GRAY + "Eşyalarına geçici olarak el konuldu. Cezan bitince iade edilecek.");
+    }
+
+    private void esyalariIade(Player p) {
+        ItemStack[] tumu = elKonulanEsyalar.remove(p.getUniqueId());
+        if (tumu == null) return;
+        int zirhUzunluk = 4;
+        int anaUzunluk = tumu.length - zirhUzunluk - 1;
+        ItemStack[] icerik = new ItemStack[anaUzunluk];
+        ItemStack[] zirh = new ItemStack[zirhUzunluk];
+        System.arraycopy(tumu, 0, icerik, 0, anaUzunluk);
+        System.arraycopy(tumu, anaUzunluk, zirh, 0, zirhUzunluk);
+        ItemStack ofHand = tumu[tumu.length - 1];
+
+        p.getInventory().clear();
+        p.getInventory().setArmorContents(new ItemStack[4]);
+        p.getInventory().setItemInOffHand(null);
+        p.getInventory().setContents(icerik);
+        p.getInventory().setArmorContents(zirh);
+        p.getInventory().setItemInOffHand(ofHand);
+        p.updateInventory();
+        p.sendMessage(ChatColor.GREEN + "Eşyaların iade edildi.");
+    }
+
     private void jailPlayer(Player player, int seconds) {
         // İŞTE BURASI: Oyuncu hapse girmeden hemen önce eski mesleğini hafızaya alıyoruz.
         String eskiMeslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
@@ -1356,9 +1482,10 @@ public class PolisManager implements Listener, CommandExecutor {
         }
 
         jailedPlayers.put(player.getUniqueId(), seconds);
+        esyalariAl(player);
         Location cell = getBestCell();
         if (cell != null) player.teleport(cell);
-        
+
         plugin.oyuncuMeslekCache.put(player.getUniqueId(), "mahkum");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent set mahkum");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag remove " + player.getName());
@@ -1395,9 +1522,10 @@ public class PolisManager implements Listener, CommandExecutor {
         }
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " " + tagAd);
         
+        esyalariIade(player);
         player.sendMessage(ChatColor.GREEN + "Cezanız doldu! Eski sivil hayatınıza ve [" + tagAd + "] unvanınıza geri döndünüz!");
         lpGrubunuSenkronla(player);
-        
+
         yuklenemeyenDonusKonumlari.remove(player.getUniqueId().toString());
         if (preJailLocations.containsKey(player.getUniqueId())) {
             Location returnLoc = preJailLocations.get(player.getUniqueId());
@@ -1533,6 +1661,17 @@ public class PolisManager implements Listener, CommandExecutor {
         }
 
         plugin.getConfig().set("arananlar", new ArrayList<>(arananOyuncular));
+
+        plugin.getConfig().set("jail_esyalar", null);
+        for (Map.Entry<UUID, ItemStack[]> e : elKonulanEsyalar.entrySet()) {
+            try {
+                plugin.getConfig().set("jail_esyalar." + e.getKey(),
+                        java.util.Base64.getEncoder().encodeToString(ItemStack.serializeItemsAsBytes(e.getValue())));
+            } catch (Exception ex) {
+                plugin.getLogger().warning("[Polis] " + e.getKey() + " için el konulan eşyalar kaydedilemedi: " + ex.getMessage());
+            }
+        }
+
         plugin.saveConfig();
     }
 
@@ -1586,6 +1725,20 @@ public class PolisManager implements Listener, CommandExecutor {
         if (plugin.getConfig().contains("pre_jail_roles")) {
             for (String uuidStr : plugin.getConfig().getConfigurationSection("pre_jail_roles").getKeys(false)) {
                 preJailRoles.put(UUID.fromString(uuidStr), plugin.getConfig().getString("pre_jail_roles." + uuidStr));
+            }
+        }
+
+        if (plugin.getConfig().contains("jail_esyalar")) {
+            ConfigurationSection esyaBolumu = plugin.getConfig().getConfigurationSection("jail_esyalar");
+            if (esyaBolumu != null) {
+                for (String uuidStr : esyaBolumu.getKeys(false)) {
+                    try {
+                        byte[] b = java.util.Base64.getDecoder().decode(plugin.getConfig().getString("jail_esyalar." + uuidStr));
+                        elKonulanEsyalar.put(UUID.fromString(uuidStr), ItemStack.deserializeItemsFromBytes(b));
+                    } catch (Exception ex) {
+                        plugin.getLogger().warning("[Polis] " + uuidStr + " için el konulan eşyalar yüklenemedi: " + ex.getMessage());
+                    }
+                }
             }
         }
 

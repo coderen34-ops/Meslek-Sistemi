@@ -348,6 +348,13 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
         return satirlar;
     }
 
+    /** PolisManager gibi dış sistemlerin (örn. Başkan Menüsü'ndeki "Beğeni/Etkileşim" köprü butonu) açabilmesi için
+     *  özel anaMenu()'ye genel erişim sağlar. Etkileşim menüsü zaten polis hedeflerini kendi akışında hariç tutar
+     *  (bkz. onSagTik), bu yüzden köprü butonu buraya özellikle polis/amir hedefleri için yönlendirme yapar. */
+    public void menuAc(Player izleyen, UUID hedef) {
+        anaMenu(izleyen, hedef);
+    }
+
     // ------------------------------------------------------------------ menüler
     private void anaMenu(Player izleyen, UUID hedef) {
         EtkMenu holder = new EtkMenu(Tip.ANA, hedef);

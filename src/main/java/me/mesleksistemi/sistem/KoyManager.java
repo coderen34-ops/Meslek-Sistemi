@@ -18,6 +18,9 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerMoveEvent;
 
 /**
  * Köy sınırı ve vatandaşlıktan çıkarma.
@@ -30,14 +33,18 @@ import org.bukkit.entity.Player;
  *
  * Konumlar plugins/MeslekSistemi/koy.yml dosyasında tutulur.
  */
-public class KoyManager implements CommandExecutor, TabCompleter {
+public class KoyManager implements CommandExecutor, TabCompleter, Listener {
 
     public static final String YETKI = "koy.admin";
+
+    // Göçmen köye girmeye çalıştığında art arda spam mesaj/uyarı atmamak için kısa bir bekleme.
+    private static final long UYARI_COOLDOWN_MS = 10_000L;
 
     private final MeslekSistemi plugin;
     private final File dosya;
     private Location pos1;
     private Location pos2;
+    private final java.util.Map<java.util.UUID, Long> sonUyariZamani = new java.util.HashMap<>();
 
     public KoyManager(MeslekSistemi plugin) {
         this.plugin = plugin;
@@ -186,6 +193,20 @@ public class KoyManager implements CommandExecutor, TabCompleter {
         }
     }
 
+    /** Verilen konum köy sınırlarının içinde mi? Sınır ayarlı değilse ya da farklı dünyadaysa false döner. */
+    public boolean icerideMi(Location konum) {
+        if (!sinirHazirMi() || konum == null || konum.getWorld() == null) return false;
+        World w = pos1.getWorld();
+        if (!konum.getWorld().equals(w)) return false;
+        double minX = Math.min(pos1.getX(), pos2.getX());
+        double maxX = Math.max(pos1.getX(), pos2.getX());
+        double minZ = Math.min(pos1.getZ(), pos2.getZ());
+        double maxZ = Math.max(pos1.getZ(), pos2.getZ());
+        double x = konum.getX();
+        double z = konum.getZ();
+        return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
+    }
+
     /** Oyuncuyu köy dikdörtgeninin kendisine en yakın kenarının hemen dışına ışınlar. Zaten dışarıdaysa dokunmaz. */
     public void disariIsinla(Player p) {
         if (!sinirHazirMi()) return;
@@ -195,13 +216,10 @@ public class KoyManager implements CommandExecutor, TabCompleter {
         double minZ = Math.min(pos1.getZ(), pos2.getZ());
         double maxZ = Math.max(pos1.getZ(), pos2.getZ());
         Location su = p.getLocation();
-        if (!su.getWorld().equals(w)) return;
+        if (!icerideMi(su)) return;
 
         double x = su.getX();
         double z = su.getZ();
-        boolean iceride = x >= minX && x <= maxX && z >= minZ && z <= maxZ;
-        if (!iceride) return;
-
         final double pay = 4.0;
         double solaMesafe = x - minX;
         double sagaMesafe = maxX - x;
@@ -230,5 +248,43 @@ public class KoyManager implements CommandExecutor, TabCompleter {
                 }
             });
         });
+    }
+
+    // ------------------------------------------------------------------ göçmen girişi engeli
+    /** Vatandaşlıktan çıkarılmış ("göçmen") bir oyuncu köy sınırının içine girmeye çalışırsa dışarı atılır ve polise haber verilir. */
+    @EventHandler(ignoreCancelled = true)
+    public void onMove(PlayerMoveEvent event) {
+        if (!sinirHazirMi()) return;
+        // Performans: sadece blok değiştiren hareketlerde kontrol et (sağa sola bakmak tetiklemesin)
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        if (to == null) return;
+        if (from.getBlockX() == to.getBlockX() && from.getBlockY() == to.getBlockY() && from.getBlockZ() == to.getBlockZ()) return;
+
+        Player p = event.getPlayer();
+        String meslek = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
+        if (!meslek.equalsIgnoreCase("gocmen")) return;
+        if (!icerideMi(to)) return;
+
+        disariIsinla(p);
+
+        long simdi = System.currentTimeMillis();
+        Long sonUyari = sonUyariZamani.get(p.getUniqueId());
+        if (sonUyari != null && simdi - sonUyari < UYARI_COOLDOWN_MS) return;
+        sonUyariZamani.put(p.getUniqueId(), simdi);
+
+        p.sendMessage(ChatColor.RED + "Göçmen olduğunuz için köye giremezsiniz!");
+        polisleriUyar(p);
+    }
+
+    private void polisleriUyar(Player gocmen) {
+        String uyari = ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + "DİKKAT: " + ChatColor.RED
+                + "Göçmen " + gocmen.getName() + ChatColor.YELLOW + " köye izinsiz girmeye çalıştı!";
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            String mOnline = plugin.oyuncuMeslekCache.getOrDefault(online.getUniqueId(), "vatandas");
+            if (mOnline.equalsIgnoreCase("polis") || mOnline.equalsIgnoreCase("amir")) {
+                online.sendMessage(uyari);
+            }
+        }
     }
 }

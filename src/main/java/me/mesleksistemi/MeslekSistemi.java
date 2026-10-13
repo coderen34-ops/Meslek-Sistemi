@@ -178,7 +178,7 @@ public class MeslekSistemi extends JavaPlugin {
         // ENTEGRASYON 3: PolisManager
         this.polisManager = new PolisManager(this);
         getServer().getPluginManager().registerEvents(this.polisManager, this);
-        String[] polisCmds = {"hucreolustur", "hucresil", "copal", "serbestbirak", "amirkursu", "sikayetnpc", "sikayetkarar"};
+        String[] polisCmds = {"hucreolustur", "hucresil", "copal", "serbestbirak", "amirkursu", "sikayetnpc", "sikayetkarar", "davakapat"};
         for (String c : polisCmds) {
             if (getCommand(c) != null) getCommand(c).setExecutor(this.polisManager);
         }
@@ -195,6 +195,7 @@ public class MeslekSistemi extends JavaPlugin {
 
         // Köy sınırı (/koyayarla) ve oyuncu etkileşim sistemi (sağ tık menüsü, /profil)
         this.koyManager = new me.mesleksistemi.sistem.KoyManager(this);
+        getServer().getPluginManager().registerEvents(this.koyManager, this);
         if (getCommand("koyayarla") != null) {
             getCommand("koyayarla").setExecutor(this.koyManager);
             getCommand("koyayarla").setTabCompleter(this.koyManager);
