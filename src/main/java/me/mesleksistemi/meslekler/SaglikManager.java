@@ -66,6 +66,10 @@ public class SaglikManager implements Listener, CommandExecutor {
     // Dünyası yüklü olmayan yatak kayıtları: kaydederken silinmesinler diye ham haliyle tutulur
     private final List<String> yuklenemeyenYataklar = new ArrayList<>();
 
+    // Hastane NPC'lerinin konumları (entity UUID -> konum). "Hastane" artık pos1/pos2 ile seçilen bir
+    // bölge değil, doğrudan bu NPC'nin içinde durduğu GriefPrevention claim'idir (hastaneClaimi()).
+    private final HashMap<UUID, Location> hastaneNpcKonumlari = new HashMap<>();
+
     // Yarayı kimin açtığı (doktor kendi açtığı yarayı sarınca prim almaz)
     private final HashMap<UUID, UUID> yaralayanlar = new HashMap<>();
     // Aynı hasta için devlet primi en fazla bu aralıkla ödenir
@@ -147,6 +151,7 @@ public class SaglikManager implements Listener, CommandExecutor {
             downedPlayers.remove(id);
             Bukkit.dispatchCommand(player, "sit");
         }
+        if (plugin.polisManager != null) plugin.polisManager.baskinBayginKaydiniSil(id);
         AttributeInstance maxCan = player.getAttribute(Attribute.MAX_HEALTH);
         player.setHealth(maxCan != null ? maxCan.getValue() : 20.0);
         for (PotionEffect effect : player.getActivePotionEffects()) {
@@ -163,6 +168,42 @@ public class SaglikManager implements Listener, CommandExecutor {
         veriYukleSaglik();
         startBleedingTask();
         startKanParcacikTask();
+        // Dünyalar daha yeni yüklenmiş olabileceğinden hastane NPC taraması bir tık geciktirilir.
+        Bukkit.getScheduler().runTaskLater(plugin, this::hastaneNpcleriniTara, 20L);
+    }
+
+    /** Sunucu açılışında (veya NPC kur/sil sonrası) tüm dünyalardaki hastane NPC'lerini bulup
+     *  konumlarını önbelleğe alır. "Hastane" artık bu NPC'lerin içinde bulunduğu GriefPrevention
+     *  claim'idir, ayrıca pos1/pos2 ile bölge seçmeye gerek yoktur. */
+    private void hastaneNpcleriniTara() {
+        hastaneNpcKonumlari.clear();
+        for (org.bukkit.World dunya : Bukkit.getWorlds()) {
+            for (Entity varlik : dunya.getEntities()) {
+                if (varlik instanceof Villager && varlik.getPersistentDataContainer().has(hastaneNpcKey, PersistentDataType.BYTE)) {
+                    hastaneNpcKonumlari.put(varlik.getUniqueId(), varlik.getLocation());
+                }
+            }
+        }
+    }
+
+    /** Bilinen ilk hastane NPC'sinin içinde bulunduğu GriefPrevention claim'i (NPC bir claim içinde
+     *  değilse null döner). Birden fazla hastane NPC'si varsa claim'i olan ilki kullanılır. */
+    public me.ryanhamshire.GriefPrevention.Claim hastaneClaimi() {
+        for (Location loc : hastaneNpcKonumlari.values()) {
+            try {
+                me.ryanhamshire.GriefPrevention.Claim claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+                        .dataStore.getClaimAt(loc, false, null);
+                if (claim != null) return claim;
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    /** Verilen konum, hastane NPC'sinin bulunduğu claim'in içinde mi? */
+    public boolean lokasyonHastaneClaimindeMi(Location loc) {
+        me.ryanhamshire.GriefPrevention.Claim claim = hastaneClaimi();
+        return claim != null && claim.contains(loc, false, false);
     }
 
     // Baygın ve kanayan oyuncuların üstünden kırmızı (kan) parçacıkları dökülür
@@ -215,6 +256,10 @@ public class SaglikManager implements Listener, CommandExecutor {
         if (cmd.equals("ambulanscagir")) {
             if (!downedPlayers.containsKey(player.getUniqueId())) {
                 player.sendMessage(ChatColor.RED + "Sadece ağır yaralıyken ambulans çağırabilirsin!");
+                return true;
+            }
+            if (plugin.polisManager != null && plugin.polisManager.baskindaBayginMi(player.getUniqueId())) {
+                player.sendMessage(ChatColor.RED + "Baskın sırasında bayıldığın için ambulans çağıramazsın! Bir meslektaşının seni sırtına alıp hastaneye götürmesini beklemelisin.");
                 return true;
             }
             boolean doktorVar = doktorOnlineMi();
@@ -277,6 +322,11 @@ public class SaglikManager implements Listener, CommandExecutor {
             
             if (target == null || !target.isOnline() || !downedPlayers.containsKey(targetUUID)) {
                 player.sendMessage(ChatColor.RED + "Hasta şu an oyunda değil veya iyileşmiş.");
+                ambulansCagrilari.remove(targetName);
+                return true;
+            }
+            if (plugin.polisManager != null && plugin.polisManager.baskindaBayginMi(targetUUID)) {
+                player.sendMessage(ChatColor.RED + "Bu hasta baskın sırasında bayılmış bir polis memuru, ambulansla alınamaz! Bir meslektaşı onu sırtına alıp hastaneye götürmeli.");
                 ambulansCagrilari.remove(targetName);
                 return true;
             }
@@ -345,11 +395,19 @@ public class SaglikManager implements Listener, CommandExecutor {
                 npc.setCustomNameVisible(true);
                 npc.setProfession(Villager.Profession.CLERIC);
                 npc.getPersistentDataContainer().set(hastaneNpcKey, PersistentDataType.BYTE, (byte) 1);
-                player.sendMessage(ChatColor.GREEN + "Hastane NPC'si kuruldu!");
+                hastaneNpcKonumlari.put(npc.getUniqueId(), npc.getLocation());
+                me.ryanhamshire.GriefPrevention.Claim claim = hastaneClaimi();
+                if (claim == null) {
+                    player.sendMessage(ChatColor.YELLOW + "Hastane NPC'si kuruldu! " + ChatColor.RED
+                            + "Uyarı: Bu NPC şu an bir GriefPrevention claim'i içinde değil, bu yüzden 'hastane bölgesi' olarak sayılmayacak. NPC'yi bir claim içine koy.");
+                } else {
+                    player.sendMessage(ChatColor.GREEN + "Hastane NPC'si kuruldu! İçinde bulunduğu claim artık hastane bölgesi olarak sayılıyor.");
+                }
             } else if (args[0].equalsIgnoreCase("sil")) {
                 int silinen = 0;
                 for (Entity entity : player.getNearbyEntities(5, 5, 5)) {
                     if (entity instanceof Villager && entity.getPersistentDataContainer().has(hastaneNpcKey, PersistentDataType.BYTE)) {
+                        hastaneNpcKonumlari.remove(entity.getUniqueId());
                         entity.remove(); silinen++;
                     }
                 }
@@ -557,6 +615,10 @@ public class SaglikManager implements Listener, CommandExecutor {
 
         Bukkit.dispatchCommand(player, "lay");
 
+        // Bu bir polis/amirse ve bir baskın sırasında bayıldıysa, PolisManager onu işaretler:
+        // o andan sonra normal tedavi yöntemleri işe yaramaz, sadece hastaneye taşınarak kurtarılabilir.
+        if (plugin.polisManager != null) plugin.polisManager.oyuncuBaygindaOldu(player);
+
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -676,6 +738,13 @@ public class SaglikManager implements Listener, CommandExecutor {
             return;
         }
 
+        // Baskında bayılan bir polis/amirse doktor müdahalesi (bandaj/atel/adrenalin) işe yaramaz;
+        // sadece sırtına alınıp hastane NPC'sinin bulunduğu claime fiziken götürülerek kurtarılabilir.
+        if (plugin.polisManager != null && plugin.polisManager.baskindaBayginMi(target.getUniqueId())) {
+            doctor.sendMessage(ChatColor.RED + "Bu polis memuru baskın sırasında bayıldı! Doktor müdahalesi işe yaramaz, önce sırtınıza alıp hastaneye götürmelisiniz.");
+            return;
+        }
+
         boolean tedaviEdildi = false;
         // Prim kontrolü için tedaviden önce yarayı kimin açtığını al
         UUID yaralayan = yaralayanlar.get(target.getUniqueId());
@@ -740,6 +809,10 @@ public class SaglikManager implements Listener, CommandExecutor {
     }
 
     private void handleHospitalNPC(Player player) {
+        if (plugin.polisManager != null && plugin.polisManager.baskindaBayginMi(player.getUniqueId())) {
+            player.sendMessage(ChatColor.RED + "Baskın sırasında bayıldığın için burada kendi kendine tedavi olamazsın! Bir meslektaşının seni sırtına alıp hastaneye getirmesini beklemelisin.");
+            return;
+        }
         boolean doktorVarMi = false;
         for (Player p : Bukkit.getOnlinePlayers()) {
             String m = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "");

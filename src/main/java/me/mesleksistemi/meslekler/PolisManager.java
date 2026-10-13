@@ -100,6 +100,33 @@ public class PolisManager implements Listener, CommandExecutor {
     private final java.util.concurrent.ConcurrentHashMap<UUID, Long> sonOlumZamani = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long GENEL_SEBEP_PENCERESI_MS = 20 * 60 * 1000L;
 
+    // ===== BASKIN (RAID) SİSTEMİ =====
+    // Bir claim'de polis/amir ile sivil arasında PVP yaşandığı an o claim için "baskın" başlar.
+    // Birkaç dakika kavga olmazsa kendiliğinden sona erer. Key: GriefPrevention Claim ID.
+    private final java.util.concurrent.ConcurrentHashMap<Long, Long> baskinSonAktivite = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long BASKIN_HAREKETSIZLIK_MS = 3 * 60 * 1000L;
+
+    /** Aranan bir sivilin, baskın atıldığı claim içinde polise karşı kendini savunma süresi.
+     *  5 dakika boyunca aynı claim içinde hayatta/baygın olmadan dayanırsa arananlığı düşer. */
+    private static class SavunmaDurumu {
+        final long claimId;
+        final long baslangic;
+        SavunmaDurumu(long claimId, long baslangic) { this.claimId = claimId; this.baslangic = baslangic; }
+    }
+    private final java.util.concurrent.ConcurrentHashMap<UUID, SavunmaDurumu> savunmaDurumlari = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long SAVUNMA_SURESI_MS = 5 * 60 * 1000L;
+
+    /** Baskın sırasında bayılan polis/amirler: normal tedavi yöntemleri (bandaj/adrenalin/doktor/
+     *  ambulans/hastane NPC'si) bunlar üzerinde işe yaramaz, sadece bir meslektaşı tarafından sırtına
+     *  alınıp hastane NPC'sinin bulunduğu claime fiziken götürülerek kurtarılabilirler. */
+    private static class BaskinBayginBilgisi {
+        final long claimId;
+        Long hastaneBaslangic; // null: henüz hastane claiminde değil
+        BaskinBayginBilgisi(long claimId) { this.claimId = claimId; }
+    }
+    private final java.util.concurrent.ConcurrentHashMap<UUID, BaskinBayginBilgisi> baskindaBayilanlar = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long BASKIN_HASTANE_SURESI_MS = 2 * 60 * 1000L; // baskında bayılan polis için 2 dakika
+
     private final Random random = new Random();
 
     // Dünyası şu an yüklü olmayan kayıtlar: kaydederken silinmesinler diye ham haliyle saklanır
@@ -126,6 +153,8 @@ public class PolisManager implements Listener, CommandExecutor {
             plugin.getConfig().set(IZINLI_KOMUTLAR_YOLU, VARSAYILAN_IZINLI_KOMUTLAR);
             plugin.saveConfig();
         }
+
+        baskinGorevleriniBaslat();
     }
 
     @Override
@@ -932,6 +961,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
                 if (arananOyuncular.contains(targetPlayer.getName().toLowerCase())) {
                     arananOyuncular.remove(targetPlayer.getName().toLowerCase());
+                    savunmaDurumlari.remove(targetPlayer.getUniqueId());
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + targetPlayer.getName());
                     Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.GREEN + "Aranan şüpheli " + ChatColor.YELLOW + targetPlayer.getName() + ChatColor.GREEN + ", Memur " + copPlayer.getName() + " tarafından yakalanarak paketlendi!");
                 }
@@ -1019,8 +1049,134 @@ public class PolisManager implements Listener, CommandExecutor {
                     .dataStore.getClaimAt(magdur.getLocation(), false, null);
             if (claim == null) return; // vahşi doğa, PVP zaten kendi kuralına göre işliyor
             event.setCancelled(false);
+
+            // Bu vuruşla claim için baskın başlar/yenilenir.
+            baskinaAktiviteKaydet(claim);
+
+            // Taraflardan sivil olanı aranansa, "kendini savunma" sayacı başlar (yoksa dokunulmaz).
+            Player sivil = null;
+            if (polisMi(saldiranMeslek) && !polisMi(magdurMeslek)) sivil = magdur;
+            else if (polisMi(magdurMeslek) && !polisMi(saldiranMeslek)) sivil = saldiran;
+            if (sivil != null && arananOyuncular.contains(sivil.getName().toLowerCase())) {
+                savunmaDurumlari.putIfAbsent(sivil.getUniqueId(), new SavunmaDurumu(claim.getID(), System.currentTimeMillis()));
+            }
         } catch (Exception ignored) {
         }
+    }
+
+    private boolean baskinAktifMi(long claimId) {
+        Long son = baskinSonAktivite.get(claimId);
+        return son != null && System.currentTimeMillis() - son < BASKIN_HAREKETSIZLIK_MS;
+    }
+
+    private boolean baskinAktifMi(me.ryanhamshire.GriefPrevention.Claim claim) {
+        return claim != null && baskinAktifMi(claim.getID());
+    }
+
+    private void baskinaAktiviteKaydet(me.ryanhamshire.GriefPrevention.Claim claim) {
+        if (claim == null) return;
+        baskinSonAktivite.put(claim.getID(), System.currentTimeMillis());
+    }
+
+    /** SaglikManager, bir oyuncu bayılınca bunu çağırır. Eğer bu bir polis/amirse ve o an bulunduğu
+     *  claim'de aktif bir baskın varsa, bu polis "baskında bayılmış" sayılır: normal tedavi yöntemleri
+     *  (bandaj/adrenalin/doktor/ambulans/hastane NPC'si) işe yaramaz, sadece bir meslektaşı tarafından
+     *  sırtına alınıp hastane NPC'sinin bulunduğu claime fiziken götürülerek kurtarılabilir. */
+    public void oyuncuBaygindaOldu(Player player) {
+        String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
+        if (!polisMi(meslek)) return;
+        try {
+            me.ryanhamshire.GriefPrevention.Claim claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+                    .dataStore.getClaimAt(player.getLocation(), false, null);
+            if (claim == null || !baskinAktifMi(claim)) return;
+            baskindaBayilanlar.put(player.getUniqueId(), new BaskinBayginBilgisi(claim.getID()));
+            player.sendMessage(ChatColor.DARK_RED + "Baskın sırasında bayıldın! Normal tedavi yöntemleri (bandaj/adrenalin/doktor/ambulans) senin üzerinde işe yaramaz.");
+            player.sendMessage(ChatColor.YELLOW + "Bir meslektaşının seni sırtına alıp hastaneye götürmesini beklemelisin, ya da baskın bitene kadar dayanmalısın.");
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Bu oyuncu şu an "baskında bayılmış" bir polis/amir mi? SaglikManager, normal tedavi
+     *  yöntemlerini (doktor/ambulans/hastane NPC'si) buna göre engeller. */
+    public boolean baskindaBayginMi(UUID uuid) {
+        return baskindaBayilanlar.containsKey(uuid);
+    }
+
+    /** SaglikManager.tamTedavi her çağrıldığında (ör. hapse atılma, adrenalin vb.) kaydı da temizler. */
+    public void baskinBayginKaydiniSil(UUID uuid) {
+        baskindaBayilanlar.remove(uuid);
+    }
+
+    /** 5 saniyede bir: aranan sivillerin 5 dakikalık "kendini savunma" süresini ve baskında bayılan
+     *  polislerin hastanedeki (2 dakikalık) iyileşme sürecini kontrol eder. */
+    private void baskinGorevleriniBaslat() {
+        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            long simdi = System.currentTimeMillis();
+
+            // 1) Aranan oyuncuların kendini savunma süresi
+            for (java.util.Iterator<Map.Entry<UUID, SavunmaDurumu>> it = savunmaDurumlari.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<UUID, SavunmaDurumu> giris = it.next();
+                UUID uuid = giris.getKey();
+                SavunmaDurumu sd = giris.getValue();
+                Player p = Bukkit.getPlayer(uuid);
+
+                if (p == null || !p.isOnline()) { it.remove(); continue; }
+                if (!arananOyuncular.contains(p.getName().toLowerCase())) { it.remove(); continue; }
+                if (plugin.saglikManager != null && plugin.saglikManager.agirYaraliMi(uuid)) { it.remove(); continue; }
+
+                boolean halaAyniClaimde;
+                try {
+                    me.ryanhamshire.GriefPrevention.Claim mevcutClaim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+                            .dataStore.getClaimAt(p.getLocation(), false, null);
+                    halaAyniClaimde = mevcutClaim != null && mevcutClaim.getID() == sd.claimId;
+                } catch (Exception ex) {
+                    halaAyniClaimde = false;
+                }
+                if (!halaAyniClaimde) { it.remove(); continue; }
+
+                if (simdi - sd.baslangic >= SAVUNMA_SURESI_MS) {
+                    arananOyuncular.remove(p.getName().toLowerCase());
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + p.getName());
+                    Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.GREEN + p.getName()
+                            + ChatColor.GREEN + ", polis baskınına karşı 5 dakika boyunca kendini savunmayı başardı! Arananlık durumu düşürüldü.");
+                    it.remove();
+                }
+            }
+
+            // 2) Baskında bayılan polislerin hastanedeki iyileşmesi
+            for (java.util.Iterator<Map.Entry<UUID, BaskinBayginBilgisi>> it = baskindaBayilanlar.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<UUID, BaskinBayginBilgisi> giris = it.next();
+                UUID uuid = giris.getKey();
+                BaskinBayginBilgisi bilgi = giris.getValue();
+                Player p = Bukkit.getPlayer(uuid);
+
+                if (p == null || !p.isOnline()) continue; // çevrimdışı: kayıt kalsın, girince devam etsin
+                if (plugin.saglikManager == null || !plugin.saglikManager.agirYaraliMi(uuid)) { it.remove(); continue; }
+
+                if (!baskinAktifMi(bilgi.claimId)) {
+                    // Baskın sona erdi: artık normal tedavi yöntemleri (bandaj/doktor/ambulans) işe yarar.
+                    it.remove();
+                    p.sendMessage(ChatColor.YELLOW + "Baskın sona erdi! Artık normal yollarla (doktor/ambulans/hastane) tedavi edilebilirsin.");
+                    continue;
+                }
+
+                boolean hastanede = plugin.saglikManager.lokasyonHastaneClaimindeMi(p.getLocation());
+                if (!hastanede) {
+                    bilgi.hastaneBaslangic = null;
+                    continue;
+                }
+                if (bilgi.hastaneBaslangic == null) {
+                    bilgi.hastaneBaslangic = simdi;
+                    p.sendMessage(ChatColor.GREEN + "Hastaneye ulaştın, iyileşme süreci başladı. (" + (BASKIN_HASTANE_SURESI_MS / 1000 / 60) + " dakika)");
+                    continue;
+                }
+                if (simdi - bilgi.hastaneBaslangic >= BASKIN_HASTANE_SURESI_MS) {
+                    plugin.saglikManager.tamTedavi(p);
+                    p.sendMessage(ChatColor.GREEN + "Hastanede kendine geldin ve tamamen iyileştin!");
+                    it.remove();
+                }
+            }
+        }, 100L, 100L);
     }
 
     @EventHandler
