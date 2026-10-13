@@ -27,6 +27,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -84,6 +85,13 @@ public class PolisManager implements Listener, CommandExecutor {
     private final java.util.concurrent.ConcurrentHashMap<UUID, UUID> menuHedefleri = new java.util.concurrent.ConcurrentHashMap<>();
     private static final String BASKAN_MENU = ChatColor.DARK_BLUE + "Başkan İşlemleri";
     private static final String RUTBE_MENU = ChatColor.GOLD + "Rütbe İşlemleri";
+
+    // Copla art arda hapse atmayı (taciz) önlemek için: oyuncu serbest kaldıktan sonra kısa bir süre
+    // tekrar copla hapse atılamaz. Ancak bu sürede birine vurmuş/birini öldürmüş ya da hakkında
+    // şikayet (arananOyuncular) varsa bu koruma devre dışı kalır, çünkü artık meşru bir sebep var.
+    private final java.util.concurrent.ConcurrentHashMap<UUID, Long> sonSalmaZamani = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<UUID, Long> sonSaldirganlikZamani = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long COP_COOLDOWN_MS = 3 * 60 * 1000L;
 
     private final Random random = new Random();
 
@@ -785,6 +793,34 @@ public class PolisManager implements Listener, CommandExecutor {
         }
     }
 
+    /** Hedef, serbest kaldıktan sonraki COP_COOLDOWN_MS içinde mi ve bu sürede yeni bir meşru sebep
+     *  (kendisi saldırmış/öldürmüş ya da hakkında şikayet var) oluşmamış mı? Öyleyse true döner. */
+    private boolean copCooldundaMi(Player target) {
+        Long salma = sonSalmaZamani.get(target.getUniqueId());
+        if (salma == null) return false;
+        long simdi = System.currentTimeMillis();
+        if (simdi - salma >= COP_COOLDOWN_MS) return false;
+        if (arananOyuncular.contains(target.getName().toLowerCase())) return false;
+        Long saldirganlik = sonSaldirganlikZamani.get(target.getUniqueId());
+        if (saldirganlik != null && simdi - saldirganlik < COP_COOLDOWN_MS) return false;
+        return true;
+    }
+
+    // Bir oyuncu başka bir oyuncuya vurursa (copla değil, herhangi bir şekilde) ya da birini öldürürse
+    // bu zaman damgalanır; bu sayede serbest kalma cooldown'u varsa bile meşru bir sebeple hapse atılabilir.
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSaldirganlikIzle(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Player) || !(event.getEntity() instanceof Player)) return;
+        Player saldirgan = (Player) event.getDamager();
+        sonSaldirganlikZamani.put(saldirgan.getUniqueId(), System.currentTimeMillis());
+    }
+
+    @EventHandler
+    public void onOlum(org.bukkit.event.entity.PlayerDeathEvent event) {
+        Player katil = event.getEntity().getKiller();
+        if (katil != null) sonSaldirganlikZamani.put(katil.getUniqueId(), System.currentTimeMillis());
+    }
+
     @EventHandler
     public void onHit(EntityDamageByEntityEvent event) {
         if (event.getDamager() instanceof Player && event.getEntity() instanceof Player) {
@@ -801,6 +837,11 @@ public class PolisManager implements Listener, CommandExecutor {
                 
                 if (jailCells.isEmpty()) { copPlayer.sendMessage(ChatColor.RED + "Hiç hücre ayarlanmamış!"); return; }
                 if (jailedPlayers.containsKey(targetPlayer.getUniqueId())) { copPlayer.sendMessage(ChatColor.RED + "Bu oyuncu zaten hapiste!"); return; }
+
+                if (copCooldundaMi(targetPlayer)) {
+                    copPlayer.sendMessage(ChatColor.RED + targetPlayer.getName() + " yakın zamanda serbest bırakıldı. Yeni bir sebep yoksa (saldırı/cinayet/şikayet) hemen tekrar hapse atılamaz.");
+                    return;
+                }
 
                 if (arananOyuncular.contains(targetPlayer.getName().toLowerCase())) {
                     arananOyuncular.remove(targetPlayer.getName().toLowerCase());
@@ -1011,6 +1052,7 @@ public class PolisManager implements Listener, CommandExecutor {
 
     private void releasePlayer(Player player) {
         jailedPlayers.remove(player.getUniqueId());
+        sonSalmaZamani.put(player.getUniqueId(), System.currentTimeMillis());
         if (jailTasks.containsKey(player.getUniqueId())) {
             jailTasks.get(player.getUniqueId()).cancel();
             jailTasks.remove(player.getUniqueId());
