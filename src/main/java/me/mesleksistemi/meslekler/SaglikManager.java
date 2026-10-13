@@ -137,8 +137,9 @@ public class SaglikManager implements Listener, CommandExecutor {
         return false;
     }
 
-    /** Oyuncuyu tamamen iyileştirir: kırık, kanama, baygınlık ve etkiler kalkar, can dolar. */
-    private void tamTedavi(Player player) {
+    /** Oyuncuyu tamamen iyileştirir: kırık, kanama, baygınlık ve etkiler kalkar, can dolar.
+     *  Polis sistemi, hapse atılan bir tutukluyu bu metotla "ayıltır" (PolisManager.jailPlayer). */
+    public void tamTedavi(Player player) {
         UUID id = player.getUniqueId();
         brokenLegs.remove(id);
         bleedingPlayers.remove(id);

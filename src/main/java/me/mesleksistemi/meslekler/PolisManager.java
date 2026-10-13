@@ -921,11 +921,23 @@ public class PolisManager implements Listener, CommandExecutor {
                     return;
                 }
 
+                // Meşru sebep olsa bile tutuklama ancak şüpheli etkisiz hale getirilince (bayılınca) yapılabilir;
+                // polis onu önce dövüp bayıltmadan tek copla doğrudan hapse atamaz.
+                boolean bayginMi = plugin.saglikManager != null && plugin.saglikManager.agirYaraliMi(targetPlayer.getUniqueId());
+                if (!bayginMi) {
+                    copPlayer.sendMessage(ChatColor.RED + "[Polis] " + targetPlayer.getName()
+                            + " hâlâ ayakta! Tutuklamadan önce onu etkisiz hale getirip (bayıltıp) sonra copla vurmalısınız.");
+                    return;
+                }
+
                 if (arananOyuncular.contains(targetPlayer.getName().toLowerCase())) {
                     arananOyuncular.remove(targetPlayer.getName().toLowerCase());
-                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + targetPlayer.getName()); 
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + targetPlayer.getName());
                     Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.GREEN + "Aranan şüpheli " + ChatColor.YELLOW + targetPlayer.getName() + ChatColor.GREEN + ", Memur " + copPlayer.getName() + " tarafından yakalanarak paketlendi!");
                 }
+
+                // Hapse girince baygınlık/kırık/kanama da biter; tutuklu hücrede "ayılmış" başlar.
+                if (plugin.saglikManager != null) plugin.saglikManager.tamTedavi(targetPlayer);
 
                 preJailLocations.put(targetPlayer.getUniqueId(), targetPlayer.getLocation());
                 int mod = getCopMod(item);
