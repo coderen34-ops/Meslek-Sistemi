@@ -38,6 +38,13 @@
             <version>18.4.8</version>
             <scope>provided</scope>
         </dependency>
+        <!-- LibsDisguises: Pazar standı NPC'sini kiralayan oyuncunun skin'ine büründürmek için -->
+        <dependency>
+            <groupId>com.github.libraryaddict</groupId>
+            <artifactId>LibsDisguises</artifactId>
+            <version>v10.0.16</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>

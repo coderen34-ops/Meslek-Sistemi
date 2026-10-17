@@ -18,6 +18,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -217,12 +218,17 @@ public class PolisManager implements Listener, CommandExecutor {
             for (ItemStack invItem : player.getInventory().getContents()) {
                 if (isCop(invItem)) { zatenVar = true; break; }
             }
-            if (zatenVar) {
-                player.sendMessage(ChatColor.YELLOW + "[Polis] " + ChatColor.GRAY + "Zaten üzerinde bir cop var, yeniden verilmedi.");
-                return true;
-            }
-            player.getInventory().addItem(createCop(1));
-            player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + "Polis kiti (cop) verildi.");
+            if (!zatenVar) player.getInventory().addItem(createCop(1));
+
+            // Zırh seti: boş slotları doldurur, oyuncunun kendi eşyasının üzerine yazmaz.
+            var inv = player.getInventory();
+            if (inv.getHelmet() == null) inv.setHelmet(createPoliceArmorPiece(Material.DIAMOND_HELMET));
+            if (inv.getChestplate() == null) inv.setChestplate(createPoliceArmorPiece(Material.DIAMOND_CHESTPLATE));
+            if (inv.getLeggings() == null) inv.setLeggings(createPoliceArmorPiece(Material.DIAMOND_LEGGINGS));
+            if (inv.getBoots() == null) inv.setBoots(createPoliceArmorPiece(Material.DIAMOND_BOOTS));
+            if (!inv.containsAtLeast(new ItemStack(Material.DIAMOND_SWORD), 1)) inv.addItem(createPoliceSword());
+
+            player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + "Polis kiti (cop, Protection 4 zırh, Sharpness 5 kılıç) verildi.");
             return true;
         }
 
@@ -1727,6 +1733,24 @@ public class PolisManager implements Listener, CommandExecutor {
         data.set(this.modKey, PersistentDataType.INTEGER, mod); 
         cop.setItemMeta(meta);
         return cop;
+    }
+
+    private ItemStack createPoliceArmorPiece(Material mat) {
+        ItemStack item = new ItemStack(mat);
+        ItemMeta meta = item.getItemMeta();
+        meta.addEnchant(Enchantment.PROTECTION, 4, true);
+        meta.setUnbreakable(true);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack createPoliceSword() {
+        ItemStack item = new ItemStack(Material.DIAMOND_SWORD);
+        ItemMeta meta = item.getItemMeta();
+        meta.addEnchant(Enchantment.SHARPNESS, 5, true);
+        meta.setUnbreakable(true);
+        item.setItemMeta(meta);
+        return item;
     }
 
     private boolean isCop(ItemStack item) {

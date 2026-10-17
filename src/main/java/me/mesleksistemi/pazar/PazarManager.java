@@ -22,6 +22,9 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import me.libraryaddict.disguise.DisguiseAPI;
+import me.libraryaddict.disguise.disguisetypes.PlayerDisguise;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -593,6 +596,13 @@ public class PazarManager implements Listener, CommandExecutor {
         acikGui.remove(event.getPlayer().getUniqueId());
     }
 
+    /** Oyuncu vitrindeki eşyayı sürükleyerek bedavaya kendi envanterine alamasın. */
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player p)) return;
+        if (acikGui.containsKey(p.getUniqueId())) event.setCancelled(true);
+    }
+
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         UUID id = event.getPlayer().getUniqueId();
@@ -634,6 +644,19 @@ public class PazarManager implements Listener, CommandExecutor {
             v.setCustomName(ChatColor.YELLOW + "" + ChatColor.BOLD + adiniBul(s.sahip) + ChatColor.YELLOW + "'nin Standı");
         }
         v.setCustomNameVisible(true);
+        standGorunumGuncelle(s, v);
+    }
+
+    /** NPC'yi kiralayan oyuncunun skin'ine büründürür; stand boşsa disguise'ı kaldırır. */
+    private void standGorunumGuncelle(Stand s, Villager v) {
+        if (!Bukkit.getPluginManager().isPluginEnabled("LibsDisguises")) return;
+        if (DisguiseAPI.isDisguised(v)) DisguiseAPI.undisguiseToAll(v);
+        if (s.sahip == null) return;
+        String isim = adiniBul(s.sahip);
+        if (isim == null || "?".equals(isim)) return;
+        PlayerDisguise disguise = new PlayerDisguise(isim);
+        disguise.setHideArmorFromSelf(true);
+        DisguiseAPI.disguiseToAll(v, disguise);
     }
 
     private Entity bulEntity(String standId) {
