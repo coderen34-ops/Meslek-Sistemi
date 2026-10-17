@@ -22,6 +22,11 @@
             <id>jitpack.io</id>
             <url>https://jitpack.io</url>
         </repository>
+        <!-- LibsDisguises'in kendi resmi Maven deposu (jitpack multi-module gradle projesinde kök koordinatı yayınlamıyor) -->
+        <repository>
+            <id>libsdisguises-repo</id>
+            <url>https://mvn.lib.co.nz/public/</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -40,8 +45,8 @@
         </dependency>
         <!-- LibsDisguises: Pazar standı NPC'sini kiralayan oyuncunun skin'ine büründürmek için -->
         <dependency>
-            <groupId>com.github.libraryaddict</groupId>
-            <artifactId>LibsDisguises</artifactId>
+            <groupId>me.libraryaddict.disguises</groupId>
+            <artifactId>libsdisguises</artifactId>
             <version>11.0.13</version>
             <scope>provided</scope>
         </dependency>
