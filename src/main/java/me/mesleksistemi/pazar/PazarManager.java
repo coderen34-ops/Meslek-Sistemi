@@ -23,8 +23,6 @@ import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
-import me.libraryaddict.disguise.DisguiseAPI;
-import me.libraryaddict.disguise.disguisetypes.PlayerDisguise;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -647,16 +645,16 @@ public class PazarManager implements Listener, CommandExecutor {
         standGorunumGuncelle(s, v);
     }
 
-    /** NPC'yi kiralayan oyuncunun skin'ine büründürür; stand boşsa disguise'ı kaldırır. */
+    /**
+     * NPC'yi kiralayan oyuncunun skin'ine büründürür; stand boşsa disguise'ı kaldırır.
+     * LibsDisguises API'sine dokunan kod bilerek StandDisguiseYardimcisi sınıfında: bu sınıf
+     * (ve dolayısıyla me.libraryaddict.* sınıfları) sadece LibsDisguises gerçekten etkinken
+     * yükleniyor, yoksa PazarManager'ın kendi sınıf doğrulaması (classloading) etkilenmiyor.
+     */
     private void standGorunumGuncelle(Stand s, Villager v) {
         if (!Bukkit.getPluginManager().isPluginEnabled("LibsDisguises")) return;
-        if (DisguiseAPI.isDisguised(v)) DisguiseAPI.undisguiseToAll(v);
-        if (s.sahip == null) return;
-        String isim = adiniBul(s.sahip);
-        if (isim == null || "?".equals(isim)) return;
-        PlayerDisguise disguise = new PlayerDisguise(isim);
-        disguise.setHideArmorFromSelf(true);
-        DisguiseAPI.disguiseToAll(v, disguise);
+        String isim = s.sahip == null ? null : adiniBul(s.sahip);
+        StandDisguiseYardimcisi.guncelle(v, isim);
     }
 
     private Entity bulEntity(String standId) {
