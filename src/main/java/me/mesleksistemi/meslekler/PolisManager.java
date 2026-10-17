@@ -130,6 +130,10 @@ public class PolisManager implements Listener, CommandExecutor {
     private final java.util.concurrent.ConcurrentHashMap<UUID, BaskinBayginBilgisi> baskindaBayilanlar = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long BASKIN_HASTANE_SURESI_MS = 2 * 60 * 1000L; // baskında bayılan polis için 2 dakika
 
+    // Baskın sırasında bayılan aranan/şüpheliler: ambulans çağıramazlar, sadece polis tarafından
+    // yakalanarak (ya da tamTedavi ile) bu durumdan çıkabilirler.
+    private final HashSet<UUID> baskindaBayginAranan = new HashSet<>();
+
     private final Random random = new Random();
 
     // Dünyası şu an yüklü olmayan kayıtlar: kaydederken silinmesinler diye ham haliyle saklanır
@@ -196,11 +200,32 @@ public class PolisManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.RED + "Sadece emniyet mensupları cop alabilir!");
                 return true;
             }
-            player.getInventory().addItem(createCop(1)); 
+            player.getInventory().addItem(createCop(1));
             player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + "Polis copu verildi.");
             return true;
         }
-        
+
+        // /poliskit: emniyet mensubunun standart ekipmanını (şimdilik cop) verir.
+        // Elinde zaten bir cop varsa tekrar vermez, kaybetmiş/çalınmışsa yenisini verir.
+        if (commandName.equalsIgnoreCase("poliskit")) {
+            String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
+            if (!polisMi(meslek)) {
+                player.sendMessage(ChatColor.RED + "Sadece emniyet mensupları polis kiti alabilir!");
+                return true;
+            }
+            boolean zatenVar = false;
+            for (ItemStack invItem : player.getInventory().getContents()) {
+                if (isCop(invItem)) { zatenVar = true; break; }
+            }
+            if (zatenVar) {
+                player.sendMessage(ChatColor.YELLOW + "[Polis] " + ChatColor.GRAY + "Zaten üzerinde bir cop var, yeniden verilmedi.");
+                return true;
+            }
+            player.getInventory().addItem(createCop(1));
+            player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + "Polis kiti (cop) verildi.");
+            return true;
+        }
+
         if (commandName.equalsIgnoreCase("serbestbirak")) {
             String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
             if (!polisMi(meslek)) return true;
@@ -1136,7 +1161,12 @@ public class PolisManager implements Listener, CommandExecutor {
         } catch (Exception ignored) {
         }
 
-        boolean baskinVar = claim != null && (baskinAktifMi(claim) || claimdeArananVarMi(claim));
+        // Baskın modu sadece sivilin KENDİ claim'inde (evinde) açılır; yabancı bir eve kaçması
+        // o evi de "baskın altında" saymaz.
+        boolean sivilinKendiClaimi = claim != null
+                && claim.getOwnerID() != null
+                && claim.getOwnerID().equals(sivil.getUniqueId());
+        boolean baskinVar = sivilinKendiClaimi && (baskinAktifMi(claim) || claimdeArananVarMi(claim));
         boolean izin = baskinVar || adaletliSebepVarMi(sivil);
 
         if (!izin) {
@@ -1149,14 +1179,59 @@ public class PolisManager implements Listener, CommandExecutor {
             return;
         }
 
-        // Claim içinde GriefPrevention PVP'yi kapatmış olsa bile baskın/meşru sebep varsa vuruşa izin ver.
-        if (event.isCancelled() && claim != null) event.setCancelled(false);
-        if (claim != null) baskinaAktiviteKaydet(claim);
+        // Meşru sebep (aranan/öldürmüş/baygın bırakmış) ya da kendi evinde baskın varsa, GriefPrevention
+        // vuruşu iptal etmiş olsa bile (claim içinde ya da dışında, vahşi doğada da) izin veriyoruz.
+        if (event.isCancelled()) event.setCancelled(false);
+        if (sivilinKendiClaimi) baskinaAktiviteKaydet(claim);
 
         // Aranan sivil, baskında "kendini savunma" sayacını başlatır (5 dk dayanırsa aranmalık düşer).
-        if (claim != null && arananOyuncular.contains(sivil.getName().toLowerCase())) {
+        if (sivilinKendiClaimi && arananOyuncular.contains(sivil.getName().toLowerCase())) {
             savunmaDurumlari.putIfAbsent(sivil.getUniqueId(), new SavunmaDurumu(claim.getID(), System.currentTimeMillis()));
         }
+    }
+
+    private static final double BASKINDA_ISI_OLMAYAN_CEZASI = 10000.0;
+
+    /** BASKINDA İŞİ OLMAYANLAR: Bir baskın sırasında (aranan şüphelinin kendi claim'inde, polis/amir
+     *  ekibi tarafından baskın aktifken), o claim'de trust/erişim hakkı olmayan (dolayısıyla korunma
+     *  hakkı da olmayan) bir sivil ya da baskına dahil olmayan bir polis/amir birine vurursa (polis ↔
+     *  aranan sivil vuruşu burada değil, onPolisSivilPvp'de ele alınıyor): vuruş hasar vermez, vuran
+     *  kişi anında ağır yaralı/baygın düşer ve bankasından devlet kasasına 10.000$ ceza kesilir. */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onBaskindaIsiOlmayanPvp(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
+        Player magdur = (Player) event.getEntity();
+        Player saldiran = saldiranOyuncuBul(event.getDamager());
+        if (saldiran == null || saldiran.getUniqueId().equals(magdur.getUniqueId())) return;
+        if (savastaMi(magdur.getUniqueId()) || savastaMi(saldiran.getUniqueId())) return;
+
+        boolean magdurPolis = polisMi(plugin.oyuncuMeslekCache.getOrDefault(magdur.getUniqueId(), "vatandas"));
+        boolean saldiranPolis = polisMi(plugin.oyuncuMeslekCache.getOrDefault(saldiran.getUniqueId(), "vatandas"));
+        // Polis ↔ sivil çifti zaten onPolisSivilPvp'nin konusu; burada sadece sivil-sivil ya da
+        // polis-polis (ör. baskına dahil olmayan bir memurun araya girmesi) ele alınır.
+        if (magdurPolis != saldiranPolis) return;
+
+        me.ryanhamshire.GriefPrevention.Claim claim;
+        try {
+            claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+                    .dataStore.getClaimAt(magdur.getLocation(), false, null);
+        } catch (Exception e) {
+            claim = null;
+        }
+        if (claim == null || !baskinAktifMi(claim)) return; // sadece aktif bir baskının içinde geçerli
+
+        // Vurana ceza: bu claim'de erişimi (trust'ı) olsa da, aktif baskının tarafı değilse işi yok.
+        event.setCancelled(true);
+        double bakiye = plugin.bankaHesaplari.getOrDefault(saldiran.getUniqueId(), 0.0);
+        double kesinti = Math.min(bakiye, BASKINDA_ISI_OLMAYAN_CEZASI);
+        plugin.bankaHesaplari.put(saldiran.getUniqueId(), bakiye - kesinti);
+        plugin.kasayaParaEkle(kesinti);
+        plugin.veriKaydet();
+
+        if (plugin.saglikManager != null) plugin.saglikManager.anindaAgirYaraliYap(saldiran);
+        saldiran.sendMessage(ChatColor.DARK_RED + "POLİS BASKININDA SİVİLİN İŞİ YOK!");
+        saldiran.sendMessage(ChatColor.RED + "Bir baskına karışıp vuruş yaptığın için anında etkisiz kaldın ve bankandan $"
+                + (long) kesinti + " devlet kasasına aktarıldı.");
     }
 
     private boolean baskinAktifMi(long claimId) {
@@ -1179,14 +1254,25 @@ public class PolisManager implements Listener, CommandExecutor {
      *  sırtına alınıp hastane NPC'sinin bulunduğu claime fiziken götürülerek kurtarılabilir. */
     public void oyuncuBaygindaOldu(Player player) {
         String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
-        if (!polisMi(meslek)) return;
         try {
             me.ryanhamshire.GriefPrevention.Claim claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
                     .dataStore.getClaimAt(player.getLocation(), false, null);
             if (claim == null || !baskinAktifMi(claim)) return;
-            baskindaBayilanlar.put(player.getUniqueId(), new BaskinBayginBilgisi(claim.getID()));
-            player.sendMessage(ChatColor.DARK_RED + "Baskın sırasında bayıldın! Normal tedavi yöntemleri (bandaj/adrenalin/doktor/ambulans) senin üzerinde işe yaramaz.");
-            player.sendMessage(ChatColor.YELLOW + "Bir meslektaşının seni sırtına alıp hastaneye götürmesini beklemelisin, ya da baskın bitene kadar dayanmalısın.");
+
+            if (polisMi(meslek)) {
+                baskindaBayilanlar.put(player.getUniqueId(), new BaskinBayginBilgisi(claim.getID()));
+                player.sendMessage(ChatColor.DARK_RED + "Baskın sırasında bayıldın! Normal tedavi yöntemleri (bandaj/adrenalin/doktor/ambulans) senin üzerinde işe yaramaz.");
+                player.sendMessage(ChatColor.YELLOW + "Bir meslektaşının seni sırtına alıp hastaneye götürmesini beklemelisin, ya da baskın bitene kadar dayanmalısın.");
+                return;
+            }
+
+            // Aranan şüpheli kendi evinde baskın sırasında bayılırsa, ambulansla kaçamasın:
+            // sadece polis tarafından yakalanarak (copla) bu durumdan çıkabilir.
+            boolean kendiClaimi = claim.getOwnerID() != null && claim.getOwnerID().equals(player.getUniqueId());
+            if (kendiClaimi && arananOyuncular.contains(player.getName().toLowerCase())) {
+                baskindaBayginAranan.add(player.getUniqueId());
+                player.sendMessage(ChatColor.DARK_RED + "Baskın sırasında bayıldın! Aranan biri olarak ambulans çağıramazsın, sadece polis tarafından yakalanabilirsin.");
+            }
         } catch (Exception ignored) {
         }
     }
@@ -1197,9 +1283,16 @@ public class PolisManager implements Listener, CommandExecutor {
         return baskindaBayilanlar.containsKey(uuid);
     }
 
+    /** Bu oyuncu şu an, kendi evindeki bir baskın sırasında bayılmış aranan bir şüpheli mi?
+     *  SaglikManager bunu /ambulanscagir'i engellemek için kullanır. */
+    public boolean arananBaskindaBayginMi(UUID uuid) {
+        return baskindaBayginAranan.contains(uuid);
+    }
+
     /** SaglikManager.tamTedavi her çağrıldığında (ör. hapse atılma, adrenalin vb.) kaydı da temizler. */
     public void baskinBayginKaydiniSil(UUID uuid) {
         baskindaBayilanlar.remove(uuid);
+        baskindaBayginAranan.remove(uuid);
     }
 
     /** 5 saniyede bir: aranan sivillerin 5 dakikalık "kendini savunma" süresini ve baskında bayılan

@@ -126,6 +126,9 @@ commands:
   copal:
     description: Emniyet mensuplari icin ayarlanabilir polis copu verir.
     usage: /copal
+  poliskit:
+    description: Emniyet mensubunun standart ekipmanini (polis copu) verir.
+    usage: /poliskit
   serbestbirak:
     description: Nezaretteki bir mahkumu suresinden once serbest birakir.
     usage: /serbestbirak <oyuncu>

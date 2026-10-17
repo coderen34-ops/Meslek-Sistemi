@@ -266,6 +266,10 @@ public class SaglikManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.RED + "Baskın sırasında bayıldığın için ambulans çağıramazsın! Bir meslektaşının seni sırtına alıp hastaneye götürmesini beklemelisin.");
                 return true;
             }
+            if (plugin.polisManager != null && plugin.polisManager.arananBaskindaBayginMi(player.getUniqueId())) {
+                player.sendMessage(ChatColor.RED + "Aranan bir şüpheli olarak, kendi evindeki baskın sırasında bayıldığın için ambulans çağıramazsın! Sadece polis tarafından yakalanabilirsin.");
+                return true;
+            }
             boolean doktorVar = doktorOnlineMi();
             double ucret = doktorVar ? cfg("ambulans-ucret-doktorlu", 1250.0) : cfg("ambulans-ucret-doktorsuz", 1000.0);
             double bakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
@@ -640,6 +644,13 @@ public class SaglikManager implements Listener, CommandExecutor {
                 }
             }
         }.runTaskTimer(plugin, 20L, 20L);
+    }
+
+    /** Dışarıdan (ör. PolisManager'ın baskında-işi-olmayan cezası) bir oyuncuyu doğrudan,
+     *  normal "ölümcül vuruş" akışından geçmeden ağır yaralı/baygın durumuna düşürür. */
+    public void anindaAgirYaraliYap(Player player) {
+        if (downedPlayers.containsKey(player.getUniqueId())) return; // zaten ağır yaralı
+        applyDownedState(player, 1200);
     }
 
     private void applyDownedState(Player player, int time) {
