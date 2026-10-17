@@ -106,6 +106,10 @@ public class MeslekSistemi extends JavaPlugin {
     private boolean kapaniyor = false;
     // Kapanışta tüm sistemler veriyi belleğe yazar, dosya en sonda bir kez yazılır
     private boolean kayitlarBiriktiriliyor = false;
+    // onEnable() veriYukle()'ye ulaşamadan (örn. bir entegrasyon kurulurken) çökerse bellek boş kalır;
+    // bu durumda onDisable()'ın "diske yaz" adımları o boş belleği kalıcı veri üzerine yazıp SİLEBİLİR.
+    // Bu yüzden veri gerçekten yüklenmeden onDisable() hiçbir şey kaydetmez (aşağıdaki kullanım yerine bak).
+    private boolean veriYuklendi = false;
 
     @Override
     public void onEnable() {
@@ -292,7 +296,7 @@ public class MeslekSistemi extends JavaPlugin {
     }
 
     @Override
-    public void onDisable() { 
+    public void onDisable() {
         if (ohalBar != null) ohalBar.removeAll();
 
         // Bekleyen arka plan yazımları bitsin ki eski içerik son kaydın üzerine yazılmasın
@@ -305,7 +309,17 @@ public class MeslekSistemi extends JavaPlugin {
                 Thread.currentThread().interrupt();
             }
         }
-        
+
+        if (!veriYuklendi) {
+            // onEnable() veriYukle()'ye ulaşamadan çöktü (örn. bir entegrasyon hata fırlattı):
+            // bellekteki haritalar (banka, meslek_cache, vb.) hiç doldurulmadı. Yine de kaydetmeye
+            // kalkarsak diskteki gerçek veriyi bu boş bellekle silmiş oluruz. Bu yüzden HİÇBİR ŞEY
+            // yazmadan çıkıyoruz; disk üzerindeki en son geçerli veri olduğu gibi kalır.
+            getLogger().severe("[MeslekSistemi] Veri hiç yüklenmeden kapanıyor (onEnable çökmüş olabilir); " +
+                    "veri kaybını önlemek için kayıt adımı ATLANDI. Lütfen loglardaki onEnable hatasını kontrol edin.");
+            return;
+        }
+
         // YENİ: Kapanırken hastalıkları ve stokları kalıcı olarak kaydeder
         kayitlarBiriktiriliyor = true;
         if (this.saglikManager != null) this.saglikManager.veriKaydetSaglik();
@@ -871,8 +885,10 @@ public class MeslekSistemi extends JavaPlugin {
             }
         }
         
-        if (this.polisManager != null) this.polisManager.veriYukle(); 
+        if (this.polisManager != null) this.polisManager.veriYukle();
         if (this.adliyeManager != null) this.adliyeManager.veriYukleAdliye();
+
+        veriYuklendi = true;
     }
 
     public static class Basvuru {
