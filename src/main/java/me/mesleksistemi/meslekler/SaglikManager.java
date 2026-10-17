@@ -59,8 +59,11 @@ public class SaglikManager implements Listener, CommandExecutor {
 
     private final HashMap<UUID, Boolean> brokenLegs = new HashMap<>();
     private final HashMap<UUID, Boolean> bleedingPlayers = new HashMap<>();
-    private final HashMap<UUID, Integer> downedPlayers = new HashMap<>(); 
-    private final HashMap<String, UUID> ambulansCagrilari = new HashMap<>(); 
+    private final HashMap<UUID, Integer> downedPlayers = new HashMap<>();
+    private final HashMap<String, UUID> ambulansCagrilari = new HashMap<>();
+    // Doktor yokken ambulansla hastaneye getirilenlerin pasif iyileşme süresi (kalan saniye)
+    private final HashMap<UUID, Integer> ambulansHastaneSuresi = new HashMap<>();
+    private static final int AMBULANS_PASIF_IYILESME_SANIYE = 180; // 3 dakika
     
     private final List<Location> hastaneYataklari = new ArrayList<>();
     // Dünyası yüklü olmayan yatak kayıtları: kaydederken silinmesinler diye ham haliyle tutulur
@@ -167,6 +170,7 @@ public class SaglikManager implements Listener, CommandExecutor {
 
         veriYukleSaglik();
         startBleedingTask();
+        ambulansHastaneGorevi();
         startKanParcacikTask();
         // Dünyalar daha yeni yüklenmiş olabileceğinden hastane NPC taraması bir tık geciktirilir.
         Bukkit.getScheduler().runTaskLater(plugin, this::hastaneNpcleriniTara, 20L);
@@ -270,7 +274,7 @@ public class SaglikManager implements Listener, CommandExecutor {
                 return true;
             }
             if (!doktorVar) {
-                // Doktor yok: ambulans hastayı doğrudan hastaneye götürür, tamamen iyileştirir
+                // Doktor yok: ambulans hastayı hastaneye götürür, 3 dakikalık pasif iyileşme süreci başlar (aşağıda)
                 if (plugin.hapisteMi(player.getUniqueId())) {
                     player.sendMessage(ChatColor.RED + "Hapisteyken ambulans çağıramazsın.");
                     return true;
@@ -286,8 +290,13 @@ public class SaglikManager implements Listener, CommandExecutor {
                 if (!hastaneYataklari.isEmpty()) {
                     player.teleport(hastaneYataklari.get(random.nextInt(hastaneYataklari.size())));
                 }
-                tamTedavi(player);
-                player.sendMessage(ChatColor.GREEN + "Ambulans seni hastaneye getirdi ve tamamen tedavi edildin. Bankandan $" + (long) ucret + " kesildi.");
+                // Doktor yok: ambulans sadece hastaneye getirir, kendiliğinden iyileşme 3 dakika sürer.
+                // Bu sırada kan kaybı sayacını (20 dakikalık ölüm geri sayımını) donduruyoruz ki
+                // hasta beklerken ölmesin; gerçek iyileşme ambulansHastaneGorevi() döngüsünde olur.
+                downedPlayers.put(player.getUniqueId(), Integer.MAX_VALUE / 2);
+                ambulansHastaneSuresi.put(player.getUniqueId(), AMBULANS_PASIF_IYILESME_SANIYE);
+                player.sendMessage(ChatColor.GREEN + "Ambulans seni hastaneye getirdi. Doktor olmadığı için kendiliğinden iyileşme süreci başladı ("
+                        + (AMBULANS_PASIF_IYILESME_SANIYE / 60) + " dakika). Bankandan $" + (long) ucret + " kesildi.");
                 return true;
             }
             for (Player p : Bukkit.getOnlinePlayers()) {
@@ -603,6 +612,34 @@ public class SaglikManager implements Listener, CommandExecutor {
                 }
             }
         }.runTaskTimer(plugin, 100L, 100L); 
+    }
+
+    /** Doktor olmadan ambulansla hastaneye getirilenlerin 3 dakikalık pasif iyileşme sürecini işler. */
+    private void ambulansHastaneGorevi() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (java.util.Iterator<java.util.Map.Entry<UUID, Integer>> it = ambulansHastaneSuresi.entrySet().iterator(); it.hasNext(); ) {
+                    java.util.Map.Entry<UUID, Integer> giris = it.next();
+                    UUID uuid = giris.getKey();
+                    Player p = Bukkit.getPlayer(uuid);
+                    if (p == null || !p.isOnline()) continue; // çevrimdışı: kayıt kalsın, girince devam etsin
+                    if (!downedPlayers.containsKey(uuid)) { it.remove(); continue; } // başka şekilde tedavi edilmiş
+
+                    int kalan = giris.getValue() - 1;
+                    if (kalan <= 0) {
+                        tamTedavi(p);
+                        p.sendMessage(ChatColor.GREEN + "Hastanede kendiliğinden iyileştin!");
+                        it.remove();
+                    } else {
+                        giris.setValue(kalan);
+                        if (kalan % 60 == 0) {
+                            p.sendMessage(ChatColor.YELLOW + "İyileşmene " + (kalan / 60) + " dakika kaldı...");
+                        }
+                    }
+                }
+            }
+        }.runTaskTimer(plugin, 20L, 20L);
     }
 
     private void applyDownedState(Player player, int time) {
@@ -993,6 +1030,11 @@ public class SaglikManager implements Listener, CommandExecutor {
             plugin.getConfig().set("saglik.downed." + u.toString(), downedPlayers.get(u));
         }
 
+        plugin.getConfig().set("saglik.ambulans_hastane", null);
+        for (UUID u : ambulansHastaneSuresi.keySet()) {
+            plugin.getConfig().set("saglik.ambulans_hastane." + u.toString(), ambulansHastaneSuresi.get(u));
+        }
+
         plugin.saveConfig();
     }
 
@@ -1025,6 +1067,11 @@ public class SaglikManager implements Listener, CommandExecutor {
         if (plugin.getConfig().contains("saglik.downed")) {
             for (String s : plugin.getConfig().getConfigurationSection("saglik.downed").getKeys(false)) {
                 downedPlayers.put(UUID.fromString(s), plugin.getConfig().getInt("saglik.downed." + s));
+            }
+        }
+        if (plugin.getConfig().contains("saglik.ambulans_hastane")) {
+            for (String s : plugin.getConfig().getConfigurationSection("saglik.ambulans_hastane").getKeys(false)) {
+                ambulansHastaneSuresi.put(UUID.fromString(s), plugin.getConfig().getInt("saglik.ambulans_hastane." + s));
             }
         }
     }
