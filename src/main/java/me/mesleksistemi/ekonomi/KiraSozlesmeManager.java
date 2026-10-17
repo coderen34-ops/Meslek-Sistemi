@@ -57,6 +57,9 @@ public class KiraSozlesmeManager implements Listener, CommandExecutor {
         final UUID hazirlayan;
         final double fiyat;
         boolean imzali;
+        // İmzalı kopya kiracıya teslim edildi mi? Oyuncu kitabı sandığa/ender sandığına saklayıp
+        // çıkış-giriş yaparak sonsuz kopya almasın diye envanter kontrolü yerine bu bayrak kullanılır.
+        boolean teslimEdildi;
 
         Sozlesme(String id, String evId, UUID kiraci, UUID hazirlayan, double fiyat) {
             this.id = id;
@@ -272,6 +275,7 @@ public class KiraSozlesmeManager implements Listener, CommandExecutor {
     // 3) KİRACI: [KABUL ET] / [REDDET]
     // ------------------------------------------------------------------
     private void kiraciyaTeslimEt(Player kiraci, Sozlesme s, KiralikEv ev) {
+        s.teslimEdildi = true;
         eleVer(kiraci, sozlesmeKitabi(s, ev, true));
         kiraci.showTitle(Title.title(
                 Component.text("Kira Sözleşmesi", NamedTextColor.GOLD, TextDecoration.BOLD),
@@ -385,7 +389,9 @@ public class KiraSozlesmeManager implements Listener, CommandExecutor {
             if (!p.isOnline()) return;
 
             for (Sozlesme s : sozlesmeler.values()) {
-                if (!s.imzali || !s.kiraci.equals(p.getUniqueId()) || kitapVarMi(p, "sozlesme:" + s.id)) continue;
+                // Envanter kontrolü yerine 'teslimEdildi' bayrağı kullanılır: kitap sandığa/ender sandığına
+                // saklanıp çıkış-giriş yapılarak sonsuz kopya alınmasın diye (bkz. dupe raporu).
+                if (!s.imzali || s.teslimEdildi || !s.kiraci.equals(p.getUniqueId())) continue;
                 KiralikEv ev = kira.evler.get(s.evId);
                 if (ev != null && ev.kiraci == null) kiraciyaTeslimEt(p, s, ev);
             }

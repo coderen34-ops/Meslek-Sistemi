@@ -59,6 +59,9 @@ public class SozlesmeManager implements Listener, CommandExecutor {
         String detay;
         String durum; // TEKLIF, BEKLIYOR, ONAY_BEKLIYOR
         String tip;
+        // Mevcut 'durum' için kitap teslim edildi mi? Oyuncu kitabı sandığa/ender sandığına saklayıp
+        // çıkış-giriş yaparak sonsuz kopya almasın diye envanter kontrolü yerine bu bayrak kullanılır.
+        boolean bildirildi = false;
     }
 
     @Override
@@ -102,6 +105,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
             if (!sozlesme.isciUUID.equals(player.getUniqueId()) || !sozlesme.durum.equals("TEKLIF")) return true;
 
             sozlesme.durum = "BEKLIYOR";
+            sozlesme.bildirildi = true; // İşçi komutu kendi çalıştırdı, zaten çevrimiçi
             veriKaydet();
             kitaplariSil(player, sozlesmeID);
             sendSozlesmeKitabi(player, sozlesmeID, sozlesme);
@@ -149,6 +153,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
             if (!sozlesme.isciUUID.equals(player.getUniqueId()) || !sozlesme.durum.equals("BEKLIYOR")) return true;
 
             sozlesme.durum = "ONAY_BEKLIYOR";
+            sozlesme.bildirildi = false; // Yeni durum için işverene henüz kitap verilmedi
             veriKaydet();
             player.sendMessage(ChatColor.GREEN + "İş bitirme bildiriminiz işverene gönderildi!");
             kitaplariSil(player, sozlesmeID);
@@ -156,6 +161,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
             Player isveren = Bukkit.getPlayer(sozlesme.isverenUUID);
             if (isveren != null && isveren.isOnline()) {
                 sendFaturaKitabi(isveren, sozlesmeID, sozlesme);
+                sozlesme.bildirildi = true;
                 isveren.sendMessage(ChatColor.GOLD + "DİKKAT: " + ChatColor.WHITE + sozlesme.isciAdi + " işi bitirdiğini bildirdi. Fatura Raporu eklendi.");
             } else {
                 player.sendMessage(ChatColor.YELLOW + "İşveren şu an çevrimdışı. Girdiğinde faturayı görecek.");
@@ -421,6 +427,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                 veriKaydet();
 
                 sendTeklifKitabi(isci, sozlesmeID, aktif);
+                aktif.bildirildi = true; // İşçinin çevrimiçi olduğu az önce doğrulandı (yukarıda)
 
                 taslaklar.remove(player.getUniqueId());
                 player.sendMessage(ChatColor.GREEN + "Teklif başarıyla oluşturuldu ve " + aktif.isciAdi + " adlı oyuncuya gönderildi. Onayı bekleniyor...");
@@ -434,20 +441,30 @@ public class SozlesmeManager implements Listener, CommandExecutor {
         Player player = event.getPlayer();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!player.isOnline()) return;
+            boolean degisti = false;
             for (Map.Entry<String, AktifSozlesme> giris : aktifSozlesmeler.entrySet()) {
                 String id = giris.getKey();
                 AktifSozlesme s = giris.getValue();
-                if (kitapVarMi(player, id)) continue;
+                // Envanter kontrolü yerine 'bildirildi' bayrağı kullanılır: kitap sandığa/ender sandığına
+                // saklanıp çıkış-giriş yapılarak sonsuz kopya alınmasın diye (bkz. dupe raporu).
+                if (s.bildirildi) continue;
 
                 if (s.durum.equals("ONAY_BEKLIYOR") && s.isverenUUID.equals(player.getUniqueId())) {
                     sendFaturaKitabi(player, id, s);
+                    s.bildirildi = true;
+                    degisti = true;
                     player.sendMessage(ChatColor.GOLD + "DİKKAT: " + ChatColor.WHITE + s.isciAdi + " siz yokken işi bitirdiğini bildirdi. Fatura Raporu eklendi.");
                 } else if (s.durum.equals("TEKLIF") && s.isciUUID.equals(player.getUniqueId())) {
                     sendTeklifKitabi(player, id, s);
+                    s.bildirildi = true;
+                    degisti = true;
                 } else if (s.durum.equals("BEKLIYOR") && s.isciUUID.equals(player.getUniqueId())) {
                     sendSozlesmeKitabi(player, id, s);
+                    s.bildirildi = true;
+                    degisti = true;
                 }
             }
+            if (degisti) veriKaydet();
         }, 40L);
     }
 
@@ -603,6 +620,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
             plugin.getConfig().set(yol + ".detay", s.detay);
             plugin.getConfig().set(yol + ".durum", s.durum);
             plugin.getConfig().set(yol + ".tip", s.tip);
+            plugin.getConfig().set(yol + ".bildirildi", s.bildirildi);
         }
         plugin.saveConfig();
     }
@@ -622,6 +640,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                 s.detay = c.getString("detay", "");
                 s.durum = c.getString("durum", "TEKLIF");
                 s.tip = c.getString("tip", "NORMAL");
+                s.bildirildi = c.getBoolean("bildirildi", false);
                 if (!Double.isFinite(s.tutar) || s.tutar <= 0) continue;
                 aktifSozlesmeler.put(id, s);
             } catch (Exception e) {
