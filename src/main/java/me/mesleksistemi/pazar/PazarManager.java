@@ -168,7 +168,7 @@ public class PazarManager implements Listener, CommandExecutor {
             silinen++;
         }
         veriKaydetPazar();
-        p.sendMessage(ChatColor.GREEN + silinen + " adet pazar standı silindi.");
+        p.sendMessage(ChatColor.GREEN + "" + silinen + " adet pazar standı silindi.");
     }
 
     // ------------------------------------------------------------------ ETKİLEŞİM: NPC'ye tıklama
@@ -221,7 +221,7 @@ public class PazarManager implements Listener, CommandExecutor {
             mevcut.stok += miktar;
             p.getInventory().setItemInMainHand(null);
             veriKaydetPazar();
-            p.sendMessage(ChatColor.GREEN + miktar + " adet " + isimDuzelt(mat) + " stoğa eklendi. Yeni stok: "
+            p.sendMessage(ChatColor.GREEN + "" + miktar + " adet " + isimDuzelt(mat) + " stoğa eklendi. Yeni stok: "
                     + mevcut.stok + " §7(Fiyat: $" + fmt(mevcut.fiyat) + "/adet)");
             p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
             return;
@@ -488,7 +488,7 @@ public class PazarManager implements Listener, CommandExecutor {
         plugin.veriKaydet();
         veriKaydetPazar();
 
-        alici.sendMessage(ChatColor.GREEN + adet + " adet " + isimDuzelt(mat) + " satın alındı! $" + fmt(toplam) + " ödendi.");
+        alici.sendMessage(ChatColor.GREEN + "" + adet + " adet " + isimDuzelt(mat) + " satın alındı! $" + fmt(toplam) + " ödendi.");
         alici.playSound(alici.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
         plugin.ekonomiLog("pazar-satis", alici.getName(), adet + "x " + mat.name() + " | stand: " + s.id + " | sahip: " + adiniBul(s.sahip)
                 + " | toplam: $" + fmt(toplam) + " | vergi: $" + fmt(vergi));
