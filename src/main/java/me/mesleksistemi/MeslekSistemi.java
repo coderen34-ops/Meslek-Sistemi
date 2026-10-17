@@ -41,6 +41,7 @@ import me.mesleksistemi.meslekler.SaglikManager;
 import me.mesleksistemi.ekonomi.KiraManager;
 import me.mesleksistemi.ekonomi.ToptanciManager;
 import me.mesleksistemi.ekonomi.TicaretManager;
+import me.mesleksistemi.pazar.PazarManager;
 import me.mesleksistemi.sistem.EhliyetManager;
 import me.mesleksistemi.sistem.KimlikListener;
 import me.mesleksistemi.sistem.MenuManager;
@@ -96,6 +97,7 @@ public class MeslekSistemi extends JavaPlugin {
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
     public KiraManager kiraManager;
+    public PazarManager pazarManager;
     private SecimManager secimManager;
 
     // Config kaydı: istekler birleştirilir, dosya arka planda tek thread ile sırayla yazılır
@@ -263,6 +265,11 @@ public class MeslekSistemi extends JavaPlugin {
         if (getCommand("kirasozlesme") != null) getCommand("kirasozlesme").setExecutor(this.kiraManager.sozlesmeManager);
         if (getCommand("kira") != null) getCommand("kira").setExecutor(this.kiraManager.sozlesmeManager);
 
+        // ENTEGRASYON 10: PazarManager (Oyuncu Pazarları - kiralanabilir NPC standları)
+        this.pazarManager = new PazarManager(this);
+        getServer().getPluginManager().registerEvents(this.pazarManager, this);
+        if (getCommand("pazarnpc") != null) getCommand("pazarnpc").setExecutor(this.pazarManager);
+
         veriYukle();
         ayarlariHazirla();
 
@@ -303,6 +310,7 @@ public class MeslekSistemi extends JavaPlugin {
         kayitlarBiriktiriliyor = true;
         if (this.saglikManager != null) this.saglikManager.veriKaydetSaglik();
         if (this.toptanciManager != null) this.toptanciManager.veriKaydetStok();
+        if (this.pazarManager != null) this.pazarManager.veriKaydetPazar();
         if (this.secimManager != null) this.secimManager.onDisable();
         if (this.etkilesimManager != null) this.etkilesimManager.onDisable();
         veriKaydet();
@@ -390,13 +398,16 @@ public class MeslekSistemi extends JavaPlugin {
     public static final String AYAR_SOZLESME_UST_LIMIT = "belediye-sozlesme-ust-limit";
     public static final String AYAR_SOZLESME_BEKLEME = "belediye-sozlesme-bekleme-dakika";
     public static final String AYAR_TOPTANCI_GUNLUK = "toptanci-gunluk-limit";
+    public static final String AYAR_PAZAR_KIRA = "pazar-kiralama-fiyati";
+    public static final String AYAR_PAZAR_VERGI = "pazar-vergi-yuzde";
 
     private void ayarlariHazirla() {
         boolean degisti = false;
         Object[][] varsayilanlar = {
                 {AYAR_BASVURU_PRIM, 30.0}, {AYAR_BASVURU_PRIM_GUNLUK, 20},
                 {AYAR_SOZLESME_UST_LIMIT, 10000.0}, {AYAR_SOZLESME_BEKLEME, 60},
-                {AYAR_TOPTANCI_GUNLUK, 20000.0}, {"secim-bypass-cevrimdisi-dakika", 60}};
+                {AYAR_TOPTANCI_GUNLUK, 20000.0}, {"secim-bypass-cevrimdisi-dakika", 60},
+                {AYAR_PAZAR_KIRA, 20000.0}, {AYAR_PAZAR_VERGI, 10.0}};
         for (Object[] v : varsayilanlar) {
             if (!getConfig().contains((String) v[0])) { getConfig().set((String) v[0], v[1]); degisti = true; }
         }
@@ -426,6 +437,13 @@ public class MeslekSistemi extends JavaPlugin {
     /** Bir oyuncunun toptancıya günde satabileceği toplam tutar (0 = sınırsız). */
     public double toptanciGunlukLimit() { return ayarSayi(AYAR_TOPTANCI_GUNLUK, 20000.0); }
     public long belediyeSozlesmeBeklemeMs() { return (long) ayarSayi(AYAR_SOZLESME_BEKLEME, 60) * 60_000L; }
+    /** Pazar standı kiralama ücreti (belediye kasasına yatar). */
+    public double pazarKiralamaFiyati() { return ayarSayi(AYAR_PAZAR_KIRA, 20000.0); }
+    /** Pazar standındaki her satıştan belediyeye giden vergi yüzdesi (0-100). */
+    public double pazarVergiYuzde() {
+        double v = ayarSayi(AYAR_PAZAR_VERGI, 10.0);
+        return Math.min(v, 100.0);
+    }
 
     // ------------------------------------------------------------------
     // EKONOMİ LOG'U: plugins/MeslekSistemi/loglar/ekonomi-YYYY-AA.log

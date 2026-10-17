@@ -203,6 +203,14 @@ commands:
     permission: ticaret.admin
 
   # ==========================================
+  # OYUNCU PAZARLARI (KİRALANABİLİR STAND NPC'LERİ)
+  # ==========================================
+  pazarnpc:
+    description: Koy pazarindaki kiralanabilir stand NPC'sini kurar veya siler.
+    usage: /pazarnpc <kur|sil>
+    permission: pazar.admin
+
+  # ==========================================
   # SİVİL VE GENEL KOMUTLAR
   # ==========================================
   rehber:
@@ -306,6 +314,12 @@ permissions:
   ticaret.admin:
     description: Toptanci (Madenci/Oduncu) NPC'lerini kurma ve pazar yonetimi yetkisi
     default: op
+  pazar.admin:
+    description: Oyuncu Pazarlari stand NPC'lerini kurma ve silme yetkisi
+    default: op
+  pazar.kullan:
+    description: Pazar standi kiralama, stand isletme ve standlardan alisveris yapma yetkisi
+    default: true
   kira.admin:
     description: Evleri kiralik isaretleme ve emlakci kurma yetkisi
     default: op
