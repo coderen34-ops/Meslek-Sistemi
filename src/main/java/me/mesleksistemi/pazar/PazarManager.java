@@ -47,17 +47,25 @@ import java.util.UUID;
  * - Boş standa sağ tıklayan oyuncu kiralama ücretini (varsayılan $20.000, belediye kasasına
  *   gider) ödeyip standın sahibi olabilir; NPC'nin adı o anda kiralayan oyuncuya özel değişir.
  * - Sahip, elindeki eşya yığınını standa gizlice (shift+sağ tık) vererek satışa çıkarır;
- *   ilk kez satışa çıkan eşyanın birim fiyatı sohbetten sorulur, sonraki eklemelerde stok
- *   olduğu gibi artar. Yönetim menüsünden (kendi standına normal sağ tık) ilan kaldırılabilir
- *   veya stand tamamen bırakılabilir.
+ *   ilk kez satışa çıkan eşyanın birim fiyatı sohbetten sorulur, sonraki eklemelerde (TAMAMEN
+ *   aynı eşya - tip + büyü/iksir/isim vb. - ise) stok olduğu gibi artar. Yönetim menüsünden
+ *   (kendi standına normal sağ tık) ilan kaldırılabilir veya stand tamamen bırakılabilir.
  * - Başka bir oyuncu standa sağ tıklarsa önce eşya kategorisi, sonra o kategorideki ilanları
- *   görür; satın alınan her üründen belediyeye %10 (ayarlanabilir) vergi gider, kalanı
- *   doğrudan stand sahibinin banka hesabına yatar.
+ *   görür (gerekirse birden fazla sayfa halinde); satın alınan her üründen belediyeye %10
+ *   (ayarlanabilir) vergi gider, kalanı doğrudan stand sahibinin banka hesabına yatar.
+ *
+ * ÖNEMLİ: bir ilan artık sadece "Material" ile değil, satışa çıkarılan eşyanın TAMAMI
+ * (ItemStack - büyü, iksir efekti, özel isim, NBT vb. dahil) ile tutulur. Bu yüzden her
+ * ilanın kendine özgü bir kimliği (listingId) vardır; aynı Material'dan ama farklı
+ * büyülü/iksirli iki eşya AYRI ilan olarak durur, biri verilirken diğerininki bozulmaz.
  */
 public class PazarManager implements Listener, CommandExecutor {
 
     public static final String YETKI_ADMIN = "pazar.admin";
     public static final String YETKI_KULLAN = "pazar.kullan";
+
+    /** Liste GUI'sinde bir sayfada gösterilecek azami ürün sayısı (sabit çift sandık: 54 slot - alt sıra navigasyon). */
+    private static final int SAYFA_BASINA_URUN = 45;
 
     private final MeslekSistemi plugin;
     private final NamespacedKey standKey;
@@ -78,24 +86,25 @@ public class PazarManager implements Listener, CommandExecutor {
     private static class Stand {
         final String id;
         UUID sahip; // null = boş, kiralanabilir
-        final Map<Material, Listing> listings = new LinkedHashMap<>();
+        final Map<String, Listing> listings = new LinkedHashMap<>(); // key: listingId (UUID string)
 
         Stand(String id) { this.id = id; }
     }
 
     private static class Listing {
+        ItemStack ornek; // amount=1, TAM meta (büyü/iksir/isim/NBT dahil) ile
         double fiyat;
         int stok;
     }
 
     private static class PendingListing {
         final String standId;
-        final Material material;
+        final ItemStack ornek; // amount=1, TAM meta ile (fiyat sorulurken eşyanın kendisini kaybetmemek için)
         final int miktar;
 
-        PendingListing(String standId, Material material, int miktar) {
+        PendingListing(String standId, ItemStack ornek, int miktar) {
             this.standId = standId;
-            this.material = material;
+            this.ornek = ornek;
             this.miktar = miktar;
         }
     }
@@ -104,7 +113,8 @@ public class PazarManager implements Listener, CommandExecutor {
         String tip; // KIRALA, YONETIM, KATEGORI, LISTE
         String standId;
         Kategori kategori; // sadece LISTE
-        final Map<Integer, Material> slotMateryal = new HashMap<>();
+        int sayfa; // sadece LISTE (0 tabanlı)
+        final Map<Integer, String> slotListingId = new HashMap<>();
         final Map<Integer, Kategori> slotKategori = new HashMap<>();
         int geriSlot = -1;
     }
@@ -214,23 +224,37 @@ public class PazarManager implements Listener, CommandExecutor {
 
     // ------------------------------------------------------------------ İLAN EKLEME (shift + sağ tık)
     private void ilanEkle(Player p, Stand s, String standId, ItemStack elindeki) {
-        Material mat = elindeki.getType();
+        // Oyuncunun zaten cevap bekleyen bir ilanı varsa (fiyat sohbete henüz yazılmadıysa) ikinci
+        // bir eşyayı kabul ETMİYORUZ: eskiden burada bekleyenIlan sessizce ÜZERİNE YAZILIYORDU ve
+        // ilk eşya (zaten elden alınmıştı) hiçbir yere geri verilmeden kayboluyordu. Artık oyuncuyu
+        // uyarıp önce ilk ilanı bitirmesini (fiyat yaz ya da 'iptal') istiyoruz, veri kaybı olmasın.
+        if (bekleyenIlan.containsKey(p.getUniqueId())) {
+            p.sendMessage(ChatColor.RED + "Önce elindeki ürün için fiyat yaz (ya da 'iptal' yaz), sonra yeni bir ürün ekleyebilirsin.");
+            return;
+        }
+
         int miktar = elindeki.getAmount();
-        Listing mevcut = s.listings.get(mat);
+        ItemStack ornekAday = elindeki.clone();
+        ornekAday.setAmount(1);
+
+        Listing mevcut = null;
+        for (Listing l : s.listings.values()) {
+            if (l.ornek.isSimilar(ornekAday)) { mevcut = l; break; }
+        }
 
         if (mevcut != null) {
             mevcut.stok += miktar;
             p.getInventory().setItemInMainHand(null);
             veriKaydetPazar();
-            p.sendMessage(ChatColor.GREEN + "" + miktar + " adet " + isimDuzelt(mat) + " stoğa eklendi. Yeni stok: "
+            p.sendMessage(ChatColor.GREEN + "" + miktar + " adet " + esyaGorunenIsim(mevcut.ornek) + " stoğa eklendi. Yeni stok: "
                     + mevcut.stok + " §7(Fiyat: $" + fmt(mevcut.fiyat) + "/adet)");
             p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
             return;
         }
 
         p.getInventory().setItemInMainHand(null);
-        bekleyenIlan.put(p.getUniqueId(), new PendingListing(standId, mat, miktar));
-        p.sendMessage(ChatColor.GOLD + isimDuzelt(mat) + ChatColor.YELLOW + " için birim fiyatı (adet başına $) sohbete yazın. İptal için 'iptal' yazın.");
+        bekleyenIlan.put(p.getUniqueId(), new PendingListing(standId, ornekAday, miktar));
+        p.sendMessage(ChatColor.GOLD + esyaGorunenIsim(ornekAday) + ChatColor.YELLOW + " için birim fiyatı (adet başına $) sohbete yazın. İptal için 'iptal' yazın.");
     }
 
     @EventHandler
@@ -246,7 +270,7 @@ public class PazarManager implements Listener, CommandExecutor {
 
             if (mesaj.equalsIgnoreCase("iptal")) {
                 bekleyenIlan.remove(p.getUniqueId());
-                geriVer(p, pl.material, pl.miktar);
+                geriVer(p, pl.ornek, pl.miktar);
                 p.sendMessage(ChatColor.YELLOW + "İptal edildi, eşyalar geri verildi.");
                 return;
             }
@@ -263,17 +287,18 @@ public class PazarManager implements Listener, CommandExecutor {
             bekleyenIlan.remove(p.getUniqueId());
             Stand s = standlar.get(pl.standId);
             if (s == null || !p.getUniqueId().equals(s.sahip)) {
-                geriVer(p, pl.material, pl.miktar);
+                geriVer(p, pl.ornek, pl.miktar);
                 p.sendMessage(ChatColor.RED + "Stand artık sizin değil, eşyalar geri verildi.");
                 return;
             }
 
             Listing l = new Listing();
+            l.ornek = pl.ornek;
             l.fiyat = fiyat;
             l.stok = pl.miktar;
-            s.listings.put(pl.material, l);
+            s.listings.put(UUID.randomUUID().toString(), l);
             veriKaydetPazar();
-            p.sendMessage(ChatColor.GREEN + isimDuzelt(pl.material) + " $" + fmt(fiyat) + " birim fiyatla satışa çıkarıldı! ("
+            p.sendMessage(ChatColor.GREEN + esyaGorunenIsim(pl.ornek) + " $" + fmt(fiyat) + " birim fiyatla satışa çıkarıldı! ("
                     + pl.miktar + " adet)");
             p.playSound(p.getLocation(), Sound.ENTITY_VILLAGER_YES, 1.0f, 1.0f);
         });
@@ -341,19 +366,19 @@ public class PazarManager implements Listener, CommandExecutor {
         ctx.standId = standId;
 
         int slot = 0;
-        for (Map.Entry<Material, Listing> e : s.listings.entrySet()) {
+        for (Map.Entry<String, Listing> e : s.listings.entrySet()) {
             if (slot >= 45) break;
-            Material mat = e.getKey();
             Listing l = e.getValue();
-            ItemStack item = new ItemStack(mat, Math.max(1, Math.min(l.stok, 99)));
+            ItemStack item = l.ornek.clone();
+            item.setAmount(Math.max(1, Math.min(l.stok, item.getMaxStackSize())));
             List<String> lore = new ArrayList<>();
             lore.add(ChatColor.GRAY + "Fiyat: " + ChatColor.GREEN + "$" + fmt(l.fiyat) + "/adet");
             lore.add(ChatColor.GRAY + "Stok: " + (l.stok > 0 ? ChatColor.AQUA + "" + l.stok : ChatColor.RED + "Tükendi"));
             lore.add("");
             lore.add(ChatColor.YELLOW + "Tıkla: " + ChatColor.WHITE + "İlanı kaldır (stok sana geri verilir)");
-            esyaAdiVeLoreAyarla(item, isimDuzelt(mat), lore);
+            esyaLoreEkle(item, lore);
             gui.setItem(slot, item);
-            ctx.slotMateryal.put(slot, mat);
+            ctx.slotListingId.put(slot, e.getKey());
             slot++;
         }
 
@@ -373,19 +398,19 @@ public class PazarManager implements Listener, CommandExecutor {
         acikGui.put(p.getUniqueId(), ctx);
     }
 
-    private void ilanKaldir(Player p, Stand s, Material mat) {
-        Listing l = s.listings.remove(mat);
+    private void ilanKaldir(Player p, Stand s, String listingId) {
+        Listing l = s.listings.remove(listingId);
         if (l == null) return;
-        if (l.stok > 0) geriVer(p, mat, l.stok);
+        if (l.stok > 0) geriVer(p, l.ornek, l.stok);
         veriKaydetPazar();
-        p.sendMessage(ChatColor.YELLOW + isimDuzelt(mat) + " ilanı kaldırıldı" + (l.stok > 0 ? ", " + l.stok + " adet envanterine geri verildi." : "."));
+        p.sendMessage(ChatColor.YELLOW + esyaGorunenIsim(l.ornek) + " ilanı kaldırıldı" + (l.stok > 0 ? ", " + l.stok + " adet envanterine geri verildi." : "."));
     }
 
     private void standBirak(Player p, String standId) {
         Stand s = standlar.get(standId);
         if (s == null || !p.getUniqueId().equals(s.sahip)) return;
-        for (Map.Entry<Material, Listing> e : s.listings.entrySet()) {
-            if (e.getValue().stok > 0) geriVer(p, e.getKey(), e.getValue().stok);
+        for (Listing l : s.listings.values()) {
+            if (l.stok > 0) geriVer(p, l.ornek, l.stok);
         }
         s.listings.clear();
         s.sahip = null;
@@ -401,7 +426,7 @@ public class PazarManager implements Listener, CommandExecutor {
 
         List<Kategori> mevcutKategoriler = new ArrayList<>();
         for (Kategori k : Kategori.values()) {
-            boolean varMi = s.listings.entrySet().stream().anyMatch(e -> Kategori.sinifla(e.getKey()) == k);
+            boolean varMi = s.listings.values().stream().anyMatch(l -> Kategori.sinifla(l.ornek.getType()) == k);
             if (varMi) mevcutKategoriler.add(k);
         }
         if (mevcutKategoriler.isEmpty()) {
@@ -436,14 +461,18 @@ public class PazarManager implements Listener, CommandExecutor {
         acikGui.put(p.getUniqueId(), ctx);
     }
 
-    // ------------------------------------------------------------------ İLAN LİSTESİ GUI (satın alma)
+    // ------------------------------------------------------------------ İLAN LİSTESİ GUI (satın alma, sayfalı)
     private void acListeGui(Player p, String standId, Kategori kategori) {
+        acListeGui(p, standId, kategori, 0);
+    }
+
+    private void acListeGui(Player p, String standId, Kategori kategori, int sayfa) {
         Stand s = standlar.get(standId);
         if (s == null) return;
 
-        List<Map.Entry<Material, Listing>> urunler = new ArrayList<>();
-        for (Map.Entry<Material, Listing> e : s.listings.entrySet()) {
-            if (Kategori.sinifla(e.getKey()) == kategori) urunler.add(e);
+        List<Map.Entry<String, Listing>> urunler = new ArrayList<>();
+        for (Map.Entry<String, Listing> e : s.listings.entrySet()) {
+            if (Kategori.sinifla(e.getValue().ornek.getType()) == kategori) urunler.add(e);
         }
         if (urunler.isEmpty()) {
             p.sendMessage(ChatColor.YELLOW + "Bu kategoride artık ürün yok.");
@@ -451,34 +480,50 @@ public class PazarManager implements Listener, CommandExecutor {
             return;
         }
 
-        int boyut = Math.min(54, Math.max(9, ((urunler.size() / 9) + 1) * 9));
-        String sahipAdi = adiniBul(s.sahip);
-        Inventory gui = Bukkit.createInventory(null, boyut, ChatColor.DARK_AQUA + sahipAdi + " Standı " + ChatColor.GRAY + "- " + kategori.ad);
+        int toplamSayfa = Math.max(1, (urunler.size() + SAYFA_BASINA_URUN - 1) / SAYFA_BASINA_URUN);
+        if (sayfa < 0) sayfa = 0;
+        if (sayfa >= toplamSayfa) sayfa = toplamSayfa - 1;
+
+        // Sayfa boyutu her zaman sabit çift sandık (54 slot): üst 5 sıra (0-44) ürünler,
+        // alt sıra (45-53) navigasyon için ayrılmış.
+        String baslik = ChatColor.DARK_AQUA + adiniBul(s.sahip) + " Standı " + ChatColor.GRAY + "- " + kategori.ad
+                + (toplamSayfa > 1 ? ChatColor.DARK_GRAY + " (" + (sayfa + 1) + "/" + toplamSayfa + ")" : "");
+        Inventory gui = Bukkit.createInventory(null, 54, baslik);
         GuiContext ctx = new GuiContext();
         ctx.tip = "LISTE";
         ctx.standId = standId;
         ctx.kategori = kategori;
+        ctx.sayfa = sayfa;
 
+        int basla = sayfa * SAYFA_BASINA_URUN;
+        int bitis = Math.min(urunler.size(), basla + SAYFA_BASINA_URUN);
         int slot = 0;
-        for (Map.Entry<Material, Listing> e : urunler) {
-            if (slot >= boyut - 1) break;
-            Material mat = e.getKey();
+        for (int i = basla; i < bitis; i++) {
+            Map.Entry<String, Listing> e = urunler.get(i);
             Listing l = e.getValue();
-            ItemStack item = new ItemStack(mat, 1);
+            ItemStack item = l.ornek.clone();
+            item.setAmount(1);
             List<String> lore = new ArrayList<>();
             lore.add(ChatColor.GRAY + "Birim Fiyat: " + ChatColor.GREEN + "$" + fmt(l.fiyat));
             lore.add(ChatColor.GRAY + "Stok: " + (l.stok > 0 ? ChatColor.AQUA + "" + l.stok : ChatColor.RED + "Tükendi"));
             lore.add("");
             lore.add(ChatColor.YELLOW + "Sol tık: " + ChatColor.WHITE + "1 adet al");
             lore.add(ChatColor.YELLOW + "Shift + Sol tık: " + ChatColor.WHITE + "Alabildiğin kadar al");
-            esyaAdiVeLoreAyarla(item, isimDuzelt(mat), lore);
+            esyaLoreEkle(item, lore);
             gui.setItem(slot, item);
-            ctx.slotMateryal.put(slot, mat);
+            ctx.slotListingId.put(slot, e.getKey());
             slot++;
         }
-        int geriSlot = boyut - 1;
+
+        if (sayfa > 0) {
+            gui.setItem(45, basitEsya(Material.SPECTRAL_ARROW, ChatColor.YELLOW + "Önceki Sayfa", List.of()));
+        }
+        int geriSlot = 49;
         gui.setItem(geriSlot, basitEsya(Material.ARROW, ChatColor.YELLOW + "Geri (Kategoriler)", List.of()));
         ctx.geriSlot = geriSlot;
+        if (sayfa < toplamSayfa - 1) {
+            gui.setItem(53, basitEsya(Material.SPECTRAL_ARROW, ChatColor.YELLOW + "Sonraki Sayfa", List.of()));
+        }
 
         // ÖNEMLİ: openInventory() önce çağrılmalı. Oyuncunun zaten açık bir Pazar GUI'si varsa
         // (kategori -> liste geçişi, satın alma sonrası yenileme, vb.) openInventory() bu çağrının
@@ -493,8 +538,8 @@ public class PazarManager implements Listener, CommandExecutor {
         acikGui.put(p.getUniqueId(), ctx);
     }
 
-    private void satinAl(Player alici, Stand s, Material mat, int adet) {
-        Listing l = s.listings.get(mat);
+    private void satinAl(Player alici, Stand s, String listingId, int adet) {
+        Listing l = s.listings.get(listingId);
         if (l == null || l.stok <= 0 || adet <= 0) {
             alici.sendMessage(ChatColor.RED + "Bu üründen alınamıyor.");
             return;
@@ -521,34 +566,35 @@ public class PazarManager implements Listener, CommandExecutor {
         plugin.bankaHesaplari.put(s.sahip, saticiBakiye + saticiPay);
         l.stok -= adet;
 
-        geriVer(alici, mat, adet);
+        String isim = esyaGorunenIsim(l.ornek);
+        geriVer(alici, l.ornek, adet);
         plugin.veriKaydet();
         veriKaydetPazar();
 
-        alici.sendMessage(ChatColor.GREEN + "" + adet + " adet " + isimDuzelt(mat) + " satın alındı! $" + fmt(toplam) + " ödendi.");
+        alici.sendMessage(ChatColor.GREEN + "" + adet + " adet " + isim + " satın alındı! $" + fmt(toplam) + " ödendi.");
         alici.playSound(alici.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
-        plugin.ekonomiLog("pazar-satis", alici.getName(), adet + "x " + mat.name() + " | stand: " + s.id + " | sahip: " + adiniBul(s.sahip)
+        plugin.ekonomiLog("pazar-satis", alici.getName(), adet + "x " + l.ornek.getType().name() + " | stand: " + s.id + " | sahip: " + adiniBul(s.sahip)
                 + " | toplam: $" + fmt(toplam) + " | vergi: $" + fmt(vergi));
 
         OfflinePlayer saticiOP = Bukkit.getOfflinePlayer(s.sahip);
         if (saticiOP.isOnline() && saticiOP.getPlayer() != null) {
-            saticiOP.getPlayer().sendMessage(ChatColor.GREEN + "Standından " + adet + " adet " + isimDuzelt(mat) + " satıldı! $"
+            saticiOP.getPlayer().sendMessage(ChatColor.GREEN + "Standından " + adet + " adet " + isim + " satıldı! $"
                     + fmt(saticiPay) + " hesabına yattı " + ChatColor.GRAY + "(vergi: $" + fmt(vergi) + ")");
         }
     }
 
-    private int hesaplaMaxAlinabilir(Player p, Material mat, Listing l) {
+    private int hesaplaMaxAlinabilir(Player p, Listing l) {
         double bakiye = plugin.bankaHesaplari.getOrDefault(p.getUniqueId(), 0.0);
         int karsilanabilir = l.fiyat > 0 ? (int) Math.floor(bakiye / l.fiyat + 1e-9) : Integer.MAX_VALUE;
-        int envanterBosYer = hesaplaBosYer(p, mat);
+        int envanterBosYer = hesaplaBosYer(p, l.ornek);
         return Math.max(0, Math.min(Math.min(karsilanabilir, l.stok), envanterBosYer));
     }
 
-    private int hesaplaBosYer(Player p, Material mat) {
+    private int hesaplaBosYer(Player p, ItemStack ornek) {
         int bosYer = 0;
         for (ItemStack i : p.getInventory().getStorageContents()) {
-            if (i == null || i.getType() == Material.AIR) bosYer += mat.getMaxStackSize();
-            else if (i.getType() == mat && i.getAmount() < i.getMaxStackSize()) bosYer += (i.getMaxStackSize() - i.getAmount());
+            if (i == null || i.getType() == Material.AIR) bosYer += ornek.getMaxStackSize();
+            else if (i.isSimilar(ornek) && i.getAmount() < i.getMaxStackSize()) bosYer += (i.getMaxStackSize() - i.getAmount());
         }
         return bosYer;
     }
@@ -583,9 +629,9 @@ public class PazarManager implements Listener, CommandExecutor {
                     standBirak(p, ctx.standId);
                     return;
                 }
-                Material mat = ctx.slotMateryal.get(slot);
-                if (mat != null) {
-                    ilanKaldir(p, s, mat);
+                String listingId = ctx.slotListingId.get(slot);
+                if (listingId != null) {
+                    ilanKaldir(p, s, listingId);
                     acYonetimGui(p, ctx.standId);
                 }
                 break;
@@ -600,24 +646,34 @@ public class PazarManager implements Listener, CommandExecutor {
                     acKategoriGui(p, ctx.standId);
                     return;
                 }
-                Material mat = ctx.slotMateryal.get(slot);
-                if (mat == null) return;
+                if (slot == 45 && ctx.sayfa > 0 && event.getCurrentItem() != null) {
+                    acListeGui(p, ctx.standId, ctx.kategori, ctx.sayfa - 1);
+                    return;
+                }
+                if (slot == 53 && event.getCurrentItem() != null && !ctx.slotListingId.containsKey(53)) {
+                    // slotListingId'de 53 yoksa bu slot bir ürün değil, "Sonraki Sayfa" butonudur
+                    // (acListeGui 53'ü sadece gerçekten bir sonraki sayfa varsa dolduruyor).
+                    acListeGui(p, ctx.standId, ctx.kategori, ctx.sayfa + 1);
+                    return;
+                }
+                String listingId = ctx.slotListingId.get(slot);
+                if (listingId == null) return;
                 Stand s = standlar.get(ctx.standId);
                 if (s == null) return;
-                Listing l = s.listings.get(mat);
+                Listing l = s.listings.get(listingId);
                 if (l == null) return;
                 ClickType click = event.getClick();
                 int adet;
-                if (click == ClickType.SHIFT_LEFT) adet = hesaplaMaxAlinabilir(p, mat, l);
-                else if (click == ClickType.LEFT) adet = Math.min(1, hesaplaMaxAlinabilir(p, mat, l));
+                if (click == ClickType.SHIFT_LEFT) adet = hesaplaMaxAlinabilir(p, l);
+                else if (click == ClickType.LEFT) adet = Math.min(1, hesaplaMaxAlinabilir(p, l));
                 else return;
                 if (adet <= 0) {
                     p.sendMessage(ChatColor.RED + "Alamazsın: stok tükenmiş, bakiyen yetersiz ya da envanterin dolu.");
                     p.playSound(p.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
                     return;
                 }
-                satinAl(p, s, mat, adet);
-                acListeGui(p, ctx.standId, ctx.kategori);
+                satinAl(p, s, listingId, adet);
+                acListeGui(p, ctx.standId, ctx.kategori, ctx.sayfa);
                 break;
             }
             default:
@@ -646,16 +702,27 @@ public class PazarManager implements Listener, CommandExecutor {
             // Oyuncu sohbet yanıtı vermeden ayrıldı: eşyalar kaybolmasın, giriş yaptığında envanterine eklenir
             // zaten ana thread'de inventory erişimi olmadığından burada bırakıyoruz; basitçe düşürmek yerine
             // çıkışta envantere eklemeyi deniyoruz (oyuncu nesnesi hâlâ erişilebilir).
-            Map<Integer, ItemStack> kalan = event.getPlayer().getInventory().addItem(new ItemStack(pl.material, pl.miktar));
+            ItemStack vermelik = pl.ornek.clone();
+            vermelik.setAmount(pl.miktar);
+            Map<Integer, ItemStack> kalan = event.getPlayer().getInventory().addItem(vermelik);
             for (ItemStack it : kalan.values()) event.getPlayer().getWorld().dropItem(event.getPlayer().getLocation(), it);
         }
     }
 
     // ------------------------------------------------------------------ YARDIMCI
-    private void geriVer(Player p, Material mat, int adet) {
+    /** ornek'in TAM kopyasını (meta/büyü/iksir dahil) adet kadar oyuncuya verir. */
+    private void geriVer(Player p, ItemStack ornek, int adet) {
         if (adet <= 0) return;
-        Map<Integer, ItemStack> kalan = p.getInventory().addItem(new ItemStack(mat, adet));
-        for (ItemStack it : kalan.values()) p.getWorld().dropItem(p.getLocation(), it);
+        int maxYigin = ornek.getMaxStackSize();
+        int kalanAdet = adet;
+        while (kalanAdet > 0) {
+            int buSefer = Math.min(kalanAdet, maxYigin);
+            ItemStack parca = ornek.clone();
+            parca.setAmount(buSefer);
+            Map<Integer, ItemStack> veremedigi = p.getInventory().addItem(parca);
+            for (ItemStack it : veremedigi.values()) p.getWorld().dropItem(p.getLocation(), it);
+            kalanAdet -= buSefer;
+        }
     }
 
     private String adiniBul(UUID uuid) {
@@ -703,8 +770,12 @@ public class PazarManager implements Listener, CommandExecutor {
         return null;
     }
 
-    private static String isimDuzelt(Material mat) {
-        return mat.name().replace("_", " ");
+    /** Vitrinde/listede gösterilecek görünen isim: eşyanın kendi özel ismi varsa o, yoksa Material adı. */
+    private static String esyaGorunenIsim(ItemStack item) {
+        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
+            return ChatColor.stripColor(item.getItemMeta().getDisplayName());
+        }
+        return item.getType().name().replace("_", " ");
     }
 
     private static String fmt(double d) {
@@ -713,15 +784,28 @@ public class PazarManager implements Listener, CommandExecutor {
 
     private static ItemStack basitEsya(Material mat, String isim, List<String> lore) {
         ItemStack item = new ItemStack(mat);
-        esyaAdiVeLoreAyarla(item, isim, lore);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(isim);
+            if (lore != null && !lore.isEmpty()) meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
         return item;
     }
 
-    private static void esyaAdiVeLoreAyarla(ItemStack item, String isim, List<String> lore) {
+    /**
+     * GUI'de gösterilecek bir satış öğesinin lore'una fiyat/stok/kontrol bilgisini EKLER.
+     * Eşyanın kendi orijinal display name'i, büyüsü, iksir efekti vb. KORUNUR (üzerine yazılmaz) -
+     * bu yüzden isimDuzelt + setDisplayName yerine meta'yı alıp lore'un başına ekleme yapıyoruz.
+     */
+    private static void esyaLoreEkle(ItemStack item, List<String> ekLore) {
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return;
-        meta.setDisplayName(isim);
-        if (lore != null && !lore.isEmpty()) meta.setLore(lore);
+        List<String> lore = new ArrayList<>();
+        if (meta.hasLore()) lore.addAll(meta.getLore());
+        if (!lore.isEmpty()) lore.add("");
+        lore.addAll(ekLore);
+        meta.setLore(lore);
         item.setItemMeta(meta);
     }
 
@@ -731,8 +815,11 @@ public class PazarManager implements Listener, CommandExecutor {
         for (Stand s : standlar.values()) {
             String yol = "pazar_standlari." + s.id;
             if (s.sahip != null) plugin.getConfig().set(yol + ".sahip", s.sahip.toString());
-            for (Map.Entry<Material, Listing> e : s.listings.entrySet()) {
-                String uYol = yol + ".urunler." + e.getKey().name();
+            for (Map.Entry<String, Listing> e : s.listings.entrySet()) {
+                String uYol = yol + ".urunler." + e.getKey();
+                // YamlConfiguration ItemStack'i (ConfigurationSerializable) TAM meta'sıyla
+                // (büyü, iksir efekti, isim, lore, NBT) native olarak serileştirir/geri okur.
+                plugin.getConfig().set(uYol + ".esya", e.getValue().ornek);
                 plugin.getConfig().set(uYol + ".fiyat", e.getValue().fiyat);
                 plugin.getConfig().set(uYol + ".stok", e.getValue().stok);
             }
@@ -754,15 +841,15 @@ public class PazarManager implements Listener, CommandExecutor {
                 }
             }
             if (plugin.getConfig().isConfigurationSection(yol + ".urunler")) {
-                for (String matAdi : plugin.getConfig().getConfigurationSection(yol + ".urunler").getKeys(false)) {
-                    try {
-                        Material mat = Material.valueOf(matAdi);
-                        Listing l = new Listing();
-                        l.fiyat = plugin.getConfig().getDouble(yol + ".urunler." + matAdi + ".fiyat");
-                        l.stok = plugin.getConfig().getInt(yol + ".urunler." + matAdi + ".stok");
-                        s.listings.put(mat, l);
-                    } catch (IllegalArgumentException ignored) {
-                    }
+                for (String listingId : plugin.getConfig().getConfigurationSection(yol + ".urunler").getKeys(false)) {
+                    String uYol = yol + ".urunler." + listingId;
+                    ItemStack ornek = plugin.getConfig().getItemStack(uYol + ".esya");
+                    if (ornek == null) continue; // eski format (sadece Material) ya da bozuk kayıt: atla
+                    Listing l = new Listing();
+                    l.ornek = ornek;
+                    l.fiyat = plugin.getConfig().getDouble(uYol + ".fiyat");
+                    l.stok = plugin.getConfig().getInt(uYol + ".stok");
+                    s.listings.put(listingId, l);
                 }
             }
             standlar.put(standId, s);
