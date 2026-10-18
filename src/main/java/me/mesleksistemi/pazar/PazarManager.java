@@ -289,8 +289,17 @@ public class PazarManager implements Listener, CommandExecutor {
         GuiContext ctx = new GuiContext();
         ctx.tip = "KIRALA";
         ctx.standId = standId;
-        acikGui.put(p.getUniqueId(), ctx);
+        // ÖNEMLİ: openInventory() önce çağrılmalı. Oyuncunun zaten açık bir Pazar GUI'si varsa
+        // (kategori -> liste geçişi, satın alma sonrası yenileme, vb.) openInventory() bu çağrının
+        // İÇİNDE, senkron olarak eski GUI için InventoryCloseEvent fırlatır ve onInventoryClose
+        // acikGui'den kaydı siler. put() bu satırdan ÖNCE yapılırsa, o silme az önce koyduğumuz
+        // YENİ context'i siler (çünkü close event anında acikGui zaten yeni ctx'i gösterir) ve
+        // bir sonraki tıklamada ctx == null olur: event iptal edilmez, oyuncu vitrindeki eşyayı
+        // bedavaya (satın alma mantığı hiç çalışmadan) envanterine almış olur. Bu yüzden önce
+        // GUI'yi aç (eski GUI'nin kapanma event'i -eğer varsa- eski context'i temizler), SONRA
+        // yeni context'i koy.
         p.openInventory(gui);
+        acikGui.put(p.getUniqueId(), ctx);
     }
 
     private void kiralaStand(Player p, String standId) {
@@ -351,8 +360,17 @@ public class PazarManager implements Listener, CommandExecutor {
         gui.setItem(49, basitEsya(Material.BARRIER, ChatColor.RED + "Standı Bırak",
                 List.of(ChatColor.GRAY + "Kiralamayı sonlandırır, satılmamış", ChatColor.GRAY + "stok envanterine geri verilir.")));
 
-        acikGui.put(p.getUniqueId(), ctx);
+        // ÖNEMLİ: openInventory() önce çağrılmalı. Oyuncunun zaten açık bir Pazar GUI'si varsa
+        // (kategori -> liste geçişi, satın alma sonrası yenileme, vb.) openInventory() bu çağrının
+        // İÇİNDE, senkron olarak eski GUI için InventoryCloseEvent fırlatır ve onInventoryClose
+        // acikGui'den kaydı siler. put() bu satırdan ÖNCE yapılırsa, o silme az önce koyduğumuz
+        // YENİ context'i siler (çünkü close event anında acikGui zaten yeni ctx'i gösterir) ve
+        // bir sonraki tıklamada ctx == null olur: event iptal edilmez, oyuncu vitrindeki eşyayı
+        // bedavaya (satın alma mantığı hiç çalışmadan) envanterine almış olur. Bu yüzden önce
+        // GUI'yi aç (eski GUI'nin kapanma event'i -eğer varsa- eski context'i temizler), SONRA
+        // yeni context'i koy.
         p.openInventory(gui);
+        acikGui.put(p.getUniqueId(), ctx);
     }
 
     private void ilanKaldir(Player p, Stand s, Material mat) {
@@ -405,8 +423,17 @@ public class PazarManager implements Listener, CommandExecutor {
             slot++;
         }
 
-        acikGui.put(p.getUniqueId(), ctx);
+        // ÖNEMLİ: openInventory() önce çağrılmalı. Oyuncunun zaten açık bir Pazar GUI'si varsa
+        // (kategori -> liste geçişi, satın alma sonrası yenileme, vb.) openInventory() bu çağrının
+        // İÇİNDE, senkron olarak eski GUI için InventoryCloseEvent fırlatır ve onInventoryClose
+        // acikGui'den kaydı siler. put() bu satırdan ÖNCE yapılırsa, o silme az önce koyduğumuz
+        // YENİ context'i siler (çünkü close event anında acikGui zaten yeni ctx'i gösterir) ve
+        // bir sonraki tıklamada ctx == null olur: event iptal edilmez, oyuncu vitrindeki eşyayı
+        // bedavaya (satın alma mantığı hiç çalışmadan) envanterine almış olur. Bu yüzden önce
+        // GUI'yi aç (eski GUI'nin kapanma event'i -eğer varsa- eski context'i temizler), SONRA
+        // yeni context'i koy.
         p.openInventory(gui);
+        acikGui.put(p.getUniqueId(), ctx);
     }
 
     // ------------------------------------------------------------------ İLAN LİSTESİ GUI (satın alma)
@@ -453,8 +480,17 @@ public class PazarManager implements Listener, CommandExecutor {
         gui.setItem(geriSlot, basitEsya(Material.ARROW, ChatColor.YELLOW + "Geri (Kategoriler)", List.of()));
         ctx.geriSlot = geriSlot;
 
-        acikGui.put(p.getUniqueId(), ctx);
+        // ÖNEMLİ: openInventory() önce çağrılmalı. Oyuncunun zaten açık bir Pazar GUI'si varsa
+        // (kategori -> liste geçişi, satın alma sonrası yenileme, vb.) openInventory() bu çağrının
+        // İÇİNDE, senkron olarak eski GUI için InventoryCloseEvent fırlatır ve onInventoryClose
+        // acikGui'den kaydı siler. put() bu satırdan ÖNCE yapılırsa, o silme az önce koyduğumuz
+        // YENİ context'i siler (çünkü close event anında acikGui zaten yeni ctx'i gösterir) ve
+        // bir sonraki tıklamada ctx == null olur: event iptal edilmez, oyuncu vitrindeki eşyayı
+        // bedavaya (satın alma mantığı hiç çalışmadan) envanterine almış olur. Bu yüzden önce
+        // GUI'yi aç (eski GUI'nin kapanma event'i -eğer varsa- eski context'i temizler), SONRA
+        // yeni context'i koy.
         p.openInventory(gui);
+        acikGui.put(p.getUniqueId(), ctx);
     }
 
     private void satinAl(Player alici, Stand s, Material mat, int adet) {

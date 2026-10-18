@@ -331,8 +331,17 @@ public class SaglikManager implements Listener, CommandExecutor {
             }
             
             UUID targetUUID = ambulansCagrilari.get(targetName);
+
+            // Doktor kendi çağırdığı ambulansı kendi kabul edemesin (bedava/istismar amaçlı
+            // kendi kendine "tedavi" - ödeme mantığı aynı hesaba gidip geldiği için net $0'a
+            // düşse de, hiçbir ücret ödemeden hastaneye ışınlanmak hâlâ bir istismar).
+            if (targetUUID.equals(player.getUniqueId())) {
+                player.sendMessage(ChatColor.RED + "Kendi ambulans çağrını kabul edemezsin! Başka bir doktor gelmeli.");
+                return true;
+            }
+
             Player target = Bukkit.getPlayer(targetUUID);
-            
+
             if (target == null || !target.isOnline() || !downedPlayers.containsKey(targetUUID)) {
                 player.sendMessage(ChatColor.RED + "Hasta şu an oyunda değil veya iyileşmiş.");
                 ambulansCagrilari.remove(targetName);
