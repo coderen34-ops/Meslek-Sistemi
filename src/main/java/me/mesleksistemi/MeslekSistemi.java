@@ -52,7 +52,11 @@ import me.mesleksistemi.sistem.SozlesmeManager;
 public class MeslekSistemi extends JavaPlugin {
 
     public NamespacedKey economyValueKey, npcKey, bankaNpcKey, nufusNpcKey, tapuNpcKey, kimlikIdKey;
-    public Location kasaKonumu = null, kursuKonumu = null, yasaKursuKonumu = null; 
+    public Location kasaKonumu = null, kursuKonumu = null, yasaKursuKonumu = null;
+    // Fiziksel kasa sandığı tamamen doluyken (not için boş slot yok) gelmeye devam eden paranın
+    // kaybolmaması için tutulan "sanal" taşma bakiyesi. Sandıkta tekrar yer açılınca (ör. biri
+    // notu çekip chest'i boşaltınca) otomatik olarak fiziksel kasaya geri aktarılmaya çalışılır.
+    public double virtualKasaBakiyesi = 0.0;
     
     public java.util.concurrent.ConcurrentHashMap<UUID, String> basvuruBekleyenler = new java.util.concurrent.ConcurrentHashMap<>();
     public HashMap<UUID, Basvuru> aktifBasvurular = new HashMap<>();
@@ -279,7 +283,7 @@ public class MeslekSistemi extends JavaPlugin {
 
         Commands cmdExecutor = new Commands(this);
         String[] cmds = {
-            "meslekata", "primver", "kasaayarla", "kursuayarla", "mesleknpc", "bankanpc", 
+            "meslekata", "primver", "kasaayarla", "kasadurum", "kursuayarla", "mesleknpc", "bankanpc",
             "nufusnpc", "tapunpc", "kimlikbiyomsec", "meslekler", "basvurular", 
             "basvurucevapla", "tapumenusu", "ohal", "maaslar", "yasayayinla", "yasakursuayarla", "yasalar", "rehber",
             "zenginler", "bakiyegor"
@@ -598,20 +602,57 @@ public class MeslekSistemi extends JavaPlugin {
         return true;
     }
 
-    // Kasaya para koyar. Kasa yoksa veya dolu ise false (para kaybolmasın diye işlem yapılmamalı).
+    // Kasaya para koyar. Kasa hiç kurulmamışsa false (eskisi gibi - admin /kasaayarla yapmalı).
+    // Kasa kuruluysa AMA fiziksel sandık tamamen doluysa (not için boş slot yok, ör. biri kasa
+    // notunu çekmiş ve sandığa alakasız eşyalar doldurulmuş): parayı eskisi gibi KAYBETMİYORUZ,
+    // "sanal" taşma kasasına ekliyoruz ve true dönüyoruz (çağıran taraf işlemi normal tamamlar,
+    // oyuncudan ücret alınır vs.). Sandıkta yeniden yer açılınca (bu metot tekrar çağrıldığında)
+    // biriken sanal bakiye otomatik olarak fiziksel kasaya geri aktarılmaya çalışılır.
     public boolean kasayaParaEkle(double miktar) {
         Chest kasa = getKasa();
         if (kasa == null) return false;
-        return kasaNotunuAyarla(kasa, kasaBakiyesi(kasa) + miktar);
+
+        if (virtualKasaBakiyesi > 0) {
+            double hedefIleBirlesmis = kasaBakiyesi(kasa) + miktar + virtualKasaBakiyesi;
+            if (kasaNotunuAyarla(kasa, hedefIleBirlesmis)) {
+                getLogger().info("[Kasa] Sandıkta yeniden yer açıldı, sanal taşma kasasındaki $"
+                        + virtualKasaBakiyesi + " fiziksel kasaya geri aktarıldı.");
+                virtualKasaBakiyesi = 0.0;
+                veriKaydet();
+                return true;
+            }
+        }
+
+        if (kasaNotunuAyarla(kasa, kasaBakiyesi(kasa) + miktar)) return true;
+
+        virtualKasaBakiyesi = Math.round((virtualKasaBakiyesi + miktar) * 100.0) / 100.0;
+        getLogger().warning("[Kasa] Fiziksel sandık tamamen dolu (not için boş slot yok)! $" + miktar
+                + " sanal taşma kasasına eklendi. Toplam sanal bakiye: $" + virtualKasaBakiyesi
+                + " - sandıkta yer açılınca otomatik aktarılacak.");
+        veriKaydet();
+        return true;
     }
 
-    // Kasadan para çeker. Kasa yoksa veya bakiye yetmiyorsa false.
+    // Kasadan para çeker. Kasa yoksa false. Bakiye kontrolü fiziksel kasa + sanal taşma kasasının
+    // TOPLAMINA göre yapılır (taşma kasasındaki para da belediyenin gerçek parası), önce fiziksel
+    // kasadan, yetmezse kalanı sanal kasadan düşülür.
     public boolean kasadanParaCek(double miktar) {
         Chest kasa = getKasa();
         if (kasa == null) return false;
-        double bakiye = kasaBakiyesi(kasa);
-        if (bakiye < miktar) return false;
-        return kasaNotunuAyarla(kasa, bakiye - miktar);
+        double fizikselBakiye = kasaBakiyesi(kasa);
+        double toplamBakiye = fizikselBakiye + virtualKasaBakiyesi;
+        if (toplamBakiye < miktar) return false;
+
+        double fizikselCekilecek = Math.min(fizikselBakiye, miktar);
+        if (!kasaNotunuAyarla(kasa, fizikselBakiye - fizikselCekilecek)) return false;
+
+        double virtualCekilecek = Math.round((miktar - fizikselCekilecek) * 100.0) / 100.0;
+        if (virtualCekilecek > 0) {
+            virtualKasaBakiyesi = Math.round((virtualKasaBakiyesi - virtualCekilecek) * 100.0) / 100.0;
+            if (virtualKasaBakiyesi < 0) virtualKasaBakiyesi = 0.0;
+            veriKaydet();
+        }
+        return true;
     }
 
     public void mergeKasaMoney(Chest kasa) {
@@ -633,10 +674,9 @@ public class MeslekSistemi extends JavaPlugin {
             if (itemValue != null) totalMoney += itemValue * item.getAmount();
         }
         if (totalMoney < price) { player.sendMessage(ChatColor.RED + "Yeterli fiziksel paran yok! Gereken: $" + price); return false; }
-        if (!kasaNotunuAyarla(kasa, kasaBakiyesi(kasa) + price)) {
-            player.sendMessage(ChatColor.RED + "Belediye kasası tamamen dolu, ödeme alınamıyor! Yetkililere bildirin.");
-            return false;
-        }
+        // kasayaParaEkle() artık fiziksel sandık tamamen doluyken de parayı sanal taşma kasasına
+        // ekleyip true dönüyor; bu yüzden ödeme burada eskisi gibi "kasa dolu" diye reddedilmiyor.
+        kasayaParaEkle(price);
         oyuncuParasiniDuzenle(player, totalMoney - price);
         return true;
     }
@@ -800,6 +840,7 @@ public class MeslekSistemi extends JavaPlugin {
         getConfig().set("maaslarAcik", maaslarAcik);
         getConfig().set("yasaKitabi", yasaKitabi);
         getConfig().set("sonOhalBitisZamani", sonOhalBitisZamani);
+        getConfig().set("virtualKasaBakiyesi", virtualKasaBakiyesi);
 
         getConfig().set("basvurular", null); 
         for (Map.Entry<UUID, Basvuru> entry : aktifBasvurular.entrySet()) {
@@ -845,6 +886,8 @@ public class MeslekSistemi extends JavaPlugin {
         maaslarAcik = getConfig().getBoolean("maaslarAcik", true);
         yasaKitabi = getConfig().getItemStack("yasaKitabi");
         sonOhalBitisZamani = getConfig().getLong("sonOhalBitisZamani", 0L);
+        virtualKasaBakiyesi = getConfig().getDouble("virtualKasaBakiyesi", 0.0);
+        if (!Double.isFinite(virtualKasaBakiyesi)) virtualKasaBakiyesi = 0.0;
 
         if (getConfig().contains("basvurular")) {
             for (String uuidStr : getConfig().getConfigurationSection("basvurular").getKeys(false)) {

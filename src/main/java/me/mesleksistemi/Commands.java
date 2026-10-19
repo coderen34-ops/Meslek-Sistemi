@@ -95,6 +95,26 @@ public class Commands implements CommandExecutor {
             return true;
         }
 
+        if (command.getName().equalsIgnoreCase("kasadurum") && player.hasPermission("meslek.admin")) {
+            org.bukkit.block.Chest kasa = plugin.getKasa();
+            if (kasa == null) {
+                player.sendMessage(ChatColor.RED + "Belediye kasası kurulu değil. Önce /kasaayarla yapın.");
+                return true;
+            }
+            player.sendMessage(ChatColor.YELLOW + "========================================");
+            player.sendMessage(ChatColor.GOLD + "Fiziksel kasa bakiyesi: " + ChatColor.WHITE + "$" + plugin.kasaBakiyesi(kasa));
+            if (plugin.virtualKasaBakiyesi > 0) {
+                player.sendMessage(ChatColor.RED + "Sanal taşma kasası: " + ChatColor.WHITE + "$" + plugin.virtualKasaBakiyesi
+                        + ChatColor.GRAY + " (sandık dolu olduğu için burada bekliyor)");
+                player.sendMessage(ChatColor.GRAY + "Sandıkta yer açın (dolu ise içindeki alakasız eşyaları çıkarın), bir sonraki");
+                player.sendMessage(ChatColor.GRAY + "kasaya para girişinde bu bakiye otomatik olarak sandığa geri aktarılır.");
+            } else {
+                player.sendMessage(ChatColor.GREEN + "Sanal taşma kasasında bekleyen bakiye yok.");
+            }
+            player.sendMessage(ChatColor.YELLOW + "========================================");
+            return true;
+        }
+
         if (command.getName().equalsIgnoreCase("kursuayarla") && player.hasPermission("meslek.admin")) {
             Block block = player.getTargetBlockExact(5);
             if (block != null && block.getType() == Material.LECTERN) {

@@ -72,6 +72,9 @@ commands:
   kasaayarla:
     description: Belediye kasasinin (sandiginin) konumunu ayarlar.
     usage: /kasaayarla
+  kasadurum:
+    description: Fiziksel kasa bakiyesini ve sandık doluysa biriken sanal tasma bakiyesini gösterir.
+    usage: /kasadurum
   kursuayarla:
     description: Baskanlik kursusunun konumunu ayarlar.
     usage: /kursuayarla
