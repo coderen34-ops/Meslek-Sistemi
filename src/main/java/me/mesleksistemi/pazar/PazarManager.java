@@ -25,6 +25,7 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
@@ -693,6 +694,25 @@ public class PazarManager implements Listener, CommandExecutor {
         if (acikGui.containsKey(p.getUniqueId())) event.setCancelled(true);
     }
 
+    /**
+     * NPC skin aktarımı (disguise) hiçbir zaman otomatik tekrar uygulanmıyordu: standGorunumGuncelle()
+     * sadece kiralama/bırakma anında çağrılıyordu. Sunucu restart olunca LibsDisguises tüm disguise
+     * durumunu kaybeder (NPC vanilla köylü görünümüne döner) ve kiralanmış bir stand için bir sonraki
+     * kiralama/bırakma gerçekleşene kadar (yani belki hiç) skin asla geri gelmiyordu - "npc skin
+     * geçmiyor" şikayetinin asıl sebebi muhtemelen buydu. Artık sahip her giriş yaptığında (restart
+     * sonrası ilk giriş dahil) kendi standının disguise'ı, oyuncunun o anki canlı Player nesnesinden
+     * (isim bazlı Mojang sorgusu olmadan, bkz. StandDisguiseYardimcisi) tazeleniyor.
+     */
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        UUID id = event.getPlayer().getUniqueId();
+        for (Stand s : standlar.values()) {
+            if (id.equals(s.sahip)) {
+                Bukkit.getScheduler().runTaskLater(plugin, () -> standAdiGuncelle(s.id), 20L);
+            }
+        }
+    }
+
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         UUID id = event.getPlayer().getUniqueId();
@@ -757,7 +777,7 @@ public class PazarManager implements Listener, CommandExecutor {
     private void standGorunumGuncelle(Stand s, Villager v) {
         if (!Bukkit.getPluginManager().isPluginEnabled("LibsDisguises")) return;
         String isim = s.sahip == null ? null : adiniBul(s.sahip);
-        StandDisguiseYardimcisi.guncelle(v, isim);
+        StandDisguiseYardimcisi.guncelle(v, s.sahip, isim);
     }
 
     private Entity bulEntity(String standId) {

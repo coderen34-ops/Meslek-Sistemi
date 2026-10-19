@@ -107,7 +107,7 @@ public class SaglikManager implements Listener, CommandExecutor {
 
     // Ağır yaralıyken kullanılamayan ışınlanma komutları
     private static final Set<String> YARALIYKEN_YASAK_KOMUTLAR = Set.of(
-            "tpa", "call", "tpaccept", "tpdeny", "tpahere", "warp", "spawn", "home");
+            "tpa", "call", "tpaccept", "tpdeny", "tpahere", "warp", "spawn", "home", "back");
     
     private final Random random = new Random();
 
