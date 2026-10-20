@@ -29,13 +29,26 @@ final class StandDisguiseYardimcisi {
      * new PlayerDisguise(Player) kurucusu kullanılıyor: bu, oyuncunun o anki GERÇEK skin'ini doğrudan
      * (ağ isteği/isim çözümlemesi olmadan) klonlar, offline-mode sunucularda da çalışır. Oyuncu o an
      * çevrimdışıysa (örn. sunucu açılışında stand adı güncellenirken) isim tabanlı çözümlemeye geri dönülür.
+     *
+     * ÖNEMLİ (isim etiketi bugı): new PlayerDisguise(Player)/new PlayerDisguise(String) kurucuları
+     * disguise'ın kendi "ad" alanını (PlayerDisguise.getName()/getTablistName()) GERÇEK oyuncunun
+     * profil adından dolduruyor. LibsDisguises, oyuncu gibi görünen bir varlık için nameplate/tab
+     * girdisini KENDİ bu adından üretiyor - PazarManager'ın Villager üzerinde çağırdığı
+     * v.setCustomName("X'in Standı") ise bunu etkilemiyor (disguise paket seviyesinde kendi adını
+     * gönderiyor, entity'nin custom name'i görünmüyor). Düzeltme: disguise'ın adını da standAdi
+     * parametresiyle "X'in Standı" olarak EZİYORUZ (setName + setTablistName), böylece hem
+     * nameplate hem de (varsa) sahte tab girdisi gerçek oyuncu adı değil stand adını gösteriyor.
      */
-    static void guncelle(Villager v, UUID sahipUuid, String isim) {
+    static void guncelle(Villager v, UUID sahipUuid, String isim, String standAdi) {
         if (DisguiseAPI.isDisguised(v)) DisguiseAPI.undisguiseToAll(v);
         if (isim == null || "?".equals(isim)) return;
         Player sahip = sahipUuid == null ? null : Bukkit.getPlayer(sahipUuid);
         PlayerDisguise disguise = sahip != null ? new PlayerDisguise(sahip) : new PlayerDisguise(isim);
         disguise.setHideArmorFromSelf(true);
+        if (standAdi != null && !standAdi.isEmpty()) {
+            disguise.setName(standAdi);
+            disguise.setTablistName(standAdi);
+        }
         DisguiseAPI.disguiseToAll(v, disguise);
     }
 }

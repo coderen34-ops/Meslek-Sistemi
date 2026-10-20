@@ -777,7 +777,11 @@ public class PazarManager implements Listener, CommandExecutor {
     private void standGorunumGuncelle(Stand s, Villager v) {
         if (!Bukkit.getPluginManager().isPluginEnabled("LibsDisguises")) return;
         String isim = s.sahip == null ? null : adiniBul(s.sahip);
-        StandDisguiseYardimcisi.guncelle(v, s.sahip, isim);
+        // Disguise'ın kendi ad alanı gerçek oyuncu adını gösterdiği için (bkz. StandDisguiseYardimcisi
+        // içindeki açıklama), buraya Villager'ın custom name'iyle AYNI formatta "X'in Standı" metni
+        // veriliyor - disguise bunu kendi nameplate/tab adı olarak kullanıyor.
+        String standAdi = s.sahip == null ? null : (isim + "'nin Standı");
+        StandDisguiseYardimcisi.guncelle(v, s.sahip, isim, standAdi);
     }
 
     private Entity bulEntity(String standId) {
