@@ -57,7 +57,12 @@ public class MeslekSistemi extends JavaPlugin {
     // kaybolmaması için tutulan "sanal" taşma bakiyesi. Sandıkta tekrar yer açılınca (ör. biri
     // notu çekip chest'i boşaltınca) otomatik olarak fiziksel kasaya geri aktarılmaya çalışılır.
     public double virtualKasaBakiyesi = 0.0;
-    
+    // Aynı taşma mantığı PARA DIŞINDAKİ eşyalar için de geçerli: Belediye Borsası'nda oyuncular
+    // kasaya fiziksel eşya (elmas, demir blok vb.) satıyor; fiziksel sandıkta o eşya için yer
+    // yoksa artık satış reddedilmiyor, miktar burada (Material -> sanal adet) biriktiriliyor ve
+    // sandıkta yeniden yer açılınca otomatik geri aktarılmaya çalışılıyor (bkz. kasayaEsyaEkle).
+    public final HashMap<Material, Integer> virtualStok = new HashMap<>();
+
     public java.util.concurrent.ConcurrentHashMap<UUID, String> basvuruBekleyenler = new java.util.concurrent.ConcurrentHashMap<>();
     public HashMap<UUID, Basvuru> aktifBasvurular = new HashMap<>();
     public java.util.concurrent.ConcurrentHashMap<UUID, String> bankaIslemBekleyenler = new java.util.concurrent.ConcurrentHashMap<>();
@@ -772,6 +777,60 @@ public class MeslekSistemi extends JavaPlugin {
         return gerekenSlot <= kullanilabilir;
     }
 
+    /** Kasadaki TOPLAM stok: fiziksel sandık + sanal taşma kasası. Borsa alışlarında bu kullanılmalı,
+     *  yoksa sanal kasada bekleyen stok "yokmuş" gibi görünür ve alıcılara satılamaz. */
+    public int kasaStokToplam(Inventory inv, Material base, Material block) {
+        return getChestStock(inv, base, block) + virtualStok.getOrDefault(base, 0);
+    }
+
+    // Kasaya eşya ekler (Belediye Borsası satışları vb.). Paradaki taşma kasası mantığının aynısı:
+    // sığıyorsa fiziksel kasaya eklenir; sığmıyorsa satış YİNE DE REDDEDİLMEZ, eklenen miktar sanal
+    // taşma stoğuna yazılır. Önce (varsa) birikmiş sanal stoğu fizikselle birleştirmeyi dener -
+    // sandıkta (ör. biri alım yapıp yer açınca) yeniden yer açılmışsa otomatik geri taşınır.
+    public void kasayaEsyaEkle(Inventory inv, Material base, Material block, int miktar) {
+        if (miktar <= 0) return;
+        int mevcutVirtual = virtualStok.getOrDefault(base, 0);
+        if (mevcutVirtual > 0) {
+            int hedefIleBirlesmis = getChestStock(inv, base, block) + miktar + mevcutVirtual;
+            if (stokSigarMi(inv, base, block, hedefIleBirlesmis)) {
+                setChestStock(inv, base, block, hedefIleBirlesmis);
+                virtualStok.remove(base);
+                getLogger().info("[Kasa] Sandıkta " + base.name() + " için yeniden yer açıldı, sanal taşma stoğu ("
+                        + mevcutVirtual + " adet) fiziksel kasaya geri aktarıldı.");
+                veriKaydet();
+                return;
+            }
+        }
+        int fizikselYeniToplam = getChestStock(inv, base, block) + miktar;
+        if (stokSigarMi(inv, base, block, fizikselYeniToplam)) {
+            setChestStock(inv, base, block, fizikselYeniToplam);
+            return;
+        }
+        virtualStok.merge(base, miktar, Integer::sum);
+        getLogger().warning("[Kasa] Fiziksel sandıkta " + base.name() + " için yer yok! " + miktar
+                + " adet sanal taşma kasasına eklendi. Toplam sanal stok: " + virtualStok.get(base)
+                + " adet - sandıkta yer açılınca otomatik aktarılacak.");
+        veriKaydet();
+    }
+
+    // Kasadan eşya çeker (Belediye Borsası alışları vb.). Bakiye kontrolü fiziksel + sanal TOPLAMINA
+    // göre yapılır; önce fiziksel sandıktan, yetmezse kalanı sanal taşma stoğundan düşülür.
+    public boolean kasadanEsyaCek(Inventory inv, Material base, Material block, int miktar) {
+        if (miktar <= 0) return true;
+        int fizikselStok = getChestStock(inv, base, block);
+        int sanalStok = virtualStok.getOrDefault(base, 0);
+        if (fizikselStok + sanalStok < miktar) return false;
+        int fizikselCekilecek = Math.min(fizikselStok, miktar);
+        setChestStock(inv, base, block, fizikselStok - fizikselCekilecek);
+        int sanalCekilecek = miktar - fizikselCekilecek;
+        if (sanalCekilecek > 0) {
+            int yeniSanal = sanalStok - sanalCekilecek;
+            if (yeniSanal <= 0) virtualStok.remove(base); else virtualStok.put(base, yeniSanal);
+            veriKaydet();
+        }
+        return true;
+    }
+
     public void removeItemFromInventory(Inventory inv, Material mat, int amount) {
         for (int i = 0; i < inv.getSize(); i++) {
             ItemStack item = inv.getItem(i);
@@ -841,8 +900,12 @@ public class MeslekSistemi extends JavaPlugin {
         getConfig().set("yasaKitabi", yasaKitabi);
         getConfig().set("sonOhalBitisZamani", sonOhalBitisZamani);
         getConfig().set("virtualKasaBakiyesi", virtualKasaBakiyesi);
+        getConfig().set("virtualStok", null);
+        for (Map.Entry<Material, Integer> entry : virtualStok.entrySet()) {
+            getConfig().set("virtualStok." + entry.getKey().name(), entry.getValue());
+        }
 
-        getConfig().set("basvurular", null); 
+        getConfig().set("basvurular", null);
         for (Map.Entry<UUID, Basvuru> entry : aktifBasvurular.entrySet()) {
             String id = entry.getKey().toString();
             getConfig().set("basvurular." + id + ".isim", entry.getValue().oyuncuAdi);
@@ -888,6 +951,15 @@ public class MeslekSistemi extends JavaPlugin {
         sonOhalBitisZamani = getConfig().getLong("sonOhalBitisZamani", 0L);
         virtualKasaBakiyesi = getConfig().getDouble("virtualKasaBakiyesi", 0.0);
         if (!Double.isFinite(virtualKasaBakiyesi)) virtualKasaBakiyesi = 0.0;
+        virtualStok.clear();
+        if (getConfig().contains("virtualStok")) {
+            for (String matAdi : getConfig().getConfigurationSection("virtualStok").getKeys(false)) {
+                try {
+                    int adet = getConfig().getInt("virtualStok." + matAdi, 0);
+                    if (adet > 0) virtualStok.put(Material.valueOf(matAdi), adet);
+                } catch (Exception ignored) {}
+            }
+        }
 
         if (getConfig().contains("basvurular")) {
             for (String uuidStr : getConfig().getConfigurationSection("basvurular").getKeys(false)) {

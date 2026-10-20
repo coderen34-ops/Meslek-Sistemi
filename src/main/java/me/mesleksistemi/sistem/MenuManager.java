@@ -341,16 +341,18 @@ public class MenuManager implements Listener {
                 // DURUM 1: OYUNCU BORSADAN ALIYOR (SOL / SHIFT SOL)
                 if (click == ClickType.LEFT || click == ClickType.SHIFT_LEFT) {
                     int alinacakMiktar = (click == ClickType.SHIFT_LEFT) ? 64 : 1;
-                    int stok = plugin.getChestStock(kasa.getInventory(), mat, blockMat);
-                    
+                    // Sanal taşma kasasındaki stok da satılabilir olmalı, yoksa biri satıp kasa dolunca
+                    // o eşya "varmış gibi görünüp" aslında satın alınamıyor olurdu.
+                    int stok = plugin.kasaStokToplam(kasa.getInventory(), mat, blockMat);
+
                     if (stok < alinacakMiktar) alinacakMiktar = stok; // Stok yetmiyorsa yettiği kadar al
-                    
+
                     if (alinacakMiktar <= 0) {
                         player.sendMessage(ChatColor.RED + "Belediye kasasında " + mat.name() + " stoku tükenmiş!");
                         player.closeInventory();
                         return;
                     }
-                    
+
                     double toplamTutar = alinacakMiktar * alis;
                     if (bakiye < toplamTutar) {
                         player.sendMessage(ChatColor.RED + "Yeterli paranız yok! Gerekli: $" + toplamTutar);
@@ -361,10 +363,15 @@ public class MenuManager implements Listener {
                         return;
                     }
 
-                    // Önce stok kasadan düşülür (yer açılır), sonra para kasaya girer
-                    plugin.setChestStock(kasa.getInventory(), mat, blockMat, stok - alinacakMiktar);
+                    // Önce stok kasadan düşülür (fiziksel + sanal taşmadan, yer açılır), sonra para kasaya girer
+                    if (!plugin.kasadanEsyaCek(kasa.getInventory(), mat, blockMat, alinacakMiktar)) {
+                        player.sendMessage(ChatColor.RED + "Belediye kasasında " + mat.name() + " stoku tükenmiş!");
+                        player.closeInventory();
+                        return;
+                    }
                     if (!plugin.kasayaParaEkle(toplamTutar)) {
-                        plugin.setChestStock(kasa.getInventory(), mat, blockMat, stok);
+                        // Para eklenemezse (teorik olarak artık hep true döner) stoğu geri ekle.
+                        plugin.kasayaEsyaEkle(kasa.getInventory(), mat, blockMat, alinacakMiktar);
                         player.sendMessage(ChatColor.RED + "Belediye kasası dolu, işlem yapılamadı!");
                         return;
                     }
@@ -390,20 +397,18 @@ public class MenuManager implements Listener {
                     }
 
                     int satilacakMiktar = (click == ClickType.SHIFT_RIGHT) ? oyuncudakiMiktar : 1;
-                    int stok = plugin.getChestStock(kasa.getInventory(), mat, blockMat);
                     double kazanilanPara = satilacakMiktar * satis;
 
-                    if (!plugin.stokSigarMi(kasa.getInventory(), mat, blockMat, stok + satilacakMiktar)) {
-                        player.sendMessage(ChatColor.RED + "Belediye kasası tamamen dolu!"); 
-                        return;
-                    }
+                    // ÖNEMLİ: fiziksel sandıkta bu eşya için yer olmasa bile satış artık REDDEDİLMİYOR -
+                    // paradaki taşma kasası mantığının aynısı: sığarsa fiziksel kasaya girer, sığmazsa
+                    // miktar sanal taşma stoğuna yazılır, oyuncunun eşyaları her zaman alınır.
                     if (!plugin.kasadanParaCek(kazanilanPara)) {
                         player.sendMessage(ChatColor.RED + "Belediye kasasında bu alımı karşılayacak nakit yok! Başkan kasaya para koymalı.");
                         return;
                     }
 
                     plugin.removeItemFromInventory(player.getInventory(), mat, satilacakMiktar);
-                    plugin.setChestStock(kasa.getInventory(), mat, blockMat, stok + satilacakMiktar);
+                    plugin.kasayaEsyaEkle(kasa.getInventory(), mat, blockMat, satilacakMiktar);
                     plugin.bankaHesaplari.put(pId, bakiye + kazanilanPara);
                     plugin.veriKaydet();
                     

@@ -111,6 +111,14 @@ public class Commands implements CommandExecutor {
             } else {
                 player.sendMessage(ChatColor.GREEN + "Sanal taşma kasasında bekleyen bakiye yok.");
             }
+            if (!plugin.virtualStok.isEmpty()) {
+                player.sendMessage(ChatColor.RED + "Sanal taşma stoğu (eşya):");
+                for (java.util.Map.Entry<org.bukkit.Material, Integer> e : plugin.virtualStok.entrySet()) {
+                    player.sendMessage(ChatColor.GRAY + " - " + e.getKey().name() + ": " + ChatColor.WHITE + e.getValue() + " adet");
+                }
+            } else {
+                player.sendMessage(ChatColor.GREEN + "Sanal taşma stoğunda bekleyen eşya yok.");
+            }
             player.sendMessage(ChatColor.YELLOW + "========================================");
             return true;
         }
