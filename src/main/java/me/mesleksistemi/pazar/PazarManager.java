@@ -76,6 +76,15 @@ public class PazarManager implements Listener, CommandExecutor {
     private final Map<UUID, PendingListing> bekleyenIlan = new HashMap<>();
     private final Map<UUID, GuiContext> acikGui = new HashMap<>();
 
+    // GÜVENLİK: veriYukle() başarıyla bitmeden standlar haritası gerçek veriyi temsil ETMEZ
+    // (boş ya da eksik olabilir). Böyle bir anda herhangi bir pazar işlemi veriKaydetPazar()'ı
+    // çağırırsa, o eksik/boş hafıza diskteki GERÇEK veriyi (başka oyuncuların standlarını,
+    // satılmamış eşyalarını) KALICI OLARAK SİLER - çünkü veriKaydetPazar() önce "pazar_standlari"
+    // anahtarının tamamını siliyor, sonra sadece hafızadakileri yeniden yazıyor. Bu tam olarak
+    // performanskrem'in standındaki satılmamış eşyaların geri dönüşü olmadan kaybolmasına sebep
+    // olan hataydı. Artık veriKaydetPazar() veriYukle() gerçekten tamamlanmadan ASLA diske yazmaz.
+    private boolean standVeriYuklendi = false;
+
     public PazarManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         this.standKey = new NamespacedKey(plugin, "pazar_stand");
@@ -247,6 +256,8 @@ public class PazarManager implements Listener, CommandExecutor {
             mevcut.stok += miktar;
             p.getInventory().setItemInMainHand(null);
             veriKaydetPazar();
+            plugin.ekonomiLog("pazar-ilan-ekle", p.getName(), "Stand " + standId + " | " + miktar + "x "
+                    + mevcut.ornek.getType().name() + " stoğa eklendi | yeni stok: " + mevcut.stok + " | fiyat: $" + fmt(mevcut.fiyat));
             p.sendMessage(ChatColor.GREEN + "" + miktar + " adet " + esyaGorunenIsim(mevcut.ornek) + " stoğa eklendi. Yeni stok: "
                     + mevcut.stok + " §7(Fiyat: $" + fmt(mevcut.fiyat) + "/adet)");
             p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
@@ -255,6 +266,12 @@ public class PazarManager implements Listener, CommandExecutor {
 
         p.getInventory().setItemInMainHand(null);
         bekleyenIlan.put(p.getUniqueId(), new PendingListing(standId, ornekAday, miktar));
+        // Eşya bu noktada elden alındı ama henüz hiçbir yere (envantere, standa, diske) kayıtlı değil -
+        // sadece bu bekleyenIlan girişinde. Oyuncu fiyatı yazmadan ölür/çıkarsa onQuit bunu geri veriyor,
+        // ama bu anı loglamak (performanskrem olayında olduğu gibi ileride "eşyam nereye gitti" sorularını
+        // araştırabilmek için) faydalı; önceden bu adım HİÇ loglanmıyordu.
+        plugin.ekonomiLog("pazar-ilan-beklemede", p.getName(), "Stand " + standId + " | " + miktar + "x "
+                + ornekAday.getType().name() + " elden alındı, fiyat bekleniyor.");
         p.sendMessage(ChatColor.GOLD + esyaGorunenIsim(ornekAday) + ChatColor.YELLOW + " için birim fiyatı (adet başına $) sohbete yazın. İptal için 'iptal' yazın.");
     }
 
@@ -299,6 +316,8 @@ public class PazarManager implements Listener, CommandExecutor {
             l.stok = pl.miktar;
             s.listings.put(UUID.randomUUID().toString(), l);
             veriKaydetPazar();
+            plugin.ekonomiLog("pazar-ilan-ekle", p.getName(), "Stand " + pl.standId + " | " + pl.miktar + "x "
+                    + pl.ornek.getType().name() + " yeni ilan olarak satışa çıkarıldı | fiyat: $" + fmt(fiyat));
             p.sendMessage(ChatColor.GREEN + esyaGorunenIsim(pl.ornek) + " $" + fmt(fiyat) + " birim fiyatla satışa çıkarıldı! ("
                     + pl.miktar + " adet)");
             p.playSound(p.getLocation(), Sound.ENTITY_VILLAGER_YES, 1.0f, 1.0f);
@@ -835,6 +854,14 @@ public class PazarManager implements Listener, CommandExecutor {
 
     // ------------------------------------------------------------------ KALICILIK (config.yml -> pazar_standlari.*)
     public void veriKaydetPazar() {
+        if (!standVeriYuklendi) {
+            // Hafızadaki standlar veriYukle() tamamlanmadan güvenilir değil. Böyle bir anda
+            // diske yazarsak diskteki gerçek veriyi (henüz hafızaya hiç yüklenmemiş standları)
+            // sileriz. Bu yüzden hiçbir şey yapmadan çıkıyoruz; bir sonraki başarılı veriYukle()
+            // sonrası kayıtlar normal şekilde devam eder, veri kaybı olmaz.
+            plugin.getLogger().warning("[Pazar] veriKaydetPazar() veriYukle() tamamlanmadan çağrıldı, atlandı (veri kaybını önlemek için).");
+            return;
+        }
         plugin.getConfig().set("pazar_standlari", null);
         for (Stand s : standlar.values()) {
             String yol = "pazar_standlari." + s.id;
@@ -853,30 +880,53 @@ public class PazarManager implements Listener, CommandExecutor {
 
     private void veriYukle() {
         standlar.clear();
-        if (!plugin.getConfig().isConfigurationSection("pazar_standlari")) return;
-        for (String standId : plugin.getConfig().getConfigurationSection("pazar_standlari").getKeys(false)) {
-            Stand s = new Stand(standId);
-            String yol = "pazar_standlari." + standId;
-            String sahipStr = plugin.getConfig().getString(yol + ".sahip");
-            if (sahipStr != null) {
+        standVeriYuklendi = false;
+        try {
+            if (!plugin.getConfig().isConfigurationSection("pazar_standlari")) {
+                standVeriYuklendi = true; // bölüm hiç yok (ör. temiz kurulum): bu geçerli/boş bir durum
+                return;
+            }
+            for (String standId : plugin.getConfig().getConfigurationSection("pazar_standlari").getKeys(false)) {
                 try {
-                    s.sahip = UUID.fromString(sahipStr);
-                } catch (IllegalArgumentException ignored) {
+                    Stand s = new Stand(standId);
+                    String yol = "pazar_standlari." + standId;
+                    String sahipStr = plugin.getConfig().getString(yol + ".sahip");
+                    if (sahipStr != null) {
+                        try {
+                            s.sahip = UUID.fromString(sahipStr);
+                        } catch (IllegalArgumentException ignored) {
+                        }
+                    }
+                    if (plugin.getConfig().isConfigurationSection(yol + ".urunler")) {
+                        for (String listingId : plugin.getConfig().getConfigurationSection(yol + ".urunler").getKeys(false)) {
+                            try {
+                                String uYol = yol + ".urunler." + listingId;
+                                ItemStack ornek = plugin.getConfig().getItemStack(uYol + ".esya");
+                                if (ornek == null) continue; // eski format (sadece Material) ya da bozuk kayıt: atla
+                                Listing l = new Listing();
+                                l.ornek = ornek;
+                                l.fiyat = plugin.getConfig().getDouble(uYol + ".fiyat");
+                                l.stok = plugin.getConfig().getInt(uYol + ".stok");
+                                s.listings.put(listingId, l);
+                            } catch (Exception listingEx) {
+                                // Bir ilan bozuksa SADECE onu atla; standın tamamını ya da diğer
+                                // standları hafızadan (ve sonraki kayıtta diskten) silmeye sebep olmasın.
+                                plugin.getLogger().warning("[Pazar] Stand " + standId + " / ilan " + listingId
+                                        + " yüklenemedi, atlanıyor: " + listingEx);
+                            }
+                        }
+                    }
+                    standlar.put(standId, s);
+                } catch (Exception standEx) {
+                    // Aynı mantık: bir stand bozuksa diğerlerini riske atmayalım.
+                    plugin.getLogger().warning("[Pazar] Stand " + standId + " yüklenemedi, atlanıyor: " + standEx);
                 }
             }
-            if (plugin.getConfig().isConfigurationSection(yol + ".urunler")) {
-                for (String listingId : plugin.getConfig().getConfigurationSection(yol + ".urunler").getKeys(false)) {
-                    String uYol = yol + ".urunler." + listingId;
-                    ItemStack ornek = plugin.getConfig().getItemStack(uYol + ".esya");
-                    if (ornek == null) continue; // eski format (sadece Material) ya da bozuk kayıt: atla
-                    Listing l = new Listing();
-                    l.ornek = ornek;
-                    l.fiyat = plugin.getConfig().getDouble(uYol + ".fiyat");
-                    l.stok = plugin.getConfig().getInt(uYol + ".stok");
-                    s.listings.put(listingId, l);
-                }
-            }
-            standlar.put(standId, s);
+            standVeriYuklendi = true;
+        } catch (Exception ex) {
+            // Beklenmeyen bir şey olsa bile standVeriYuklendi=false kalır, böylece
+            // veriKaydetPazar() diske yazmayı reddedip mevcut veriyi korur.
+            plugin.getLogger().severe("[Pazar] Pazar verisi yüklenirken beklenmeyen hata, standlar KAYDEDİLMEYECEK (veri korunuyor): " + ex);
         }
     }
 }
