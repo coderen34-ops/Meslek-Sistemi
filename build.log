@@ -1,0 +1,33 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -------------------< me.mesleksistemi:MeslekSistemi >-------------------
+[INFO] Building MeslekSistemi 1.0
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.4.0:resources (default-resources) @ MeslekSistemi ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.14.1:compile (default-compile) @ MeslekSistemi ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 34 source files with javac [debug release 25] to target/classes
+[INFO] /home/runner/work/Meslek-Sistemi/Meslek-Sistemi/src/main/java/me/mesleksistemi/Commands.java: Some input files use or override a deprecated API.
+[INFO] /home/runner/work/Meslek-Sistemi/Meslek-Sistemi/src/main/java/me/mesleksistemi/Commands.java: Recompile with -Xlint:deprecation for details.
+[INFO] 
+[INFO] --- resources:3.4.0:testResources (default-testResources) @ MeslekSistemi ---
+[INFO] skip non existing resourceDirectory /home/runner/work/Meslek-Sistemi/Meslek-Sistemi/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ MeslekSistemi ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] --- surefire:3.5.4:test (default-test) @ MeslekSistemi ---
+[INFO] No tests to run.
+[INFO] 
+[INFO] --- jar:3.5.0:jar (default-jar) @ MeslekSistemi ---
+[INFO] Building jar: /home/runner/work/Meslek-Sistemi/Meslek-Sistemi/target/MeslekSistemi-1.0.jar
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  7.890 s
+[INFO] Finished at: 2026-10-21T21:13:47Z
+[INFO] ------------------------------------------------------------------------
