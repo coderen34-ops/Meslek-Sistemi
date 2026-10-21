@@ -144,21 +144,24 @@ public class MeslekSistemi extends JavaPlugin {
         meslekFiyatlari.put("avukat", 300.0); meslekFiyatlari.put("polis", 600.0); 
         meslekFiyatlari.put("taseron", 150.0); meslekFiyatlari.put("hakim", 600.0); 
         meslekFiyatlari.put("belediyecalisani", 200.0); meslekFiyatlari.put("oduncu", 250.0);
+        meslekFiyatlari.put("ciftci", 200.0); meslekFiyatlari.put("balikci", 250.0);
 
         // MESLEK GÖRÜNÜM ADLARI
         meslekGorunumAdlari.put("madenci", "Madenci"); meslekGorunumAdlari.put("doktor", "Doktor");
-        meslekGorunumAdlari.put("avukat", "Avukat"); meslekGorunumAdlari.put("polis", "Polis"); 
-        meslekGorunumAdlari.put("taseron", "Taseron"); meslekGorunumAdlari.put("hakim", "Hakim"); 
+        meslekGorunumAdlari.put("avukat", "Avukat"); meslekGorunumAdlari.put("polis", "Polis");
+        meslekGorunumAdlari.put("taseron", "Taseron"); meslekGorunumAdlari.put("hakim", "Hakim");
         meslekGorunumAdlari.put("belediyecalisani", "Belediye Calisani");
-        meslekGorunumAdlari.put("belediyebaskani", "Belediye Baskani"); 
+        meslekGorunumAdlari.put("belediyebaskani", "Belediye Baskani");
         meslekGorunumAdlari.put("amir", "Amir"); meslekGorunumAdlari.put("mahkum", "Mahkum"); meslekGorunumAdlari.put("oduncu", "Oduncu");
-        
+        meslekGorunumAdlari.put("ciftci", "Ciftci"); meslekGorunumAdlari.put("balikci", "Balikci");
+
         // MAAŞ MİKTARLARI
         maasMiktarlari.put("vatandas", 50.0); maasMiktarlari.put("taseron", 80.0);
         maasMiktarlari.put("madenci", 100.0); maasMiktarlari.put("avukat", 150.0);
-        maasMiktarlari.put("belediyecalisani", 150.0); maasMiktarlari.put("polis", 250.0); maasMiktarlari.put("amir", 350.0); 
-        maasMiktarlari.put("doktor", 300.0); maasMiktarlari.put("hakim", 400.0); 
+        maasMiktarlari.put("belediyecalisani", 150.0); maasMiktarlari.put("polis", 250.0); maasMiktarlari.put("amir", 350.0);
+        maasMiktarlari.put("doktor", 300.0); maasMiktarlari.put("hakim", 400.0);
         maasMiktarlari.put("belediyebaskani", 500.0); maasMiktarlari.put("oduncu", 100.0);
+        maasMiktarlari.put("ciftci", 100.0); maasMiktarlari.put("balikci", 100.0);
 
         ohalBar = Bukkit.createBossBar(
             ChatColor.DARK_RED + "" + ChatColor.BOLD + "DİKKAT: SOKAĞA ÇIKMA YASAĞI AKTİFTİR - HERKES EVLERİNE DÖNSÜN!", 
@@ -266,6 +269,8 @@ public class MeslekSistemi extends JavaPlugin {
         getServer().getPluginManager().registerEvents(this.toptanciManager, this);
         if (getCommand("madencinpc") != null) getCommand("madencinpc").setExecutor(this.toptanciManager);
         if (getCommand("oduncunpc") != null) getCommand("oduncunpc").setExecutor(this.toptanciManager);
+        if (getCommand("ciftcinpc") != null) getCommand("ciftcinpc").setExecutor(this.toptanciManager);
+        if (getCommand("balikcinpc") != null) getCommand("balikcinpc").setExecutor(this.toptanciManager);
 
         // ENTEGRASYON 9: KiraManager (Kiralık Evler & GriefPrevention3D Trust)
         this.kiraManager = new KiraManager(this);

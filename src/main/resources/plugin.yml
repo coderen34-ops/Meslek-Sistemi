@@ -200,6 +200,14 @@ commands:
     description: Oduncu Ticaret NPC'sini kurar veya siler.
     usage: /oduncunpc <kur|sil>
     permission: ticaret.admin
+  ciftcinpc:
+    description: Ciftci Ticaret NPC'sini kurar veya siler.
+    usage: /ciftcinpc <kur|sil>
+    permission: ticaret.admin
+  balikcinpc:
+    description: Balikci Ticaret NPC'sini kurar veya siler.
+    usage: /balikcinpc <kur|sil>
+    permission: ticaret.admin
   indirim:
     description: Tuccar indirim kampanyasini yonetir.
     usage: /indirim <durum|bitir|baslat>

@@ -34,16 +34,22 @@ public class ToptanciManager implements Listener, CommandExecutor {
     private final MeslekSistemi plugin;
     private final NamespacedKey madenciNpcKey;
     private final NamespacedKey oduncuNpcKey;
+    private final NamespacedKey ciftciNpcKey;
+    private final NamespacedKey balikciNpcKey;
 
     private final HashMap<Material, Integer> stoklar = new HashMap<>();
 
     private final List<Material> madenciEsyalari = new ArrayList<>();
     private final List<Material> oduncuEsyalari = new ArrayList<>();
+    private final List<Material> ciftciEsyalari = new ArrayList<>();
+    private final List<Material> balikciEsyalari = new ArrayList<>();
 
     public ToptanciManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         this.madenciNpcKey = new NamespacedKey(plugin, "madenci_npc");
         this.oduncuNpcKey = new NamespacedKey(plugin, "oduncu_npc");
+        this.ciftciNpcKey = new NamespacedKey(plugin, "ciftci_npc");
+        this.balikciNpcKey = new NamespacedKey(plugin, "balikci_npc");
 
         esyalariYukle();
         veriYukleStok();
@@ -73,6 +79,16 @@ public class ToptanciManager implements Listener, CommandExecutor {
                 "WARPED_STEM", "WARPED_PLANKS",
                 "BAMBOO_BLOCK", "BAMBOO_PLANKS",
                 "PALE_OAK_LOG", "PALE_OAK_PLANKS"
+        );
+
+        loadMaterialsSafely(ciftciEsyalari,
+                "WHEAT", "CARROT", "POTATO", "BEETROOT",
+                "PUMPKIN", "MELON", "SUGAR_CANE",
+                "APPLE", "BREAD"
+        );
+
+        loadMaterialsSafely(balikciEsyalari,
+                "COD", "SALMON", "TROPICAL_FISH", "PUFFERFISH"
         );
     }
 
@@ -108,8 +124,23 @@ public class ToptanciManager implements Listener, CommandExecutor {
         }
 
         if (name.contains("LOG") || name.contains("WOOD") || name.contains("STEM")) return 4.00; // Normal ağaçlar (devlete $2)
-        if (name.contains("PLANKS")) return 1.00; 
-        
+        if (name.contains("PLANKS")) return 1.00;
+
+        // ÇİFTÇİ FİYATLARI
+        if (mat == Material.PUMPKIN || mat == Material.MELON) return 3.00;
+        if (mat == Material.SUGAR_CANE) return 1.80;
+        if (mat == Material.BEETROOT) return 1.60;
+        if (mat == Material.CARROT || mat == Material.POTATO) return 1.40;
+        if (mat == Material.WHEAT) return 1.20;
+        if (mat == Material.BREAD) return 2.00;
+        if (mat == Material.APPLE) return 2.40;
+
+        // BALIKÇI FİYATLARI
+        if (mat == Material.PUFFERFISH) return 5.00; // Nadir/riskli
+        if (mat == Material.TROPICAL_FISH) return 4.00;
+        if (mat == Material.SALMON) return 3.00;
+        if (mat == Material.COD) return 2.20;
+
         return 0.50;
     }
 
@@ -170,6 +201,48 @@ public class ToptanciManager implements Listener, CommandExecutor {
             return true;
         }
 
+        if (command.getName().equalsIgnoreCase("ciftcinpc")) {
+            if (args[0].equalsIgnoreCase("kur")) {
+                Villager npc = (Villager) player.getWorld().spawnEntity(player.getLocation(), EntityType.VILLAGER);
+                npc.setAI(false); npc.setInvulnerable(true); npc.setCollidable(false);
+                npc.setCustomName(ChatColor.YELLOW + "" + ChatColor.BOLD + "Çiftçi Pazarı");
+                npc.setCustomNameVisible(true);
+                npc.setProfession(Villager.Profession.FARMER);
+                npc.getPersistentDataContainer().set(ciftciNpcKey, PersistentDataType.BYTE, (byte) 1);
+                player.sendMessage(ChatColor.GREEN + "Çiftçi NPC'si kuruldu!");
+            } else if (args[0].equalsIgnoreCase("sil")) {
+                int silinen = 0;
+                for (Entity entity : player.getNearbyEntities(5, 5, 5)) {
+                    if (entity instanceof Villager && entity.getPersistentDataContainer().has(ciftciNpcKey, PersistentDataType.BYTE)) {
+                        entity.remove(); silinen++;
+                    }
+                }
+                player.sendMessage(ChatColor.GREEN + "" + silinen + " adet Çiftçi NPC silindi.");
+            }
+            return true;
+        }
+
+        if (command.getName().equalsIgnoreCase("balikcinpc")) {
+            if (args[0].equalsIgnoreCase("kur")) {
+                Villager npc = (Villager) player.getWorld().spawnEntity(player.getLocation(), EntityType.VILLAGER);
+                npc.setAI(false); npc.setInvulnerable(true); npc.setCollidable(false);
+                npc.setCustomName(ChatColor.BLUE + "" + ChatColor.BOLD + "Balıkçı Pazarı");
+                npc.setCustomNameVisible(true);
+                npc.setProfession(Villager.Profession.FISHERMAN);
+                npc.getPersistentDataContainer().set(balikciNpcKey, PersistentDataType.BYTE, (byte) 1);
+                player.sendMessage(ChatColor.GREEN + "Balıkçı NPC'si kuruldu!");
+            } else if (args[0].equalsIgnoreCase("sil")) {
+                int silinen = 0;
+                for (Entity entity : player.getNearbyEntities(5, 5, 5)) {
+                    if (entity instanceof Villager && entity.getPersistentDataContainer().has(balikciNpcKey, PersistentDataType.BYTE)) {
+                        entity.remove(); silinen++;
+                    }
+                }
+                player.sendMessage(ChatColor.GREEN + "" + silinen + " adet Balıkçı NPC silindi.");
+            }
+            return true;
+        }
+
         return false;
     }
 
@@ -186,6 +259,12 @@ public class ToptanciManager implements Listener, CommandExecutor {
             } else if (npc.getPersistentDataContainer().has(oduncuNpcKey, PersistentDataType.BYTE)) {
                 event.setCancelled(true);
                 openMarketGUI(player, ChatColor.DARK_GREEN + "Oduncu Pazarı", oduncuEsyalari);
+            } else if (npc.getPersistentDataContainer().has(ciftciNpcKey, PersistentDataType.BYTE)) {
+                event.setCancelled(true);
+                openMarketGUI(player, ChatColor.YELLOW + "Çiftçi Pazarı", ciftciEsyalari);
+            } else if (npc.getPersistentDataContainer().has(balikciNpcKey, PersistentDataType.BYTE)) {
+                event.setCancelled(true);
+                openMarketGUI(player, ChatColor.BLUE + "Balıkçı Pazarı", balikciEsyalari);
             }
         }
     }
@@ -231,27 +310,56 @@ public class ToptanciManager implements Listener, CommandExecutor {
     private final java.util.Map<java.util.UUID, Long> gunlukSatisGunu = new java.util.HashMap<>();
     private final java.util.Map<java.util.UUID, Double> gunlukSatisToplam = new java.util.HashMap<>();
 
+    private static final String MADENCI_TITLE = ChatColor.DARK_GRAY + "Madenci Pazarı";
+    private static final String ODUNCU_TITLE = ChatColor.DARK_GREEN + "Oduncu Pazarı";
+    private static final String CIFTCI_TITLE = ChatColor.YELLOW + "Çiftçi Pazarı";
+    private static final String BALIKCI_TITLE = ChatColor.BLUE + "Balıkçı Pazarı";
+
+    private List<Material> esyaListesiForTitle(String title) {
+        if (title.equals(MADENCI_TITLE)) return madenciEsyalari;
+        if (title.equals(ODUNCU_TITLE)) return oduncuEsyalari;
+        if (title.equals(CIFTCI_TITLE)) return ciftciEsyalari;
+        if (title.equals(BALIKCI_TITLE)) return balikciEsyalari;
+        return null;
+    }
+
+    private String jobForTitle(String title) {
+        if (title.equals(MADENCI_TITLE)) return "madenci";
+        if (title.equals(ODUNCU_TITLE)) return "oduncu";
+        if (title.equals(CIFTCI_TITLE)) return "ciftci";
+        if (title.equals(BALIKCI_TITLE)) return "balikci";
+        return null;
+    }
+
+    private String jobDisplayForTitle(String title) {
+        if (title.equals(MADENCI_TITLE)) return "Madenci";
+        if (title.equals(ODUNCU_TITLE)) return "Oduncu";
+        if (title.equals(CIFTCI_TITLE)) return "Çiftçi";
+        if (title.equals(BALIKCI_TITLE)) return "Balıkçı";
+        return null;
+    }
+
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         String title = event.getView().getTitle();
-        if (!title.equals(ChatColor.DARK_GRAY + "Madenci Pazarı") && !title.equals(ChatColor.DARK_GREEN + "Oduncu Pazarı")) return;
+        List<Material> esyaListesi = esyaListesiForTitle(title);
+        if (esyaListesi == null) return;
 
         event.setCancelled(true);
         if (event.getClickedInventory() == null) return;
 
         Player player = (Player) event.getWhoClicked();
-        
-        if (event.getClickedInventory().equals(player.getInventory())) return; 
+
+        if (event.getClickedInventory().equals(player.getInventory())) return;
 
         ItemStack clickedItem = event.getCurrentItem();
         if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
 
         Material mat = clickedItem.getType();
         ClickType click = event.getClick();
-        boolean isMadenciMenu = title.equals(ChatColor.DARK_GRAY + "Madenci Pazarı");
-        String requiredJob = isMadenciMenu ? "madenci" : "oduncu";
-        String jobDisplay = isMadenciMenu ? "Madenci" : "Oduncu";
-        
+        String requiredJob = jobForTitle(title);
+        String jobDisplay = jobDisplayForTitle(title);
+
         int mevcutStok = stoklar.getOrDefault(mat, 0);
 
         if (click == ClickType.RIGHT || click == ClickType.SHIFT_RIGHT) {
@@ -311,7 +419,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
             player.sendMessage(ChatColor.GREEN + "Devlete " + satilacakMiktar + " adet " + mat.name().replace("_", " ") + " sattın! Hesabına " + ChatColor.YELLOW + "$" + formatted + ChatColor.GREEN + " yattı.");
             player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
             
-            openMarketGUI(player, title, isMadenciMenu ? madenciEsyalari : oduncuEsyalari);
+            openMarketGUI(player, title, esyaListesi);
             return;
         }
 
@@ -354,7 +462,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.GREEN + "Pazardan " + alinacakMiktar + " adet blok satın aldın! Ödediğin " + ChatColor.YELLOW + "$" + formatted + ChatColor.GREEN + " doğrudan Belediye Kasasına eklendi.");
                 player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
                 
-                openMarketGUI(player, title, isMadenciMenu ? madenciEsyalari : oduncuEsyalari);
+                openMarketGUI(player, title, esyaListesi);
             }
         }
     }
