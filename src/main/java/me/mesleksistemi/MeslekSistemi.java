@@ -107,6 +107,7 @@ public class MeslekSistemi extends JavaPlugin {
     public ToptanciManager toptanciManager;
     public me.mesleksistemi.basarim.BasarimManager basarimManager;
     public me.mesleksistemi.bounty.BountyManager bountyManager;
+    public me.mesleksistemi.gorev.GorevManager gorevManager;
     public KiraManager kiraManager;
     public PazarManager pazarManager;
     private SecimManager secimManager;
@@ -300,6 +301,12 @@ public class MeslekSistemi extends JavaPlugin {
         getServer().getPluginManager().registerEvents(this.pazarManager, this);
         if (getCommand("pazarnpc") != null) getCommand("pazarnpc").setExecutor(this.pazarManager);
 
+        // YENİ ENTEGRASYON 11: GorevManager (Görev Sistemi - Entry #4, Faz 2 temel altyapısı)
+        this.gorevManager = new me.mesleksistemi.gorev.GorevManager(this);
+        getServer().getPluginManager().registerEvents(this.gorevManager, this);
+        if (getCommand("gorevnpc") != null) getCommand("gorevnpc").setExecutor(this.gorevManager);
+        if (getCommand("gorevlerim") != null) getCommand("gorevlerim").setExecutor(this.gorevManager);
+
         veriYukle();
         ayarlariHazirla();
 
@@ -353,6 +360,7 @@ public class MeslekSistemi extends JavaPlugin {
         if (this.pazarManager != null) this.pazarManager.veriKaydetPazar();
         if (this.basarimManager != null) this.basarimManager.veriKaydet();
         if (this.bountyManager != null) this.bountyManager.veriKaydet();
+        if (this.gorevManager != null) this.gorevManager.veriKaydet();
         if (this.secimManager != null) this.secimManager.onDisable();
         if (this.etkilesimManager != null) this.etkilesimManager.onDisable();
         veriKaydet();

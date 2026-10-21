@@ -228,6 +228,17 @@ commands:
     usage: /bounty <koy <oyuncu> <miktar>|liste>
 
   # ==========================================
+  # GÖREV SİSTEMİ
+  # ==========================================
+  gorevnpc:
+    description: Gorev Panosu NPC'sini kurar veya siler.
+    usage: /gorevnpc <kur|sil>
+    permission: meslek.admin
+  gorevlerim:
+    description: Aktif ve tamamlanan gorevlerini listeler.
+    usage: /gorevlerim
+
+  # ==========================================
   # OYUNCU PAZARLARI (KİRALANABİLİR STAND NPC'LERİ)
   # ==========================================
   pazarnpc:
