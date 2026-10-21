@@ -105,6 +105,8 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.sistem.EtkilesimManager etkilesimManager;
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
+    public me.mesleksistemi.basarim.BasarimManager basarimManager;
+    public me.mesleksistemi.bounty.BountyManager bountyManager;
     public KiraManager kiraManager;
     public PazarManager pazarManager;
     private SecimManager secimManager;
@@ -272,6 +274,16 @@ public class MeslekSistemi extends JavaPlugin {
         if (getCommand("ciftcinpc") != null) getCommand("ciftcinpc").setExecutor(this.toptanciManager);
         if (getCommand("balikcinpc") != null) getCommand("balikcinpc").setExecutor(this.toptanciManager);
 
+        // YENİ ENTEGRASYON 9: BasarimManager (Başarım Sistemi - Entry #4, Faz 1)
+        this.basarimManager = new me.mesleksistemi.basarim.BasarimManager(this);
+        getServer().getPluginManager().registerEvents(this.basarimManager, this);
+        if (getCommand("basarimlarim") != null) getCommand("basarimlarim").setExecutor(this.basarimManager);
+
+        // YENİ ENTEGRASYON 10: BountyManager (Bounty Sistemi - Entry #4, Faz 1)
+        this.bountyManager = new me.mesleksistemi.bounty.BountyManager(this);
+        getServer().getPluginManager().registerEvents(this.bountyManager, this);
+        if (getCommand("bounty") != null) getCommand("bounty").setExecutor(this.bountyManager);
+
         // ENTEGRASYON 9: KiraManager (Kiralık Evler & GriefPrevention3D Trust)
         this.kiraManager = new KiraManager(this);
         getServer().getPluginManager().registerEvents(this.kiraManager, this);
@@ -339,6 +351,8 @@ public class MeslekSistemi extends JavaPlugin {
         if (this.saglikManager != null) this.saglikManager.veriKaydetSaglik();
         if (this.toptanciManager != null) this.toptanciManager.veriKaydetStok();
         if (this.pazarManager != null) this.pazarManager.veriKaydetPazar();
+        if (this.basarimManager != null) this.basarimManager.veriKaydet();
+        if (this.bountyManager != null) this.bountyManager.veriKaydet();
         if (this.secimManager != null) this.secimManager.onDisable();
         if (this.etkilesimManager != null) this.etkilesimManager.onDisable();
         veriKaydet();

@@ -214,6 +214,20 @@ commands:
     permission: ticaret.admin
 
   # ==========================================
+  # BAŞARIM SİSTEMİ
+  # ==========================================
+  basarimlarim:
+    description: Kazandigin ve kazanmadigin basarimlari listeler.
+    usage: /basarimlarim
+
+  # ==========================================
+  # BOUNTY (ÖDÜLLÜ AVCILIK) SİSTEMİ
+  # ==========================================
+  bounty:
+    description: Bir oyuncuya para karsiligi odul koyar veya aktif odulleri listeler.
+    usage: /bounty <koy <oyuncu> <miktar>|liste>
+
+  # ==========================================
   # OYUNCU PAZARLARI (KİRALANABİLİR STAND NPC'LERİ)
   # ==========================================
   pazarnpc:
