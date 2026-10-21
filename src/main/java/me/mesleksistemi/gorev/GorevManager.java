@@ -150,7 +150,7 @@ public class GorevManager implements Listener, CommandExecutor {
                         entity.remove(); silinen++;
                     }
                 }
-                player.sendMessage(silinen > 0 ? ChatColor.GREEN + silinen + " Görev Panosu NPC'si silindi." : ChatColor.RED + "Yakında Görev Panosu NPC'si bulunamadı.");
+                player.sendMessage(silinen > 0 ? ChatColor.GREEN + "" + silinen + " Görev Panosu NPC'si silindi." : ChatColor.RED + "Yakında Görev Panosu NPC'si bulunamadı.");
             }
             return true;
         }
