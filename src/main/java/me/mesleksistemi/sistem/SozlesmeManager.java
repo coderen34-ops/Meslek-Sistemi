@@ -129,13 +129,18 @@ public class SozlesmeManager implements Listener, CommandExecutor {
             if (!sozlesme.isciUUID.equals(player.getUniqueId()) || !sozlesme.durum.equals("TEKLIF")) return true;
 
             aktifSozlesmeler.remove(sozlesmeID);
+            // Teklif oluşturulduğu anda tutar işverenden zaten emanete (escrow) alınmıştı (bkz. aşağı).
+            // İşçi reddederse para doğrudan işverene İADE edilir - kimsede askıda kalmaz.
+            emanetiIadeEt(sozlesme);
             veriKaydet();
             kitaplariSil(player, sozlesmeID);
             player.sendMessage(ChatColor.RED + "İş teklifini reddettiniz.");
 
             Player isveren = Bukkit.getPlayer(sozlesme.isverenUUID);
             if (isveren != null && isveren.isOnline()) {
-                isveren.sendMessage(ChatColor.RED + player.getName() + " iş teklifinizi REDDETTİ!");
+                isveren.sendMessage(ChatColor.RED + player.getName() + " iş teklifinizi REDDETTİ! Emanetteki $" + sozlesme.tutar + " hesabınıza iade edildi.");
+            } else {
+                plugin.ekonomiLog("sozlesme-emanet-iade", sozlesme.isverenAdi, "RED (işçi reddetti) " + sozlesmeID + " | $" + sozlesme.tutar + " iade edildi.");
             }
             return true;
         }
@@ -194,45 +199,34 @@ public class SozlesmeManager implements Listener, CommandExecutor {
             Player isci = Bukkit.getPlayer(sozlesme.isciUUID);
             kitaplariSil(player, sozlesmeID);
 
+            // GÜNCELLEME (escrow): tutar artık teklif oluşturulduğu anda işverenden zaten çekilip
+            // emanete alınmıştı (bkz. onChat asama==3). Burada tekrar bakiye/kasa kontrolü ve
+            // çekim YAPILMAZ - aksi halde işveren parayı teklif ile onay arasında başka yere
+            // harcarsa işçi hiç ödeme alamazdı (eski bug). KABUL'de emanetteki para işçiye GEÇER,
+            // RED'de emanetteki para işverene İADE edilir. Her iki durumda da para zaten
+            // sistemde kilitli olduğu için yeni bir bakiye/kasa yetersizliği hatası oluşamaz.
             if (karar.equalsIgnoreCase("KABUL")) {
-                if (sozlesme.tip.equals("NORMAL")) {
-                    double isverenBakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
-                    if (isverenBakiye < sozlesme.tutar) {
-                        player.sendMessage(ChatColor.RED + "Dijital banka hesabınızda yeterli bakiye yok! Önce para yatırın.");
-                        sendFaturaKitabi(player, sozlesmeID, sozlesme);
-                        return true;
-                    }
-                    plugin.bankaHesaplari.put(player.getUniqueId(), isverenBakiye - sozlesme.tutar);
-                    player.sendMessage(ChatColor.GREEN + "Ödeme onaylandı. " + sozlesme.tutar + "$ şahsi hesabınızdan kesildi.");
-
-                } else if (sozlesme.tip.equals("BELEDIYE")) {
-                    if (plugin.getKasa() == null) {
-                        player.sendMessage(ChatColor.RED + "Belediye kasası bulunamadı! Ödeme yapılamıyor.");
-                        sendFaturaKitabi(player, sozlesmeID, sozlesme);
-                        return true;
-                    }
-                    if (!plugin.kasadanParaCek(sozlesme.tutar)) {
-                        player.sendMessage(ChatColor.RED + "Belediye kasasında yeterli fiziksel nakit kalmamış! Fatura bekletiliyor.");
-                        sendFaturaKitabi(player, sozlesmeID, sozlesme);
-                        return true;
-                    }
-                    player.sendMessage(ChatColor.GREEN + "Ödeme onaylandı. " + sozlesme.tutar + "$ Belediye Kasasından kesildi.");
-                    plugin.ekonomiLog("belediye-sozlesme", player.getName(), "ÖDENDİ " + sozlesmeID + " | işçi: " + sozlesme.isciAdi + " | $" + sozlesme.tutar);
-                }
-
                 double isciBakiye = plugin.bankaHesaplari.getOrDefault(sozlesme.isciUUID, 0.0);
                 plugin.bankaHesaplari.put(sozlesme.isciUUID, isciBakiye + sozlesme.tutar);
+                plugin.veriKaydet();
+
+                if (sozlesme.tip.equals("BELEDIYE")) {
+                    plugin.ekonomiLog("belediye-sozlesme", player.getName(), "ÖDENDİ (emanetten) " + sozlesmeID + " | işçi: " + sozlesme.isciAdi + " | $" + sozlesme.tutar);
+                } else {
+                    plugin.ekonomiLog("sozlesme-emanet-odeme", player.getName(), "ÖDENDİ (emanetten) " + sozlesmeID + " | işçi: " + sozlesme.isciAdi + " | $" + sozlesme.tutar);
+                }
+                player.sendMessage(ChatColor.GREEN + "Ödeme onaylandı. Emanette tutulan " + sozlesme.tutar + "$ işçiye aktarıldı.");
 
                 aktifSozlesmeler.remove(sozlesmeID);
                 veriKaydet();
-                plugin.veriKaydet();
                 if (isci != null && isci.isOnline()) {
                     isci.sendMessage(ChatColor.GREEN + "İşveren işlemi onayladı! Hesabınıza " + sozlesme.tutar + "$ yatırıldı.");
                 }
             } else if (karar.equalsIgnoreCase("RED")) {
+                emanetiIadeEt(sozlesme);
                 aktifSozlesmeler.remove(sozlesmeID);
                 veriKaydet();
-                player.sendMessage(ChatColor.RED + "Sözleşme iptal edildi ve ödeme reddedildi.");
+                player.sendMessage(ChatColor.RED + "Sözleşme iptal edildi, ödeme yapılmadı. Emanetteki $" + sozlesme.tutar + " hesabınıza/kasaya iade edildi.");
                 if (isci != null && isci.isOnline()) {
                     isci.sendMessage(ChatColor.DARK_RED + "İşveren işi yetersiz buldu ve sözleşmeyi iptal etti. Ödeme yapılmadı.");
                 }
@@ -349,6 +343,12 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                     if (taslak.tutar <= 0) throw new NumberFormatException();
 
                     if (taslak.tip.equals("NORMAL")) {
+                        double ustLimit = plugin.sahsiSozlesmeUstLimit();
+                        if (taslak.tutar > ustLimit) {
+                            player.sendMessage(ChatColor.RED + "❌ Şahsi sözleşme emanete (escrow) en fazla $" + ustLimit + " olabilir!");
+                            player.sendMessage(ChatColor.GRAY + "Daha düşük bir tutar girin veya iptal etmek için 'iptal' yazın.");
+                            return;
+                        }
                         double mevcutBakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
                         if (mevcutBakiye < taslak.tutar) {
                             player.sendMessage(ChatColor.RED + "❌ SÖZLEŞME BAŞLATILAMADI!");
@@ -406,6 +406,38 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                         taslaklar.remove(player.getUniqueId());
                         return;
                     }
+                } else if (taslak.tip.equals("NORMAL") && taslak.tutar > plugin.sahsiSozlesmeUstLimit()) {
+                    // Aşama 2'den bu yana ayar değişmiş olabilir diye burada da tekrar kontrol edilir
+                    player.sendMessage(ChatColor.RED + "❌ Tutar emanet üst limitini ($" + plugin.sahsiSozlesmeUstLimit() + ") aşıyor. Sözleşme iptal edildi.");
+                    taslaklar.remove(player.getUniqueId());
+                    return;
+                }
+
+                // GÜNCELLEME (escrow): tutar artık KABUL/onay anına kadar beklenmeden, teklif
+                // gönderilirken HEMEN işverenden (ya da belediye kasasından) çekilip emanete
+                // alınır. Böylece işveren teklif ile işçi onayı arasındaki sürede parayı başka
+                // yere harcayıp işçiyi ödemesiz bırakamaz (eski bug: ödeme sadece KABUL anında
+                // kontrol ediliyordu). Çekim başarısız olursa sözleşme hiç oluşturulmaz.
+                if (taslak.tip.equals("NORMAL")) {
+                    double guncelBakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
+                    if (guncelBakiye < taslak.tutar) {
+                        player.sendMessage(ChatColor.RED + "❌ SÖZLEŞME BAŞLATILAMADI! Bakiyeniz az önce değişti ve artık yeterli değil. (Mevcut: $" + guncelBakiye + ")");
+                        taslaklar.remove(player.getUniqueId());
+                        return;
+                    }
+                    plugin.bankaHesaplari.put(player.getUniqueId(), guncelBakiye - taslak.tutar);
+                    plugin.veriKaydet();
+                } else { // BELEDIYE
+                    if (plugin.getKasa() == null) {
+                        player.sendMessage(ChatColor.RED + "❌ HATA: Belediye Kasası bulunamadı! Sözleşme iptal edildi.");
+                        taslaklar.remove(player.getUniqueId());
+                        return;
+                    }
+                    if (!plugin.kasadanParaCek(taslak.tutar)) {
+                        player.sendMessage(ChatColor.RED + "❌ SÖZLEŞME BAŞLATILAMADI! Belediye kasasında fiziksel nakit az önce yetersiz kaldı.");
+                        taslaklar.remove(player.getUniqueId());
+                        return;
+                    }
                 }
 
                 String sozlesmeID = UUID.randomUUID().toString().substring(0, 8);
@@ -422,9 +454,12 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                 if (aktif.tip.equals("BELEDIYE")) {
                     // Bekleme teklif gönderildiği an başlar (işçi reddetse bile); oyuncu bazlı, başkan değişse de geçerli
                     plugin.getConfig().set(BEKLEME_YOLU + "." + isci.getUniqueId(), System.currentTimeMillis());
-                    plugin.ekonomiLog("belediye-sozlesme", player.getName(), "TEKLİF " + sozlesmeID + " | işçi: " + isci.getName() + " | $" + aktif.tutar);
+                    plugin.ekonomiLog("belediye-sozlesme", player.getName(), "TEKLİF (emanete alındı) " + sozlesmeID + " | işçi: " + isci.getName() + " | $" + aktif.tutar);
+                } else {
+                    plugin.ekonomiLog("sozlesme-emanet-al", player.getName(), "TEKLİF (emanete alındı) " + sozlesmeID + " | işçi: " + isci.getName() + " | $" + aktif.tutar);
                 }
                 veriKaydet();
+                player.sendMessage(ChatColor.GRAY + "($" + aktif.tutar + " şimdi emanete alındı; işçi reddederse veya siz iptal ederseniz iade edilir.)");
 
                 sendTeklifKitabi(isci, sozlesmeID, aktif);
                 aktif.bildirildi = true; // İşçinin çevrimiçi olduğu az önce doğrulandı (yukarıda)
@@ -604,6 +639,28 @@ public class SozlesmeManager implements Listener, CommandExecutor {
     private String kitapIdsi(ItemStack item) {
         if (item == null || item.getType() != Material.WRITTEN_BOOK || !item.hasItemMeta()) return null;
         return item.getItemMeta().getPersistentDataContainer().get(kitapKey, PersistentDataType.STRING);
+    }
+
+    // GÜNCELLEME (escrow): teklif oluşturulduğu anda çekilip emanete alınan tutarı işverene
+    // (NORMAL -> şahsi banka hesabı, BELEDIYE -> belediye kasası) iade eder. İşçi reddettiğinde
+    // veya işveren işi yetersiz bulup RED kararı verdiğinde çağrılır. Para sözleşme oluşurken
+    // zaten çekildiği için burada her zaman bir iade vardır - "para kaybı" riski yoktur.
+    private void emanetiIadeEt(AktifSozlesme sozlesme) {
+        if (sozlesme.tip.equals("BELEDIYE")) {
+            if (!plugin.kasayaParaEkle(sozlesme.tutar)) {
+                // Kasa bulunamadı/doluysa dahi parayı KAYBETMEYİZ: belediye başkanının/en son
+                // bilinen sorumlunun hesabına geçici olarak yatırıp loglarız.
+                double bakiye = plugin.bankaHesaplari.getOrDefault(sozlesme.isverenUUID, 0.0);
+                plugin.bankaHesaplari.put(sozlesme.isverenUUID, bakiye + sozlesme.tutar);
+                plugin.veriKaydet();
+                plugin.getLogger().warning("[Sözleşme] Belediye kasasına iade başarısız, $" + sozlesme.tutar
+                        + " geçici olarak " + sozlesme.isverenAdi + " şahsi hesabına yatırıldı.");
+            }
+        } else {
+            double bakiye = plugin.bankaHesaplari.getOrDefault(sozlesme.isverenUUID, 0.0);
+            plugin.bankaHesaplari.put(sozlesme.isverenUUID, bakiye + sozlesme.tutar);
+            plugin.veriKaydet();
+        }
     }
 
     // Sözleşmeler sunucu yeniden başlasa da kaybolmasın

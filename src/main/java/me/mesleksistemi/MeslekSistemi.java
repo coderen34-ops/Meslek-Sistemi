@@ -438,6 +438,7 @@ public class MeslekSistemi extends JavaPlugin {
     public static final String AYAR_BASVURU_PRIM = "basvuru-prim";
     public static final String AYAR_BASVURU_PRIM_GUNLUK = "basvuru-prim-gunluk-limit";
     public static final String AYAR_SOZLESME_UST_LIMIT = "belediye-sozlesme-ust-limit";
+    public static final String AYAR_SAHSI_SOZLESME_UST_LIMIT = "sahsi-sozlesme-emanet-ust-limit";
     public static final String AYAR_SOZLESME_BEKLEME = "belediye-sozlesme-bekleme-dakika";
     public static final String AYAR_TOPTANCI_GUNLUK = "toptanci-gunluk-limit";
     public static final String AYAR_PAZAR_KIRA = "pazar-kiralama-fiyati";
@@ -447,7 +448,7 @@ public class MeslekSistemi extends JavaPlugin {
         boolean degisti = false;
         Object[][] varsayilanlar = {
                 {AYAR_BASVURU_PRIM, 30.0}, {AYAR_BASVURU_PRIM_GUNLUK, 20},
-                {AYAR_SOZLESME_UST_LIMIT, 10000.0}, {AYAR_SOZLESME_BEKLEME, 60},
+                {AYAR_SOZLESME_UST_LIMIT, 10000.0}, {AYAR_SAHSI_SOZLESME_UST_LIMIT, 50000.0}, {AYAR_SOZLESME_BEKLEME, 60},
                 {AYAR_TOPTANCI_GUNLUK, 20000.0}, {"secim-bypass-cevrimdisi-dakika", 60},
                 {AYAR_PAZAR_KIRA, 20000.0}, {AYAR_PAZAR_VERGI, 10.0}};
         for (Object[] v : varsayilanlar) {
@@ -476,6 +477,9 @@ public class MeslekSistemi extends JavaPlugin {
     public double basvuruPrimi() { return Math.min(ayarSayi(AYAR_BASVURU_PRIM, 30.0), basvuruPrimUstSiniri()); }
     public int basvuruPrimGunlukLimit() { return (int) ayarSayi(AYAR_BASVURU_PRIM_GUNLUK, 20); }
     public double belediyeSozlesmeUstLimit() { return ayarSayi(AYAR_SOZLESME_UST_LIMIT, 10000.0); }
+    /** Şahsi sözleşmelerde bir seferde emanete (escrow) alınabilecek maksimum tutar - büyük bir tutarın
+     *  uzun süre kilitli kalmasının riskini sınırlar (Entry #4 escrow üst sınırı). */
+    public double sahsiSozlesmeUstLimit() { return ayarSayi(AYAR_SAHSI_SOZLESME_UST_LIMIT, 50000.0); }
     /** Bir oyuncunun toptancıya günde satabileceği toplam tutar (0 = sınırsız). */
     public double toptanciGunlukLimit() { return ayarSayi(AYAR_TOPTANCI_GUNLUK, 20000.0); }
     public long belediyeSozlesmeBeklemeMs() { return (long) ayarSayi(AYAR_SOZLESME_BEKLEME, 60) * 60_000L; }
