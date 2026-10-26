@@ -365,7 +365,7 @@ public class MeslekSistemi extends JavaPlugin {
         kayitlarBiriktiriliyor = true;
         if (this.saglikManager != null) this.saglikManager.veriKaydetSaglik();
         if (this.toptanciManager != null) this.toptanciManager.veriKaydetStok();
-        if (this.pazarManager != null) this.pazarManager.veriKaydetPazar();
+        if (this.pazarManager != null) { this.pazarManager.veriKaydetPazar(); this.pazarManager.depoyuKapat(); }
         if (this.basarimManager != null) this.basarimManager.veriKaydet();
         if (this.bountyManager != null) this.bountyManager.veriKaydet();
         if (this.gorevManager != null) this.gorevManager.veriKaydet();

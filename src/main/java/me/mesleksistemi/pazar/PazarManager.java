@@ -893,25 +893,41 @@ public class PazarManager implements Listener, CommandExecutor {
             plugin.getLogger().warning("[Pazar] veriKaydetPazar() veriYukle() tamamlanmadan çağrıldı, atlandı (veri kaybını önlemek için).");
             return;
         }
-        plugin.getConfig().set("pazar_standlari", null);
-        for (Stand s : standlar.values()) {
-            String yol = "pazar_standlari." + s.id;
-            if (s.sahip != null) plugin.getConfig().set(yol + ".sahip", s.sahip.toString());
-            for (Map.Entry<String, Listing> e : s.listings.entrySet()) {
-                String uYol = yol + ".urunler." + e.getKey();
-                // YamlConfiguration ItemStack'i (ConfigurationSerializable) TAM meta'sıyla
-                // (büyü, iksir efekti, isim, lore, NBT) native olarak serileştirir/geri okur.
-                plugin.getConfig().set(uYol + ".esya", e.getValue().ornek);
-                plugin.getConfig().set(uYol + ".fiyat", e.getValue().fiyat);
-                plugin.getConfig().set(uYol + ".stok", e.getValue().stok);
+        if (sqliteModu && deposu != null) {
+            try {
+                deposu.yaz(standlar);
+                return; // config.yml'deki eski bölüm geri dönüş kopyası olarak olduğu gibi kalır
+            } catch (Throwable t) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE, "[Pazar] SQLite yazımı BAŞARISIZ - veri config.yml'e yedek olarak yazılıyor", t);
+                veriKaydetConfig(); // veri kaybolmasın (bir sonraki açılışta DB eski kalabilir: uyarı için log yukarıda)
+                return;
             }
         }
-        plugin.saveConfig();
+        veriKaydetConfig();
     }
 
     private void veriYukle() {
         standlar.clear();
         standVeriYuklendi = false;
+        // 1) SQLite daha önce başarıyla devralındıysa gerçek kaynak odur (config'teki bölüm artık bayat yedektir)
+        Deposu d = new Deposu(plugin);
+        if (d.ac()) {
+            try {
+                if (d.migreEdildi()) {
+                    standlar.putAll(d.oku());
+                    deposu = d; sqliteModu = true; standVeriYuklendi = true;
+                    plugin.getLogger().info("[Pazar] Veri SQLite'tan (pazar.db) yüklendi: " + standlar.size() + " stand.");
+                    return;
+                }
+            } catch (Throwable t) {
+                // DB var ve "migre edildi" ama okunamıyor: bayat config'i ASLA gerçek veri sayma, kaydı kapat.
+                plugin.getLogger().log(java.util.logging.Level.SEVERE, "[Pazar] pazar.db okunamadı - kayıt KAPALI (veri korunuyor). pazar.db'yi kontrol edin.", t);
+                standlar.clear();
+                standVeriYuklendi = false;
+                return;
+            }
+            deposu = d; // henüz migre edilmedi: aşağıda config'ten yüklenince geçiş denenecek
+        }
         try {
             if (!plugin.getConfig().isConfigurationSection("pazar_standlari")) {
                 standVeriYuklendi = true; // bölüm hiç yok (ör. temiz kurulum): bu geçerli/boş bir durum
@@ -954,10 +970,214 @@ public class PazarManager implements Listener, CommandExecutor {
                 }
             }
             standVeriYuklendi = true;
+            if (deposu != null) {
+                // config.yml'in tam yedeği, geçişten ÖNCE
+                try {
+                    java.io.File cfg = new java.io.File(plugin.getDataFolder(), "config.yml");
+                    java.io.File yedek = new java.io.File(plugin.getDataFolder(), "config.yml.pre-sqlite-pazar-" + System.currentTimeMillis());
+                    java.nio.file.Files.copy(cfg.toPath(), yedek.toPath());
+                    if (java.nio.file.Files.size(yedek.toPath()) != java.nio.file.Files.size(cfg.toPath())) throw new IllegalStateException("yedek boyutu uyuşmuyor");
+                    sqliteModu = deposu.migreEtVeDogrula(standlar);
+                    plugin.getLogger().info(sqliteModu
+                            ? "[Pazar] SQLite geçişi TAMAM ve doğrulandı (" + standlar.size() + " stand). Yedek: " + yedek.getName()
+                            : "[Pazar] SQLite geçişi yapılamadı, config.yml modunda devam ediliyor.");
+                } catch (Throwable t) {
+                    sqliteModu = false;
+                    plugin.getLogger().log(java.util.logging.Level.SEVERE, "[Pazar] SQLite geçişi öncesi yedek alınamadı - geçiş YAPILMADI, config.yml modunda devam", t);
+                }
+            }
         } catch (Exception ex) {
             // Beklenmeyen bir şey olsa bile standVeriYuklendi=false kalır, böylece
             // veriKaydetPazar() diske yazmayı reddedip mevcut veriyi korur.
             plugin.getLogger().severe("[Pazar] Pazar verisi yüklenirken beklenmeyen hata, standlar KAYDEDİLMEYECEK (veri korunuyor): " + ex);
         }
     }
+
+    // ------------------------------------------------------------------ SQLITE DEPOSU (pazar_standlari: config.yml -> pazar.db)
+    // KRİTİK KURAL (changelog, SQLite geçişi): veri kaybı OLMAYACAK. Bu yüzden:
+    //  1) geçişten önce config.yml'in tam yedeği alınır,
+    //  2) veri SQLite'a tek transaction'da yazılır, sonra DB'den geri OKUNUP bellekteki orijinalle alan alan karşılaştırılır,
+    //  3) herhangi bir uyuşmazlık/hata -> geçiş geri alınır, sistem config.yml ile (eski yol) çalışmaya devam eder,
+    //  4) config.yml'deki "pazar_standlari" bölümü ASLA silinmez/değiştirilmez (geri dönüş kopyası olarak kalır).
+    private Deposu deposu = null;      // null = SQLite modu kapalı (config.yml modu)
+    private boolean sqliteModu = false;
+
+    private static final class Deposu {
+        private final MeslekSistemi plugin;
+        private final java.io.File dosya;
+        private java.sql.Connection c;
+
+        Deposu(MeslekSistemi plugin) {
+            this.plugin = plugin;
+            this.dosya = new java.io.File(plugin.getDataFolder(), "pazar.db");
+        }
+
+        boolean ac() {
+            try {
+                if (!plugin.getDataFolder().exists()) plugin.getDataFolder().mkdirs();
+                Class.forName("org.sqlite.JDBC");
+                c = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dosya.getAbsolutePath());
+                try (java.sql.Statement st = c.createStatement()) {
+                    st.execute("PRAGMA journal_mode=WAL");
+                    st.execute("PRAGMA synchronous=FULL");
+                    st.execute("CREATE TABLE IF NOT EXISTS pazar_meta (k TEXT PRIMARY KEY, v TEXT)");
+                    st.execute("CREATE TABLE IF NOT EXISTS pazar_stand (id TEXT PRIMARY KEY, sahip TEXT)");
+                    st.execute("CREATE TABLE IF NOT EXISTS pazar_ilan (stand_id TEXT, ilan_id TEXT, esya TEXT NOT NULL, fiyat REAL, stok INTEGER, PRIMARY KEY (stand_id, ilan_id))");
+                }
+                return true;
+            } catch (Throwable t) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE, "[Pazar] pazar.db açılamadı, config.yml modunda devam ediliyor", t);
+                return false;
+            }
+        }
+
+        void kapat() { try { if (c != null) c.close(); } catch (Exception ignored) { } }
+
+        boolean migreEdildi() throws java.sql.SQLException {
+            try (java.sql.PreparedStatement ps = c.prepareStatement("SELECT v FROM pazar_meta WHERE k='migrasyon'");
+                 java.sql.ResultSet rs = ps.executeQuery()) {
+                return rs.next() && "tamam".equals(rs.getString(1));
+            }
+        }
+
+        static String esyaYaz(ItemStack it) {
+            org.bukkit.configuration.file.YamlConfiguration y = new org.bukkit.configuration.file.YamlConfiguration();
+            y.set("i", it);
+            return y.saveToString();
+        }
+
+        static ItemStack esyaOku(String s) throws Exception {
+            org.bukkit.configuration.file.YamlConfiguration y = new org.bukkit.configuration.file.YamlConfiguration();
+            y.loadFromString(s);
+            ItemStack it = y.getItemStack("i");
+            if (it == null) throw new IllegalStateException("eşya okunamadı");
+            return it;
+        }
+
+        private static boolean kalici(Stand s) { return s.sahip != null || !s.listings.isEmpty(); }
+
+        /** Tüm veriyi tek transaction'da yazar (ya hep ya hiç). */
+        void yaz(Map<String, Stand> standlar) throws Exception {
+            boolean eskiOto = c.getAutoCommit();
+            c.setAutoCommit(false);
+            try {
+                try (java.sql.Statement st = c.createStatement()) {
+                    st.executeUpdate("DELETE FROM pazar_ilan");
+                    st.executeUpdate("DELETE FROM pazar_stand");
+                }
+                try (java.sql.PreparedStatement ps1 = c.prepareStatement("INSERT INTO pazar_stand (id, sahip) VALUES (?,?)");
+                     java.sql.PreparedStatement ps2 = c.prepareStatement("INSERT INTO pazar_ilan (stand_id, ilan_id, esya, fiyat, stok) VALUES (?,?,?,?,?)")) {
+                    for (Stand s : standlar.values()) {
+                        if (!kalici(s)) continue;
+                        ps1.setString(1, s.id);
+                        ps1.setString(2, s.sahip == null ? null : s.sahip.toString());
+                        ps1.executeUpdate();
+                        for (Map.Entry<String, Listing> e : s.listings.entrySet()) {
+                            ps2.setString(1, s.id);
+                            ps2.setString(2, e.getKey());
+                            ps2.setString(3, esyaYaz(e.getValue().ornek));
+                            ps2.setDouble(4, e.getValue().fiyat);
+                            ps2.setInt(5, e.getValue().stok);
+                            ps2.executeUpdate();
+                        }
+                    }
+                }
+                c.commit();
+            } catch (Exception e) {
+                try { c.rollback(); } catch (Exception ignored) { }
+                throw e;
+            } finally {
+                try { c.setAutoCommit(eskiOto); } catch (Exception ignored) { }
+            }
+        }
+
+        Map<String, Stand> oku() throws Exception {
+            Map<String, Stand> m = new LinkedHashMap<>();
+            try (java.sql.Statement st = c.createStatement(); java.sql.ResultSet rs = st.executeQuery("SELECT id, sahip FROM pazar_stand")) {
+                while (rs.next()) {
+                    Stand s = new Stand(rs.getString(1));
+                    String sh = rs.getString(2);
+                    if (sh != null) s.sahip = UUID.fromString(sh);
+                    m.put(s.id, s);
+                }
+            }
+            try (java.sql.Statement st = c.createStatement(); java.sql.ResultSet rs = st.executeQuery("SELECT stand_id, ilan_id, esya, fiyat, stok FROM pazar_ilan")) {
+                while (rs.next()) {
+                    Stand s = m.get(rs.getString(1));
+                    if (s == null) throw new IllegalStateException("ilan için stand yok: " + rs.getString(1));
+                    Listing l = new Listing();
+                    l.ornek = esyaOku(rs.getString(3));
+                    l.fiyat = rs.getDouble(4);
+                    l.stok = rs.getInt(5);
+                    s.listings.put(rs.getString(2), l);
+                }
+            }
+            return m;
+        }
+
+        /** Alan alan karşılaştırma; ilk farkı döndürür, eşitse null. */
+        static String fark(Map<String, Stand> a, Map<String, Stand> b) {
+            Map<String, Stand> ka = new java.util.TreeMap<>(), kb = new java.util.TreeMap<>();
+            for (Stand s : a.values()) if (kalici(s)) ka.put(s.id, s);
+            for (Stand s : b.values()) if (kalici(s)) kb.put(s.id, s);
+            if (!ka.keySet().equals(kb.keySet())) return "stand kümeleri farklı: " + ka.keySet() + " / " + kb.keySet();
+            for (Stand sa : ka.values()) {
+                Stand sb = kb.get(sa.id);
+                if (!java.util.Objects.equals(sa.sahip, sb.sahip)) return "sahip farklı: " + sa.id;
+                if (!sa.listings.keySet().equals(sb.listings.keySet())) return "ilan kümeleri farklı: " + sa.id;
+                for (Map.Entry<String, Listing> e : sa.listings.entrySet()) {
+                    Listing la = e.getValue(), lb = sb.listings.get(e.getKey());
+                    if (Double.compare(la.fiyat, lb.fiyat) != 0) return "fiyat farklı: " + sa.id + "/" + e.getKey();
+                    if (la.stok != lb.stok) return "stok farklı: " + sa.id + "/" + e.getKey();
+                    if (!la.ornek.equals(lb.ornek) || !esyaYaz(la.ornek).equals(esyaYaz(lb.ornek))) return "eşya farklı: " + sa.id + "/" + e.getKey();
+                }
+            }
+            return null;
+        }
+
+        /** Config'ten okunmuş verinin DB'ye geçişi + doğrulaması. true = geçiş tam ve doğrulandı. */
+        boolean migreEtVeDogrula(Map<String, Stand> kaynak) {
+            try {
+                yaz(kaynak);
+                String fark = fark(kaynak, oku());
+                if (fark != null) {
+                    plugin.getLogger().severe("[Pazar] SQLite geçişi DOĞRULANAMADI (" + fark + ") - geri alınıyor, config.yml modunda devam.");
+                    temizle();
+                    return false;
+                }
+                try (java.sql.PreparedStatement ps = c.prepareStatement("INSERT OR REPLACE INTO pazar_meta (k, v) VALUES ('migrasyon', 'tamam')")) { ps.executeUpdate(); }
+                return true;
+            } catch (Throwable t) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE, "[Pazar] SQLite geçişi başarısız - geri alınıyor, config.yml modunda devam.", t);
+                try { temizle(); } catch (Throwable ignored) { }
+                return false;
+            }
+        }
+
+        void temizle() {
+            try (java.sql.Statement st = c.createStatement()) {
+                st.executeUpdate("DELETE FROM pazar_ilan");
+                st.executeUpdate("DELETE FROM pazar_stand");
+                st.executeUpdate("DELETE FROM pazar_meta WHERE k='migrasyon'");
+            } catch (Exception ignored) { }
+        }
+    }
+
+    /** Eski (config.yml) kaydı - SQLite modu kapalıyken ya da SQLite yazımı başarısız olduğunda kullanılır. */
+    private void veriKaydetConfig() {
+        plugin.getConfig().set("pazar_standlari", null);
+        for (Stand s : standlar.values()) {
+            String yol = "pazar_standlari." + s.id;
+            if (s.sahip != null) plugin.getConfig().set(yol + ".sahip", s.sahip.toString());
+            for (Map.Entry<String, Listing> e : s.listings.entrySet()) {
+                String uYol = yol + ".urunler." + e.getKey();
+                plugin.getConfig().set(uYol + ".esya", e.getValue().ornek);
+                plugin.getConfig().set(uYol + ".fiyat", e.getValue().fiyat);
+                plugin.getConfig().set(uYol + ".stok", e.getValue().stok);
+            }
+        }
+        plugin.saveConfig();
+    }
+
+    public void depoyuKapat() { if (deposu != null) deposu.kapat(); }
 }

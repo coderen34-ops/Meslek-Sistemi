@@ -6,6 +6,8 @@ description: Kapsamli Meslek, Ekonomi, Sozlesme, Secim, Hukuk, Ehliyet, Saglik v
 depend: [GriefPrevention]
 # Varsa önce bunlar yüklensin: rütbe (lp), oturma/yatma (lay/sit) ve kağıt para eklentileri
 softdepend: [LuckPerms, GSit, Economy, LibsDisguises, packetevents]
+libraries:
+  - org.xerial:sqlite-jdbc:3.46.1.3
 
 commands:
   # ==========================================
