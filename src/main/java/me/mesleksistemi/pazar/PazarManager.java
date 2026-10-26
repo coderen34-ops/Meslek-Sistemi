@@ -123,6 +123,7 @@ public class PazarManager implements Listener, CommandExecutor {
         String tip; // KIRALA, YONETIM, KATEGORI, LISTE
         String standId;
         Kategori kategori; // sadece LISTE
+        boolean satici; // true: stand sahibinin kategorili yönetim görünümü (aynı kategori mantığı, tıklayınca ilan kaldırır)
         int sayfa; // sadece LISTE (0 tabanlı)
         final Map<Integer, String> slotListingId = new HashMap<>();
         final Map<Integer, Kategori> slotKategori = new HashMap<>();
@@ -221,7 +222,9 @@ public class PazarManager implements Listener, CommandExecutor {
         if (s.sahip == null) {
             acKiralamaGui(p, standId);
         } else if (sahipMi) {
-            acYonetimGui(p, standId);
+            // Satıcı da müşterinin gördüğü kategorileri görür; hiç ilan yoksa eski yönetim ekranı (Standı Bırak) açılır
+            if (s.listings.isEmpty()) acYonetimGui(p, standId);
+            else acKategoriGui(p, standId);
         } else {
             acKategoriGui(p, standId);
         }
@@ -449,23 +452,32 @@ public class PazarManager implements Listener, CommandExecutor {
             boolean varMi = s.listings.values().stream().anyMatch(l -> Kategori.sinifla(l.ornek.getType()) == k);
             if (varMi) mevcutKategoriler.add(k);
         }
+        boolean satici = p.getUniqueId().equals(s.sahip);
         if (mevcutKategoriler.isEmpty()) {
+            if (satici) { acYonetimGui(p, standId); return; }
             p.sendMessage(ChatColor.YELLOW + "Bu standın şu anda satışta hiçbir ürünü yok.");
             return;
         }
 
         String sahipAdi = adiniBul(s.sahip);
-        Inventory gui = Bukkit.createInventory(null, 9, ChatColor.DARK_AQUA + sahipAdi + " Standı " + ChatColor.GRAY + "- Kategoriler");
+        Inventory gui = Bukkit.createInventory(null, 9, satici
+                ? ChatColor.GOLD + "Stand Yönetimi " + ChatColor.GRAY + "- Kategoriler"
+                : ChatColor.DARK_AQUA + sahipAdi + " Standı " + ChatColor.GRAY + "- Kategoriler");
         GuiContext ctx = new GuiContext();
         ctx.tip = "KATEGORI";
         ctx.standId = standId;
+        ctx.satici = satici;
 
         int slot = 0;
         for (Kategori k : mevcutKategoriler) {
             if (slot >= 9) break;
-            gui.setItem(slot, basitEsya(k.ikon, k.ad, List.of(ChatColor.GRAY + "Tıkla ve ürünleri gör.")));
+            gui.setItem(slot, basitEsya(k.ikon, k.ad, List.of(ChatColor.GRAY + (satici ? "Tıkla, bu kategorideki ilanlarını yönet." : "Tıkla ve ürünleri gör."))));
             ctx.slotKategori.put(slot, k);
             slot++;
+        }
+        if (satici) {
+            gui.setItem(8, basitEsya(Material.BARRIER, ChatColor.RED + "Standı Bırak",
+                    List.of(ChatColor.GRAY + "Kiralamayı sonlandırır, satılmamış", ChatColor.GRAY + "stok envanterine geri verilir.")));
         }
 
         // ÖNEMLİ: openInventory() önce çağrılmalı. Oyuncunun zaten açık bir Pazar GUI'si varsa
@@ -506,12 +518,14 @@ public class PazarManager implements Listener, CommandExecutor {
 
         // Sayfa boyutu her zaman sabit çift sandık (54 slot): üst 5 sıra (0-44) ürünler,
         // alt sıra (45-53) navigasyon için ayrılmış.
-        String baslik = ChatColor.DARK_AQUA + adiniBul(s.sahip) + " Standı " + ChatColor.GRAY + "- " + kategori.ad
+        boolean saticiGorunum = p.getUniqueId().equals(s.sahip);
+        String baslik = (saticiGorunum ? ChatColor.GOLD + "Stand Yönetimi" : ChatColor.DARK_AQUA + adiniBul(s.sahip) + " Standı") + ChatColor.GRAY + " - " + kategori.ad
                 + (toplamSayfa > 1 ? ChatColor.DARK_GRAY + " (" + (sayfa + 1) + "/" + toplamSayfa + ")" : "");
         Inventory gui = Bukkit.createInventory(null, 54, baslik);
         GuiContext ctx = new GuiContext();
         ctx.tip = "LISTE";
         ctx.standId = standId;
+        ctx.satici = p.getUniqueId().equals(s.sahip);
         ctx.kategori = kategori;
         ctx.sayfa = sayfa;
 
@@ -522,13 +536,17 @@ public class PazarManager implements Listener, CommandExecutor {
             Map.Entry<String, Listing> e = urunler.get(i);
             Listing l = e.getValue();
             ItemStack item = l.ornek.clone();
-            item.setAmount(1);
+            item.setAmount(saticiGorunum ? Math.max(1, Math.min(l.stok, item.getMaxStackSize())) : 1);
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Birim Fiyat: " + ChatColor.GREEN + "$" + fmt(l.fiyat));
+            lore.add(ChatColor.GRAY + (saticiGorunum ? "Fiyat: " : "Birim Fiyat: ") + ChatColor.GREEN + "$" + fmt(l.fiyat) + (saticiGorunum ? "/adet" : ""));
             lore.add(ChatColor.GRAY + "Stok: " + (l.stok > 0 ? ChatColor.AQUA + "" + l.stok : ChatColor.RED + "Tükendi"));
             lore.add("");
-            lore.add(ChatColor.YELLOW + "Sol tık: " + ChatColor.WHITE + "1 adet al");
-            lore.add(ChatColor.YELLOW + "Shift + Sol tık: " + ChatColor.WHITE + "Alabildiğin kadar al");
+            if (saticiGorunum) {
+                lore.add(ChatColor.YELLOW + "Tıkla: " + ChatColor.WHITE + "İlanı kaldır (stok sana geri verilir)");
+            } else {
+                lore.add(ChatColor.YELLOW + "Sol tık: " + ChatColor.WHITE + "1 adet al");
+                lore.add(ChatColor.YELLOW + "Shift + Sol tık: " + ChatColor.WHITE + "Alabildiğin kadar al");
+            }
             esyaLoreEkle(item, lore);
             gui.setItem(slot, item);
             ctx.slotListingId.put(slot, e.getKey());
@@ -657,6 +675,11 @@ public class PazarManager implements Listener, CommandExecutor {
                 break;
             }
             case "KATEGORI": {
+                if (ctx.satici && slot == 8) {
+                    p.closeInventory();
+                    standBirak(p, ctx.standId);
+                    return;
+                }
                 Kategori k = ctx.slotKategori.get(slot);
                 if (k != null) acListeGui(p, ctx.standId, k);
                 break;
@@ -682,6 +705,13 @@ public class PazarManager implements Listener, CommandExecutor {
                 if (s == null) return;
                 Listing l = s.listings.get(listingId);
                 if (l == null) return;
+                if (ctx.satici) {
+                    // Satıcı görünümü: aynı kategorili liste, tıklayınca ilan kaldırılır
+                    if (!p.getUniqueId().equals(s.sahip)) { p.closeInventory(); return; }
+                    ilanKaldir(p, s, listingId);
+                    acListeGui(p, ctx.standId, ctx.kategori, ctx.sayfa);
+                    return;
+                }
                 ClickType click = event.getClick();
                 int adet;
                 if (click == ClickType.SHIFT_LEFT) adet = hesaplaMaxAlinabilir(p, l);
