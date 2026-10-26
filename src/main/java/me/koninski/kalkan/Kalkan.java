@@ -58,6 +58,13 @@ public class Kalkan extends JavaPlugin implements Listener, CommandExecutor, Tab
     private long logAralikMs;
     private final Set<String> guvenilir = ConcurrentHashMap.newKeySet();
 
+    // Rezerve (yasakli) kullanici adlari, kucuk harfle tam eslesme. Config'te "rezerve-isimler" yoksa
+    // (eski config.yml'ler anahtari icermez) bu varsayilan liste kullanilir.
+    private static final List<String> VARSAYILAN_REZERVE_ISIMLER = List.of(
+            "null", "nil", "none", "undefined", "console", "konsol", "server", "sunucu",
+            "admin", "administrator", "root", "system", "owner", "operator", "op", "staff", "moderator");
+    private final Set<String> rezerveIsimler = ConcurrentHashMap.newKeySet();
+
     // IP -> deneme zamanlari
     private final Map<String, ArrayDeque<Long>> denemeler = new ConcurrentHashMap<>();
     // IP -> engel bitis zamani
@@ -117,6 +124,12 @@ public class Kalkan extends JavaPlugin implements Listener, CommandExecutor, Tab
         logAralikMs = Math.max(1, c.getInt("log-aralik-sn", 30)) * 1000L;
         guvenilir.clear();
         for (String s : c.getStringList("guvenilir-ipler")) guvenilir.add(s.trim());
+
+        rezerveIsimler.clear();
+        List<String> rezerve = c.contains("rezerve-isimler") ? c.getStringList("rezerve-isimler") : VARSAYILAN_REZERVE_ISIMLER;
+        for (String s : rezerve) {
+            if (s != null && !s.trim().isEmpty()) rezerveIsimler.add(s.trim().toLowerCase(Locale.ROOT));
+        }
     }
 
     // ------------------------------------------------------------------ kalici kayit
@@ -199,6 +212,13 @@ public class Kalkan extends JavaPlugin implements Listener, CommandExecutor, Tab
         // 1) ad kurali
         if (!adKurali.matcher(e.getName()).matches()) {
             reddet(e, ip, "gecersiz ad: " + e.getName().replaceAll("[^\\x20-\\x7E]", "?"), "Gecersiz kullanici adi.");
+            return;
+        }
+
+        // 1b) rezerve isimler (null, console, server, admin ...): giris/kayit baglanti kurulmadan reddedilir.
+        // AuthMe tek basina bu adlari engellemez; bu kontrol AuthMe'den once calisir (LOWEST).
+        if (rezerveIsimler.contains(e.getName().toLowerCase(Locale.ROOT))) {
+            reddet(e, ip, "rezerve ad: " + e.getName().replaceAll("[^\\x20-\\x7E]", "?"), "Bu kullanici adi kullanilamaz.");
             return;
         }
 

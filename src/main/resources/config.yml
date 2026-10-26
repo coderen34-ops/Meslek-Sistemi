@@ -3,6 +3,27 @@
 # Kullanici adi kurali (Minecraft'ta gecerli adlar). Bunun disindaki adlar baglanti kurmadan reddedilir.
 kullanici-adi-regex: "^[A-Za-z0-9_]{3,16}$"
 
+# Rezerve (yasakli) kullanici adlari: buyuk/kucuk harf fark etmez, TAM eslesme aranir (alt dize degil).
+# Bu adlarla giris ve kayit baglanti kurulmadan reddedilir. Bu anahtar config'te yoksa ayni varsayilan liste kullanilir.
+rezerve-isimler:
+  - "null"
+  - "nil"
+  - "none"
+  - "undefined"
+  - "console"
+  - "konsol"
+  - "server"
+  - "sunucu"
+  - "admin"
+  - "administrator"
+  - "root"
+  - "system"
+  - "owner"
+  - "operator"
+  - "op"
+  - "staff"
+  - "moderator"
+
 # Ayni IP'den kisa surede cok baglanti denemesi = engel
 baglanti:
   pencere-sn: 20          # bu kadar saniyelik pencerede say
