@@ -280,6 +280,7 @@ public class MeslekSistemi extends JavaPlugin {
         this.basarimManager = new me.mesleksistemi.basarim.BasarimManager(this);
         getServer().getPluginManager().registerEvents(this.basarimManager, this);
         if (getCommand("basarimlarim") != null) getCommand("basarimlarim").setExecutor(this.basarimManager);
+        if (getCommand("basarimsayac") != null) getCommand("basarimsayac").setExecutor(this.basarimManager);
 
         // YENİ ENTEGRASYON 10: BountyManager (Bounty Sistemi - Entry #4, Faz 1)
         this.bountyManager = new me.mesleksistemi.bounty.BountyManager(this);

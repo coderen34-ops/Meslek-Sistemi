@@ -215,6 +215,9 @@ commands:
   # ==========================================
   # BAŞARIM SİSTEMİ
   # ==========================================
+  basarimsayac:
+    description: Basarim sayacini artirir (Klan-Sistemi/Arena-Ligi konsol komutu).
+    usage: /basarimsayac <oyuncu> <sayac> [artis]
   basarimlarim:
     description: Kazandigin ve kazanmadigin basarimlari listeler.
     usage: /basarimlarim

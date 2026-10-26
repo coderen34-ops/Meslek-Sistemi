@@ -332,6 +332,7 @@ public class GorevManager implements Listener, CommandExecutor {
         plugin.veriKaydet();
         veriKaydet();
 
+        if (plugin.basarimManager != null) plugin.basarimManager.sayacArtir(player.getUniqueId(), "gorev", 1);
         plugin.ekonomiLog("gorev-tamamlandi", player.getName(), "Görev tamamlandı: " + g.id + " (" + g.ad + ") - ödül $" + fmt(g.odul));
 
         player.sendMessage("");
