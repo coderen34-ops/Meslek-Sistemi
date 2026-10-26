@@ -291,6 +291,9 @@ commands:
   tapunpc:
     description: Tapu dairesi NPC'sini kurar.
     usage: /tapunpc
+  kimlik:
+    description: Kimlik bilgilerini gosterir. Yetkili - /kimlik admin sil <oyuncu>
+    usage: /kimlik [admin sil <oyuncu>]
   kimlikbiyomsec:
     description: Kimlik icin dogum yeri biyomunu secer.
     usage: /kimlikbiyomsec

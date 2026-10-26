@@ -224,6 +224,48 @@ public class Commands implements CommandExecutor {
             return true;
         }
 
+        if (command.getName().equalsIgnoreCase("kimlik")) {
+            // /kimlik: kendi kimlik kaydını gösterir. /kimlik admin sil <oyuncu>: kaydı siler, oyuncuyu göçmen yapar (sadece meslek.admin)
+            if (args.length >= 1 && args[0].equalsIgnoreCase("admin")) {
+                if (!sender.hasPermission("meslek.admin")) { sender.sendMessage(ChatColor.RED + "Bu komut sadece yetkililer içindir."); return true; }
+                if (args.length < 3 || !args[1].equalsIgnoreCase("sil")) { sender.sendMessage(ChatColor.RED + "Kullanım: /kimlik admin sil <oyuncu>"); return true; }
+                org.bukkit.OfflinePlayer hedef = Bukkit.getPlayerExact(args[2]);
+                if (hedef == null) hedef = Bukkit.getOfflinePlayerIfCached(args[2]);
+                if (hedef == null) { sender.sendMessage(ChatColor.RED + "Oyuncu bulunamadı (bu sunucuya hiç girmemiş olabilir): " + args[2]); return true; }
+                UUID hid = hedef.getUniqueId();
+                String isim = hedef.getName() != null ? hedef.getName() : args[2];
+                String eskiMeslek = plugin.oyuncuMeslekCache.getOrDefault(hid, "?");
+                String eskiKayit = plugin.getConfig().getString("kimlikler." + hid + ".kimlik_no", "kayıtsız");
+                plugin.getConfig().set("kimlikler." + hid, null);
+                plugin.oyuncuMeslekCache.put(hid, "gocmen");
+                plugin.kimlikAsama.remove(hid); plugin.geciciKimlikler.remove(hid);
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent set gocmen");
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + isim + " gocmen");
+                plugin.veriKaydet();
+                plugin.ekonomiLog("kimlik-admin-sil", sender.getName(), isim + " kimliği silindi (kimlik " + eskiKayit + ", eski meslek " + eskiMeslek + ") - banka bakiyesi korundu");
+                sender.sendMessage(ChatColor.GREEN + isim + " kimliği silindi, göçmen statüsüne döndü. (Banka hesabı korundu.)");
+                Player online = Bukkit.getPlayerExact(isim);
+                if (online != null) online.sendMessage(ChatColor.RED + "Kimlik kaydınız bir yetkili tarafından silindi. Nüfus Müdürlüğü'nden yeniden kimlik çıkarmalısınız.");
+                return true;
+            }
+            if (!(sender instanceof Player)) { sender.sendMessage("Kullanım: /kimlik admin sil <oyuncu>"); return true; }
+            Player kp = (Player) sender;
+            String yol = "kimlikler." + kp.getUniqueId();
+            if (!plugin.getConfig().contains(yol)) {
+                String ms = plugin.oyuncuMeslekCache.getOrDefault(kp.getUniqueId(), "gocmen");
+                if (ms.equalsIgnoreCase("gocmen") || ms.equalsIgnoreCase("default")) kp.sendMessage(ChatColor.RED + "Kayıtlı bir kimliğiniz yok. Nüfus Müdürlüğü'nden kimlik çıkarın.");
+                else kp.sendMessage(ChatColor.YELLOW + "Kimliğiniz eski sistemle çıkarılmış; bilgileri envanterinizdeki Pasaport & Kimlik Kartı'nda yazar.");
+                return true;
+            }
+            kp.sendMessage(ChatColor.GOLD + "--- KİMLİK BİLGİLERİNİZ ---");
+            kp.sendMessage(ChatColor.GRAY + "İsim: " + ChatColor.WHITE + plugin.getConfig().getString(yol + ".isim", "?"));
+            kp.sendMessage(ChatColor.GRAY + "Soyisim: " + ChatColor.WHITE + plugin.getConfig().getString(yol + ".soyisim", "?"));
+            kp.sendMessage(ChatColor.GRAY + "Yaş: " + ChatColor.WHITE + plugin.getConfig().getInt(yol + ".yas", 0));
+            kp.sendMessage(ChatColor.GRAY + "Kütük: " + ChatColor.WHITE + plugin.getConfig().getString(yol + ".kutuk", "?"));
+            kp.sendMessage(ChatColor.DARK_RED + "Kimlik No: " + ChatColor.RED + plugin.getConfig().getString(yol + ".kimlik_no", "?"));
+            return true;
+        }
+
         if (command.getName().equalsIgnoreCase("kimlikbiyomsec")) {
             if (args.length == 0) return true;
             // Sadece Nüfus Müdürlüğü'nün sunduğu kütüklerden biri seçilebilir
@@ -407,6 +449,12 @@ public class Commands implements CommandExecutor {
         if (player.getInventory().firstEmpty() != -1) player.getInventory().addItem(kimlik);
         else player.getWorld().dropItem(player.getLocation(), kimlik);
 
+        String kyol = "kimlikler." + player.getUniqueId();
+        plugin.getConfig().set(kyol + ".isim", veri.isim);
+        plugin.getConfig().set(kyol + ".soyisim", veri.soyisim);
+        plugin.getConfig().set(kyol + ".yas", veri.yas);
+        plugin.getConfig().set(kyol + ".kutuk", veri.kutuk);
+        plugin.getConfig().set(kyol + ".kimlik_no", kimlikNo);
         plugin.oyuncuMeslekCache.put(player.getUniqueId(), "vatandas");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent set vatandas");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " vatandas");
