@@ -1,0 +1,16 @@
+name: KoninskiKalkan
+version: 1.0
+main: me.koninski.kalkan.Kalkan
+api-version: '26.2'
+description: Hafif bot ve baglanti seli (join flood) korumasi
+commands:
+  kalkan:
+    description: Kalkan koruma komutlari
+    usage: /kalkan <durum|saldiri|engel|ac|guvenli|reload>
+    permission: kalkan.admin
+permissions:
+  kalkan.admin:
+    default: op
+  kalkan.muaf:
+    description: IP basina online sinirina takilmaz
+    default: false
