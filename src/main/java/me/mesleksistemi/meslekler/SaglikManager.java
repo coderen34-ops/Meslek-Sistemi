@@ -535,6 +535,11 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
 
         if (player.getHealth() - event.getFinalDamage() <= 0) {
+            // Totem of Undying (ana el/yan el): baygınlığa düşmek yerine vanilla totem devreye girsin (varsayım: totem sadece elde çalışır, vanilla gibi)
+            if (player.getInventory().getItemInMainHand().getType() == Material.TOTEM_OF_UNDYING
+                    || player.getInventory().getItemInOffHand().getType() == Material.TOTEM_OF_UNDYING) {
+                return;
+            }
             event.setCancelled(true);
             UUID saldiran = saldiranOyuncu(event);
             if (saldiran != null) yaralayanlar.put(uuid, saldiran);
