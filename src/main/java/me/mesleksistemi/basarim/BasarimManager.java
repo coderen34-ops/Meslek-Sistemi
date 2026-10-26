@@ -125,6 +125,11 @@ public class BasarimManager implements Listener, CommandExecutor {
         // Zindan / Boss (Arena-Ligi konsoldan sayaç artırır)
         l.addAll(kademeli("Zindan/Boss", "zindan_boss", new String[]{"Zindan Avcısı", "Boss Kıran", "Derinlerin Efendisi", "Zindan Efsanesi"},
                 "{n} zindan boss'u öldürdün.", new long[]{1, 5, 15, 40}));
+        // Arena Ligi turnuvası (Arena-Ligi konsoldan sayaç artırır)
+        l.addAll(kademeli("Arena", "turnuva_katilim", new String[]{"Arenaya Adım", "Turnuva Müdavimi", "Arena Dostu", "Arenanın Kalbi"},
+                "{n} turnuvaya katıldın.", new long[]{1, 5, 15, 30}));
+        l.addAll(kademeli("Arena", "turnuva_sampiyon", new String[]{"Turnuva Şampiyonu", "Çifte Şampiyon", "Arena Hâkimi", "Efsane Şampiyon"},
+                "{n} turnuva kazandın.", new long[]{1, 3, 10, 25}));
         return List.copyOf(l);
     }
 
