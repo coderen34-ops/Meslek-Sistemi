@@ -361,7 +361,7 @@ public class KiraManager implements Listener, CommandExecutor {
     }
 
     // ------------------------------------------------------------------ NPC KOMUTLARI
-    private static final String NPC_KULLANIM = "Kullanım: /kiranpc <belediye|oyuncu|genel|binaisim <ad>|ozel kirala <isim>|ozel sil>";
+    private static final String NPC_KULLANIM = "Kullanım: /kiranpc <belediye|oyuncu|genel|binaisim <ad>|ozel kirala <isim>|ozel sil|ozel yeniden>";
 
     private Villager npcOlustur(Player p, String ad, byte tur) {
         Villager npc = (Villager) p.getWorld().spawnEntity(p.getLocation(), EntityType.VILLAGER);
@@ -412,6 +412,24 @@ public class KiraManager implements Listener, CommandExecutor {
 
     private void ozelNpcKomutu(Player p, String[] args) {
         if (args.length < 2) { p.sendMessage(ChatColor.RED + "Kullanım: /kiranpc ozel kirala <isim>  |  /kiranpc ozel sil"); return; }
+        if (args[1].equalsIgnoreCase("yeniden")) {
+            // NPC kaybolduysa (kayıt duruyor): ücretsiz, claim'e kayıtlı özel NPC'yi bulunduğun yere yeniden kurar
+            Claim cl = anaClaim(GriefPrevention.instance.dataStore.getClaimAt(p.getLocation(), false, null));
+            OzelNpc kayit = cl == null ? null : ozelNpcler.get(cl.getID());
+            if (kayit == null) { p.sendMessage(ChatColor.RED + "Bu claim için kayıtlı bir özel NPC yok (claim'in içinde durun)."); return; }
+            if (!p.hasPermission("kira.admin") && !p.getUniqueId().equals(kayit.sahip)) { p.sendMessage(ChatColor.RED + "Sadece NPC sahibi ya da yetkili kurabilir."); return; }
+            for (Villager v : p.getWorld().getEntitiesByClass(Villager.class)) { // aynı claim'e ait eski kopyaları temizle
+                Long cid = v.getPersistentDataContainer().get(npcClaimKey, PersistentDataType.LONG);
+                Byte tur = v.getPersistentDataContainer().get(npcKey, PersistentDataType.BYTE);
+                if (cid != null && cid.equals(cl.getID()) && tur != null && tur == NPC_OZEL) v.remove();
+            }
+            Villager npc = npcOlustur(p, ChatColor.AQUA + "" + ChatColor.BOLD + kayit.isim, NPC_OZEL);
+            npc.getPersistentDataContainer().set(npcSahipKey, PersistentDataType.STRING, kayit.sahip.toString());
+            npc.getPersistentDataContainer().set(npcClaimKey, PersistentDataType.LONG, cl.getID());
+            plugin.ekonomiLog("kira-ozel-npc", p.getName(), "Özel NPC '" + kayit.isim + "' yeniden kuruldu (claim " + cl.getID() + ")");
+            p.sendMessage(ChatColor.GREEN + "'" + kayit.isim + "' NPC'si bulunduğunuz yere yeniden kuruldu (ücretsiz).");
+            return;
+        }
         if (args[1].equalsIgnoreCase("sil")) {
             int silinen = 0;
             for (org.bukkit.entity.Entity e : p.getNearbyEntities(5, 5, 5)) {
