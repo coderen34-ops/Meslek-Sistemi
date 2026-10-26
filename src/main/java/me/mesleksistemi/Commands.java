@@ -250,19 +250,7 @@ public class Commands implements CommandExecutor {
             }
             if (!(sender instanceof Player)) { sender.sendMessage("Kullanım: /kimlik admin sil <oyuncu>"); return true; }
             Player kp = (Player) sender;
-            String yol = "kimlikler." + kp.getUniqueId();
-            if (!plugin.getConfig().contains(yol)) {
-                String ms = plugin.oyuncuMeslekCache.getOrDefault(kp.getUniqueId(), "gocmen");
-                if (ms.equalsIgnoreCase("gocmen") || ms.equalsIgnoreCase("default")) kp.sendMessage(ChatColor.RED + "Kayıtlı bir kimliğiniz yok. Nüfus Müdürlüğü'nden kimlik çıkarın.");
-                else kp.sendMessage(ChatColor.YELLOW + "Kimliğiniz eski sistemle çıkarılmış; bilgileri envanterinizdeki Pasaport & Kimlik Kartı'nda yazar.");
-                return true;
-            }
-            kp.sendMessage(ChatColor.GOLD + "--- KİMLİK BİLGİLERİNİZ ---");
-            kp.sendMessage(ChatColor.GRAY + "İsim: " + ChatColor.WHITE + plugin.getConfig().getString(yol + ".isim", "?"));
-            kp.sendMessage(ChatColor.GRAY + "Soyisim: " + ChatColor.WHITE + plugin.getConfig().getString(yol + ".soyisim", "?"));
-            kp.sendMessage(ChatColor.GRAY + "Yaş: " + ChatColor.WHITE + plugin.getConfig().getInt(yol + ".yas", 0));
-            kp.sendMessage(ChatColor.GRAY + "Kütük: " + ChatColor.WHITE + plugin.getConfig().getString(yol + ".kutuk", "?"));
-            kp.sendMessage(ChatColor.DARK_RED + "Kimlik No: " + ChatColor.RED + plugin.getConfig().getString(yol + ".kimlik_no", "?"));
+            kimlikVer(kp);
             return true;
         }
 
@@ -430,21 +418,119 @@ public class Commands implements CommandExecutor {
         }
     }
 
-    private void generateKimlik(Player player, MeslekSistemi.GeciciKimlik veri) {
+    /** Kimlik kartı eşyasını üretir (ilk çıkarma ve /kimlik ile yeniden verme aynı kartı üretir). */
+    private org.bukkit.inventory.ItemStack kimlikKarti(String isim, String soyisim, int yas, String kutuk, String kimlikNo) {
         org.bukkit.inventory.ItemStack kimlik = new org.bukkit.inventory.ItemStack(Material.PAPER);
         org.bukkit.inventory.meta.ItemMeta meta = kimlik.getItemMeta();
-        String kimlikNo = "TR-" + (100000 + new java.util.Random().nextInt(900000));
         meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + "Pasaport & Kimlik Kartı");
         java.util.List<String> lore = new java.util.ArrayList<>();
         lore.add(ChatColor.DARK_GRAY + "Resmi Belge"); lore.add("");
-        lore.add(ChatColor.GRAY + "İsim: " + ChatColor.WHITE + veri.isim);
-        lore.add(ChatColor.GRAY + "Soyisim: " + ChatColor.WHITE + veri.soyisim);
-        lore.add(ChatColor.GRAY + "Yaş: " + ChatColor.WHITE + veri.yas);
-        lore.add(ChatColor.GRAY + "Kütük: " + ChatColor.WHITE + veri.kutuk);
+        lore.add(ChatColor.GRAY + "İsim: " + ChatColor.WHITE + isim);
+        lore.add(ChatColor.GRAY + "Soyisim: " + ChatColor.WHITE + soyisim);
+        lore.add(ChatColor.GRAY + "Yaş: " + ChatColor.WHITE + yas);
+        lore.add(ChatColor.GRAY + "Kütük: " + ChatColor.WHITE + kutuk);
         lore.add(""); lore.add(ChatColor.DARK_RED + "Kimlik No: " + ChatColor.RED + kimlikNo);
         meta.setLore(lore);
         meta.getPersistentDataContainer().set(plugin.kimlikIdKey, PersistentDataType.STRING, kimlikNo);
         kimlik.setItemMeta(meta);
+        return kimlik;
+    }
+
+    private boolean kimlikMi(org.bukkit.inventory.ItemStack it, String no) {
+        if (it == null || it.getType() != Material.PAPER || !it.hasItemMeta()) return false;
+        String v = it.getItemMeta().getPersistentDataContainer().get(plugin.kimlikIdKey, PersistentDataType.STRING);
+        return v != null && (no == null || v.equals(no));
+    }
+
+    /** Envanterdeki eşleşen kimlik kartlarını siler; silinen adet. onBulunan: ilk bulunan kartı verir (eski kayıt için). */
+    private int envanterdenSil(org.bukkit.inventory.Inventory inv, String no, org.bukkit.inventory.ItemStack[] ilk) {
+        int n = 0;
+        for (int i = 0; i < inv.getSize(); i++) {
+            org.bukkit.inventory.ItemStack it = inv.getItem(i);
+            if (kimlikMi(it, no)) {
+                if (ilk[0] == null) ilk[0] = it.clone();
+                inv.setItem(i, null); n += Math.max(1, it.getAmount());
+            }
+        }
+        return n;
+    }
+
+    /** /kimlik: kimlik kartını oyuncunun envanterine getirir. Kart dünyada bir yerdeyse (yüklü alanlarda) oradan silinip taşınır; kopyalanmaz. */
+    private void kimlikVer(Player kp) {
+        String yol = "kimlikler." + kp.getUniqueId();
+        String ms = plugin.oyuncuMeslekCache.getOrDefault(kp.getUniqueId(), "gocmen");
+        if (ms.equalsIgnoreCase("gocmen") || ms.equalsIgnoreCase("default")) {
+            kp.sendMessage(ChatColor.RED + "Önce Nüfus Müdürlüğü'nden kimlik çıkarmalısınız.");
+            return;
+        }
+        long simdi = System.currentTimeMillis();
+        Long son = kimlikSonKullanim.get(kp.getUniqueId());
+        if (son != null && simdi - son < 30_000L) { kp.sendMessage(ChatColor.RED + "Biraz bekleyin, kimlik talebiniz işleniyor."); return; }
+        kimlikSonKullanim.put(kp.getUniqueId(), simdi);
+
+        String no = plugin.getConfig().getString(yol + ".kimlik_no");
+        org.bukkit.inventory.ItemStack[] ilk = new org.bukkit.inventory.ItemStack[1];
+        int tasinan = 0;
+        // Kayıtlı numara varsa o numaralı kartlar, eski kayıtta (numara bilinmiyor) oyuncunun kendi envanterindeki kart aranır
+        if (no == null) {
+            tasinan += envanterdenSil(kp.getInventory(), null, ilk);
+            tasinan += envanterdenSil(kp.getEnderChest(), null, ilk);
+            if (ilk[0] == null) {
+                kp.sendMessage(ChatColor.RED + "Kimliğiniz eski sistemle çıkarılmış ve kayıtlı bilgisi yok. Bir yetkiliye başvurun (/kimlik admin sil ile yeniden kayıt gerekebilir).");
+                return;
+            }
+            // Eski kartın bilgilerini kayda geçir
+            java.util.List<String> lore = ilk[0].getItemMeta().getLore();
+            if (lore == null) lore = new java.util.ArrayList<>();
+            String isim = "?", soy = "?", kutuk = "?"; int yas = 0; String kno = ilk[0].getItemMeta().getPersistentDataContainer().get(plugin.kimlikIdKey, PersistentDataType.STRING);
+            for (String l : lore) {
+                String t = ChatColor.stripColor(l);
+                if (t.startsWith("İsim: ")) isim = t.substring(6);
+                else if (t.startsWith("Soyisim: ")) soy = t.substring(9);
+                else if (t.startsWith("Yaş: ")) { try { yas = Integer.parseInt(t.substring(5).trim()); } catch (NumberFormatException ignored) {} }
+                else if (t.startsWith("Kütük: ")) kutuk = t.substring(7);
+            }
+            plugin.getConfig().set(yol + ".isim", isim); plugin.getConfig().set(yol + ".soyisim", soy);
+            plugin.getConfig().set(yol + ".yas", yas); plugin.getConfig().set(yol + ".kutuk", kutuk);
+            plugin.getConfig().set(yol + ".kimlik_no", kno);
+            no = kno;
+        } else {
+            tasinan += envanterdenSil(kp.getInventory(), no, ilk);
+            tasinan += envanterdenSil(kp.getEnderChest(), no, ilk);
+            if (kimlikMi(kp.getItemOnCursor(), no)) { kp.setItemOnCursor(null); tasinan++; }
+            for (Player o : Bukkit.getOnlinePlayers()) {
+                if (o.equals(kp)) continue;
+                tasinan += envanterdenSil(o.getInventory(), no, ilk);
+                tasinan += envanterdenSil(o.getEnderChest(), no, ilk);
+            }
+            for (org.bukkit.World w : Bukkit.getWorlds()) {
+                for (org.bukkit.Chunk c : w.getLoadedChunks()) {
+                    for (org.bukkit.block.BlockState bs : c.getTileEntities(false)) {
+                        if (bs instanceof org.bukkit.inventory.InventoryHolder h && h.getInventory() != null) tasinan += envanterdenSil(h.getInventory(), no, ilk);
+                    }
+                    for (org.bukkit.entity.Entity e : c.getEntities()) {
+                        if (e instanceof org.bukkit.entity.Item di && kimlikMi(di.getItemStack(), no)) { di.remove(); tasinan++; }
+                        else if (e instanceof org.bukkit.entity.ItemFrame fr && kimlikMi(fr.getItem(), no)) { fr.setItem(null); tasinan++; }
+                        else if (e instanceof org.bukkit.inventory.InventoryHolder h2 && !(e instanceof Player) && h2.getInventory() != null) tasinan += envanterdenSil(h2.getInventory(), no, ilk);
+                    }
+                }
+            }
+        }
+        org.bukkit.inventory.ItemStack kart = kimlikKarti(
+                plugin.getConfig().getString(yol + ".isim", "?"), plugin.getConfig().getString(yol + ".soyisim", "?"),
+                plugin.getConfig().getInt(yol + ".yas", 0), plugin.getConfig().getString(yol + ".kutuk", "?"), no);
+        if (kp.getInventory().firstEmpty() != -1) kp.getInventory().addItem(kart);
+        else kp.getWorld().dropItem(kp.getLocation(), kart);
+        plugin.veriKaydet();
+        plugin.ekonomiLog("kimlik-ver", kp.getName(), "Kimlik " + no + " verildi (" + (tasinan > 0 ? tasinan + " kopya silinip taşındı" : "kart yok olmuştu, yeniden verildi") + ")");
+        kp.sendMessage(ChatColor.GREEN + (tasinan > 0 ? "Kimlik kartınız bulunduğu yerden alınıp envanterinize taşındı." : "Kimlik kartınız yeniden düzenlendi ve envanterinize verildi."));
+    }
+
+    private final java.util.Map<UUID, Long> kimlikSonKullanim = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private void generateKimlik(Player player, MeslekSistemi.GeciciKimlik veri) {
+        String kimlikNo = "TR-" + (100000 + new java.util.Random().nextInt(900000));
+        org.bukkit.inventory.ItemStack kimlik = kimlikKarti(veri.isim, veri.soyisim, veri.yas, veri.kutuk, kimlikNo);
 
         if (player.getInventory().firstEmpty() != -1) player.getInventory().addItem(kimlik);
         else player.getWorld().dropItem(player.getLocation(), kimlik);
