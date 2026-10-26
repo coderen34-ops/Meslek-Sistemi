@@ -137,6 +137,10 @@ public class PolisManager implements Listener, CommandExecutor {
 
     private final Random random = new Random();
 
+    // Tek seferlik polis kiti: kiti almış oyuncular (kalıcı, config: polis_kit_alanlar)
+    private final java.util.Set<UUID> kitAlanlar = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final NamespacedKey kitEsyaKey;
+
     // Dünyası şu an yüklü olmayan kayıtlar: kaydederken silinmesinler diye ham haliyle saklanır
     private final Map<String, Map<String, Object>> yuklenemeyenHucreler = new HashMap<>();
     private final Map<String, Map<String, Object>> yuklenemeyenDonusKonumlari = new HashMap<>();
@@ -155,6 +159,7 @@ public class PolisManager implements Listener, CommandExecutor {
         this.modKey = new NamespacedKey(plugin, "cop_modu");
         this.sikayetNpcKey = new NamespacedKey(plugin, "sikayet_npc");
         this.davaDosyasiKey = new NamespacedKey(plugin, "dava_hedefi");
+        this.kitEsyaKey = new NamespacedKey(plugin, "polis_kit_esyasi");
 
         // Liste config'de görünsün ki yöneticiler düzenleyebilsin
         if (!plugin.getConfig().contains(IZINLI_KOMUTLAR_YOLU)) {
@@ -163,6 +168,42 @@ public class PolisManager implements Listener, CommandExecutor {
         }
 
         baskinGorevleriniBaslat();
+        kitKontrolGoreviniBaslat();
+    }
+
+    /** Her 30 saniyede bir: meslekten çıkmış (artık polis/amir olmayan) ve kit hakkı kayıtlı çevrimiçi
+     *  oyuncuların kit eşyalarını siler ve hakkı sıfırlar. Çevrimdışıyken meslekten çıkanlar girişte
+     *  (ilk turda) temizlenir. Hapisteki polis, mesleği geçici "mahkum" olduğu için atlanır. */
+    private void kitKontrolGoreviniBaslat() {
+        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (kitAlanlar.isEmpty()) return;
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                UUID id = p.getUniqueId();
+                if (!kitAlanlar.contains(id)) continue;
+                if (jailedPlayers.containsKey(id) || preJailRoles.containsKey(id)) continue;
+                if (polisMi(meslekOf(p))) continue;
+                kitTemizle(p);
+            }
+        }, 600L, 600L);
+    }
+
+    /** Meslekten çıkan oyuncunun üzerindeki (envanter, zırh/off-hand, ender sandık, imleç) etiketli polis
+     *  kit eşyalarını siler ve kit hakkını sıfırlar. Önce eşyalar silinir, hak en son kalkar. */
+    private void kitTemizle(Player p) {
+        int silinen = 0;
+        var inv = p.getInventory();
+        ItemStack[] icerik = inv.getContents(); // 0-35 depo, 36-39 zırh, 40 off-hand (setItem ile aynı indeks)
+        for (int i = 0; i < icerik.length; i++) {
+            if (isKitEsyasi(icerik[i])) { inv.setItem(i, null); silinen++; }
+        }
+        ItemStack[] ender = p.getEnderChest().getContents();
+        for (int i = 0; i < ender.length; i++) {
+            if (isKitEsyasi(ender[i])) { p.getEnderChest().setItem(i, null); silinen++; }
+        }
+        if (isKitEsyasi(p.getItemOnCursor())) { p.setItemOnCursor(null); silinen++; }
+        kitAlanlar.remove(p.getUniqueId());
+        plugin.veriKaydet();
+        plugin.getLogger().info("[Polis] " + p.getName() + " meslekten çıktı: " + silinen + " kit eşyası silindi, kit hakkı sıfırlandı.");
     }
 
     @Override
@@ -201,34 +242,76 @@ public class PolisManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.RED + "Sadece emniyet mensupları cop alabilir!");
                 return true;
             }
+            // Üzerinde zaten cop varsa yenisi verilmez (sonsuz cop alma engellenir).
+            for (ItemStack invItem : player.getInventory().getContents()) {
+                if (isCop(invItem)) {
+                    player.sendMessage(ChatColor.YELLOW + "[Polis] " + ChatColor.GRAY + "Zaten üzerinde bir cop var, yeniden verilmedi.");
+                    return true;
+                }
+            }
             player.getInventory().addItem(createCop(1));
             player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + "Polis copu verildi.");
             return true;
         }
 
-        // /poliskit: emniyet mensubunun standart ekipmanını (şimdilik cop) verir.
-        // Elinde zaten bir cop varsa tekrar vermez, kaybetmiş/çalınmışsa yenisini verir.
+        // /poliskit: TEK SEFERLİK. Kit bir kez alınır (kalıcı kayıt: polis_kit_alanlar). Yeniden alabilmek için
+        // ÖNCE meslekten çıkılması gerekir; meslekten çıkınca kitTemizle() etiketli (PDC) kit eşyalarını
+        // oyuncudan siler ve hakkı sıfırlar. VARSAYIM: kit eşyası kaybolur/çalınırsa hak geri gelmez;
+        // yöneticiler "/poliskit sifirla <oyuncu>" ile hakkı sıfırlayabilir.
         if (commandName.equalsIgnoreCase("poliskit")) {
+            if (args.length >= 2 && args[0].equalsIgnoreCase("sifirla")) {
+                if (!player.hasPermission("polis.admin")) {
+                    player.sendMessage(ChatColor.RED + "Bu komut sadece yöneticiler içindir.");
+                    return true;
+                }
+                Player hedef = Bukkit.getPlayerExact(args[1]);
+                UUID hedefId = hedef != null ? hedef.getUniqueId() : Bukkit.getOfflinePlayer(args[1]).getUniqueId();
+                boolean silindi = kitAlanlar.remove(hedefId);
+                plugin.veriKaydet();
+                player.sendMessage(ChatColor.GREEN + "[Polis] " + args[1] + (silindi ? " için kit hakkı sıfırlandı." : " zaten kit almamış görünüyor."));
+                return true;
+            }
             String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
             if (!polisMi(meslek)) {
                 player.sendMessage(ChatColor.RED + "Sadece emniyet mensupları polis kiti alabilir!");
                 return true;
             }
-            boolean zatenVar = false;
-            for (ItemStack invItem : player.getInventory().getContents()) {
-                if (isCop(invItem)) { zatenVar = true; break; }
-            }
-            if (!zatenVar) player.getInventory().addItem(createCop(1));
-
-            // Zırh seti: boş slotları doldurur, oyuncunun kendi eşyasının üzerine yazmaz.
             var inv = player.getInventory();
-            if (inv.getHelmet() == null) inv.setHelmet(createPoliceArmorPiece(Material.DIAMOND_HELMET));
-            if (inv.getChestplate() == null) inv.setChestplate(createPoliceArmorPiece(Material.DIAMOND_CHESTPLATE));
-            if (inv.getLeggings() == null) inv.setLeggings(createPoliceArmorPiece(Material.DIAMOND_LEGGINGS));
-            if (inv.getBoots() == null) inv.setBoots(createPoliceArmorPiece(Material.DIAMOND_BOOTS));
-            if (!inv.containsAtLeast(new ItemStack(Material.DIAMOND_SWORD), 1)) inv.addItem(createPoliceSword());
 
-            player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + "Polis kiti (cop, Protection 4 zırh, Sharpness 5 kılıç) verildi.");
+            // Önce envanterde yer var mı bak (eşya kaybı/yere düşme olmasın): cop + kılıç + dolu zırh slotları kadar boş yer gerek.
+            int gerekli = 2;
+            if (inv.getHelmet() != null) gerekli++;
+            if (inv.getChestplate() != null) gerekli++;
+            if (inv.getLeggings() != null) gerekli++;
+            if (inv.getBoots() != null) gerekli++;
+            int bos = 0;
+            for (int i = 0; i < 36; i++) if (inv.getItem(i) == null) bos++;
+            if (bos < gerekli) {
+                player.sendMessage(ChatColor.RED + "[Polis] Envanterinde yeterli boş yer yok (" + gerekli + " slot gerekli). Yer açıp tekrar dene.");
+                return true;
+            }
+
+            // add() atomiktir: aynı anda iki komut gelse bile sadece biri true döner (çift verme olmaz).
+            if (!kitAlanlar.add(player.getUniqueId())) {
+                player.sendMessage(ChatColor.YELLOW + "[Polis] " + ChatColor.GRAY
+                        + "Polis kitini zaten aldın. Yeniden alabilmek için önce meslekten çıkman gerekir.");
+                return true;
+            }
+
+            inv.addItem(createCop(1));
+            // Zırh: boş slotlara takılır, oyuncunun kendi zırhı varsa kit parçası envantere gider.
+            ItemStack kask = createPoliceArmorPiece(Material.DIAMOND_HELMET);
+            ItemStack gogus = createPoliceArmorPiece(Material.DIAMOND_CHESTPLATE);
+            ItemStack pantolon = createPoliceArmorPiece(Material.DIAMOND_LEGGINGS);
+            ItemStack bot = createPoliceArmorPiece(Material.DIAMOND_BOOTS);
+            if (inv.getHelmet() == null) inv.setHelmet(kask); else inv.addItem(kask);
+            if (inv.getChestplate() == null) inv.setChestplate(gogus); else inv.addItem(gogus);
+            if (inv.getLeggings() == null) inv.setLeggings(pantolon); else inv.addItem(pantolon);
+            if (inv.getBoots() == null) inv.setBoots(bot); else inv.addItem(bot);
+            inv.addItem(createPoliceSword());
+
+            plugin.veriKaydet(); // kit alındı bilgisi hemen kalıcı olsun (restart/çıkışla sıfırlanmasın)
+            player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GREEN + "Polis kiti (cop, Protection 4 zırh, Sharpness 5 kılıç) verildi. Bu kit tek seferliktir.");
             return true;
         }
 
@@ -1740,6 +1823,8 @@ public class PolisManager implements Listener, CommandExecutor {
         ItemMeta meta = item.getItemMeta();
         meta.addEnchant(Enchantment.PROTECTION, 4, true);
         meta.setUnbreakable(true);
+        // Meslekten çıkınca tespit edip silebilmek için özel etiket (PDC)
+        meta.getPersistentDataContainer().set(this.kitEsyaKey, PersistentDataType.BYTE, (byte) 1);
         item.setItemMeta(meta);
         return item;
     }
@@ -1749,8 +1834,16 @@ public class PolisManager implements Listener, CommandExecutor {
         ItemMeta meta = item.getItemMeta();
         meta.addEnchant(Enchantment.SHARPNESS, 5, true);
         meta.setUnbreakable(true);
+        meta.getPersistentDataContainer().set(this.kitEsyaKey, PersistentDataType.BYTE, (byte) 1);
         item.setItemMeta(meta);
         return item;
+    }
+
+    /** Polis kitinden gelen (cop, zırh, kılıç) etiketli eşya mı? */
+    private boolean isKitEsyasi(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR || !item.hasItemMeta()) return false;
+        PersistentDataContainer data = item.getItemMeta().getPersistentDataContainer();
+        return data.has(this.kitEsyaKey, PersistentDataType.BYTE) || data.has(this.copKey, PersistentDataType.BYTE);
     }
 
     private boolean isCop(ItemStack item) {
@@ -1820,6 +1913,10 @@ public class PolisManager implements Listener, CommandExecutor {
         }
 
         plugin.getConfig().set("arananlar", new ArrayList<>(arananOyuncular));
+
+        List<String> kitListesi = new ArrayList<>();
+        for (UUID kid : kitAlanlar) kitListesi.add(kid.toString());
+        plugin.getConfig().set("polis_kit_alanlar", kitListesi);
 
         plugin.getConfig().set("jail_esyalar", null);
         for (Map.Entry<UUID, ItemStack[]> e : elKonulanEsyalar.entrySet()) {
@@ -1920,6 +2017,14 @@ public class PolisManager implements Listener, CommandExecutor {
 
         if (plugin.getConfig().contains("arananlar")) {
             arananOyuncular.addAll(plugin.getConfig().getStringList("arananlar"));
+        }
+
+        for (String kidStr : plugin.getConfig().getStringList("polis_kit_alanlar")) {
+            try {
+                kitAlanlar.add(UUID.fromString(kidStr));
+            } catch (IllegalArgumentException ex) {
+                plugin.getLogger().warning("[Polis] Geçersiz kit kaydı atlandı: " + kidStr);
+            }
         }
     }
 
