@@ -17,6 +17,10 @@ public class KiralikEv {
     public long kalanSureMs;
     // Sahibi /kirasil dedi ama ev kirada: mevcut süre bitince kira yenilenmez, ilan silinir
     public boolean kaldirilacak;
+    // Kira dönemi (saat, kiracı oyundayken akar). Belediye evleri her zaman 10; oyuncu ilanlarında ev sahibi belirler.
+    public int saat = 10;
+
+    public long sureMs() { return Math.max(1, saat) * 3_600_000L; }
 
     public KiralikEv(String id, String isim, Location loc, double fiyat) {
         this.id = id;

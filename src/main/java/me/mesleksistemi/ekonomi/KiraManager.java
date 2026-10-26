@@ -42,11 +42,25 @@ public class KiraManager implements Listener, CommandExecutor {
     public final HashMap<String, KiralikEv> evler = new HashMap<>();
     private final NamespacedKey npcKey;
     private final NamespacedKey evIdKey;
+    private final NamespacedKey npcSahipKey;   // Özel (otel) NPC: sahibinin UUID'si
+    private final NamespacedKey npcClaimKey;   // Özel (otel) NPC: bağlı olduğu ana claim ID'si
+    private final NamespacedKey binaKey;       // Bina menüsü öğesi: ana claim ID'si
+
+    // NPC türleri (npcKey değeri): 1 = eski genel Emlak Ofisi (hepsini listeler, geriye uyum), 2 = Belediye, 3 = Oyuncu İlanları, 4 = Özel (otel)
+    static final byte NPC_GENEL = 1, NPC_BELEDIYE = 2, NPC_OYUNCU = 3, NPC_OZEL = 4;
+
+    static final class OzelNpc {
+        final UUID sahip; final String isim;
+        OzelNpc(UUID sahip, String isim) { this.sahip = sahip; this.isim = isim; }
+    }
+    // Ana claim ID -> özel (otel) NPC kaydı; o claim'in odaları sadece o NPC'de ve oyuncu ilan NPC'sinde görünmez
+    final java.util.Map<Long, OzelNpc> ozelNpcler = new HashMap<>();
 
     // Başvuru, sözleşme kitabı ve /kira akışı
     public final KiraSozlesmeManager sozlesmeManager;
 
     private static final String MENU_BASLIGI = ChatColor.DARK_GREEN + "Kiralık Evler";
+    private static final String BINA_BASLIGI = ChatColor.DARK_GREEN + "Belediye Binaları";
     private static final int MENU_BOYUTU = 54;
 
     // 10 Saat = 36.000.000 Milisaniye (kiracının oyunda geçirdiği süre)
@@ -62,6 +76,9 @@ public class KiraManager implements Listener, CommandExecutor {
         this.plugin = plugin;
         this.npcKey = new NamespacedKey(plugin, "emlakci_npc");
         this.evIdKey = new NamespacedKey(plugin, "ev_id");
+        this.npcSahipKey = new NamespacedKey(plugin, "emlakci_sahip");
+        this.npcClaimKey = new NamespacedKey(plugin, "emlakci_claim");
+        this.binaKey = new NamespacedKey(plugin, "bina_id");
         veriYukle();
         this.sozlesmeManager = new KiraSozlesmeManager(plugin, this);
 
@@ -124,14 +141,7 @@ public class KiraManager implements Listener, CommandExecutor {
         }
 
         if (cmd.equals("kiranpc")) {
-            if (!p.hasPermission("kira.admin")) return true;
-            Villager npc = (Villager) p.getWorld().spawnEntity(p.getLocation(), EntityType.VILLAGER);
-            npc.setAI(false); npc.setInvulnerable(true); npc.setCollidable(false);
-            npc.setCustomName(ChatColor.GOLD + "" + ChatColor.BOLD + "Emlak Ofisi");
-            npc.setCustomNameVisible(true);
-            npc.setProfession(Villager.Profession.CARTOGRAPHER);
-            npc.getPersistentDataContainer().set(npcKey, PersistentDataType.BYTE, (byte) 1);
-            p.sendMessage(ChatColor.GREEN + "Emlak NPC'si kuruldu!");
+            kiraNpcKomutu(p, args);
             return true;
         }
         return false;
@@ -152,11 +162,19 @@ public class KiraManager implements Listener, CommandExecutor {
             return;
         }
 
+        // Oyuncu ilanında isteğe bağlı kira dönemi: /kiraver <id> <fiyat> <saat> <isim>. Belediye evlerinde süre sabit 10 saattir.
+        int saat = 10, isimBaslangic = 2;
+        if (sahip != null && args.length >= 4 && args[2].matches("\\d{1,3}")) {
+            saat = Integer.parseInt(args[2]);
+            if (saat < 1 || saat > 720) { p.sendMessage(ChatColor.RED + "Kira süresi 1 ile 720 saat arasında olmalıdır!"); return; }
+            isimBaslangic = 3;
+        }
         StringBuilder isim = new StringBuilder();
-        for (int i = 2; i < args.length; i++) isim.append(args[i]).append(" ");
+        for (int i = isimBaslangic; i < args.length; i++) isim.append(args[i]).append(" ");
 
         KiralikEv yeniEv = new KiralikEv(id, isim.toString().trim(), p.getLocation(), fiyat);
         yeniEv.sahip = sahip;
+        yeniEv.saat = saat;
 
         // GP3D: Kurulum anında evin bir claim/alt claim içinde olduğunu doğrula
         Claim claim = claimBul(yeniEv);
@@ -181,6 +199,7 @@ public class KiraManager implements Listener, CommandExecutor {
             if (eskiEv.kiraci != null) {
                 yeniEv.kiraci = eskiEv.kiraci;
                 yeniEv.kalanSureMs = eskiEv.kalanSureMs;
+                yeniEv.saat = eskiEv.saat; // dönem kiracı varken değişmez
             }
         }
 
@@ -255,7 +274,7 @@ public class KiraManager implements Listener, CommandExecutor {
         plugin.bankaHesaplari.put(pId, bakiye - fiyat);
 
         ev.kiraci = pId;
-        ev.kalanSureMs = KIRA_SURESI_MS;
+        ev.kalanSureMs = ev.sureMs();
         ev.kaldirilacak = false;
 
         claim.setPermission(pId.toString(), ClaimPermission.Build);
@@ -306,10 +325,20 @@ public class KiraManager implements Listener, CommandExecutor {
     // Belediye kasası kurulu değilse veya doluysa false döner; bu durumda kiracıdan para alınmamalı.
     private boolean kiraOdemesiAktar(KiralikEv ev, double miktar) {
         if (ev.sahip != null) {
-            plugin.bankaHesaplari.put(ev.sahip, plugin.bankaHesaplari.getOrDefault(ev.sahip, 0.0) + miktar);
+            // Belediye, kiralanan her oyuncu odasından vergi keser (varsayılan %15, config: kira.vergi-yuzde)
+            double yuzde = Math.max(0.0, Math.min(100.0, plugin.getConfig().getDouble("kira.vergi-yuzde", 15.0)));
+            double vergi = Math.round(miktar * yuzde) / 100.0;
+            double net = Math.round((miktar - vergi) * 100.0) / 100.0;
+            if (vergi > 0 && !plugin.kasayaParaEkle(vergi)) {
+                // Kasa vergiyi alamadıysa para kaybolmasın: ev sahibine tam tutar gider
+                plugin.getLogger().warning("[Kira] Belediye kasası $" + vergi + " kira vergisini alamadı ('" + ev.id + "'), ev sahibine tam tutar verildi.");
+                net = miktar; vergi = 0;
+            }
+            plugin.bankaHesaplari.put(ev.sahip, plugin.bankaHesaplari.getOrDefault(ev.sahip, 0.0) + net);
+            plugin.ekonomiLog("kira-geliri", sahipAdi(ev), ev.isim + " kira $" + miktar + " -> ev sahibine $" + net + ", belediye vergisi $" + vergi);
             Player sahipOyuncu = Bukkit.getPlayer(ev.sahip);
             if (sahipOyuncu != null) {
-                sahipOyuncu.sendMessage(ChatColor.GREEN + "[Emlak] " + ev.isim + " için $" + miktar + " kira geliri banka hesabınıza yatırıldı.");
+                sahipOyuncu.sendMessage(ChatColor.GREEN + "[Emlak] " + ev.isim + " için $" + net + " kira geliri banka hesabınıza yatırıldı." + (vergi > 0 ? ChatColor.GRAY + " (Belediye vergisi: $" + vergi + ")" : ""));
             }
             return true;
         }
@@ -326,21 +355,172 @@ public class KiraManager implements Listener, CommandExecutor {
             Villager npc = (Villager) event.getRightClicked();
             if (npc.getPersistentDataContainer().has(npcKey, PersistentDataType.BYTE)) {
                 event.setCancelled(true);
-                openEmlakMenu(event.getPlayer());
+                npcMenusuAc(event.getPlayer(), npc);
             }
         }
     }
 
-    private void openEmlakMenu(Player p) {
+    // ------------------------------------------------------------------ NPC KOMUTLARI
+    private static final String NPC_KULLANIM = "Kullanım: /kiranpc <belediye|oyuncu|genel|binaisim <ad>|ozel kirala <isim>|ozel sil>";
+
+    private Villager npcOlustur(Player p, String ad, byte tur) {
+        Villager npc = (Villager) p.getWorld().spawnEntity(p.getLocation(), EntityType.VILLAGER);
+        npc.setAI(false); npc.setInvulnerable(true); npc.setCollidable(false);
+        npc.setCustomName(ad);
+        npc.setCustomNameVisible(true);
+        npc.setProfession(Villager.Profession.CARTOGRAPHER);
+        npc.setPersistent(true);
+        npc.getPersistentDataContainer().set(npcKey, PersistentDataType.BYTE, tur);
+        return npc;
+    }
+
+    private Claim anaClaim(Claim c) {
+        while (c != null && c.parent != null) c = c.parent;
+        return c;
+    }
+
+    private Long anaClaimId(KiralikEv ev) {
+        Claim c = anaClaim(claimBul(ev));
+        return c != null ? c.getID() : null;
+    }
+
+    private void kiraNpcKomutu(Player p, String[] args) {
+        if (args.length == 0) { p.sendMessage(ChatColor.RED + NPC_KULLANIM); return; }
+        String alt = args[0].toLowerCase();
+        switch (alt) {
+            case "belediye", "oyuncu", "genel" -> {
+                if (!p.hasPermission("kira.admin")) { p.sendMessage(ChatColor.RED + "Bu NPC'yi sadece yetkililer kurabilir."); return; }
+                if (alt.equals("belediye")) npcOlustur(p, ChatColor.GOLD + "" + ChatColor.BOLD + "Belediye Emlak Ofisi", NPC_BELEDIYE);
+                else if (alt.equals("oyuncu")) npcOlustur(p, ChatColor.GOLD + "" + ChatColor.BOLD + "Oyuncu İlanları", NPC_OYUNCU);
+                else npcOlustur(p, ChatColor.GOLD + "" + ChatColor.BOLD + "Emlak Ofisi", NPC_GENEL);
+                p.sendMessage(ChatColor.GREEN + "Emlak NPC'si kuruldu (" + alt + ").");
+            }
+            case "binaisim" -> {
+                if (!p.hasPermission("kira.admin")) { p.sendMessage(ChatColor.RED + "Yetkiniz yok."); return; }
+                if (args.length < 2) { p.sendMessage(ChatColor.RED + "Kullanım: /kiranpc binaisim <bina adı> (binanın claim'i içinde durun)"); return; }
+                Claim c = anaClaim(GriefPrevention.instance.dataStore.getClaimAt(p.getLocation(), false, null));
+                if (c == null) { p.sendMessage(ChatColor.RED + "Bir claim içinde durmalısınız."); return; }
+                String ad = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length)).trim();
+                plugin.getConfig().set("kira_bina_isimleri." + c.getID(), ad);
+                plugin.saveConfig();
+                p.sendMessage(ChatColor.GREEN + "Claim " + c.getID() + " bina adı: " + ad);
+            }
+            case "ozel" -> ozelNpcKomutu(p, args);
+            default -> p.sendMessage(ChatColor.RED + NPC_KULLANIM);
+        }
+    }
+
+    private void ozelNpcKomutu(Player p, String[] args) {
+        if (args.length < 2) { p.sendMessage(ChatColor.RED + "Kullanım: /kiranpc ozel kirala <isim>  |  /kiranpc ozel sil"); return; }
+        if (args[1].equalsIgnoreCase("sil")) {
+            int silinen = 0;
+            for (org.bukkit.entity.Entity e : p.getNearbyEntities(5, 5, 5)) {
+                if (!(e instanceof Villager)) continue;
+                var pdc = e.getPersistentDataContainer();
+                Byte tur = pdc.get(npcKey, PersistentDataType.BYTE);
+                if (tur == null || tur != NPC_OZEL) continue;
+                String sahip = pdc.get(npcSahipKey, PersistentDataType.STRING);
+                if (!p.hasPermission("kira.admin") && !p.getUniqueId().toString().equals(sahip)) continue;
+                Long claimId = pdc.get(npcClaimKey, PersistentDataType.LONG);
+                if (claimId != null) ozelNpcler.remove(claimId);
+                e.remove(); silinen++;
+            }
+            if (silinen > 0) veriKaydet();
+            p.sendMessage(silinen > 0 ? ChatColor.GREEN + "Özel NPC kaldırıldı (kira ücreti iade edilmez)." : ChatColor.RED + "Yakında size ait bir özel NPC yok.");
+            return;
+        }
+        if (!args[1].equalsIgnoreCase("kirala")) { p.sendMessage(ChatColor.RED + "Kullanım: /kiranpc ozel kirala <isim>  |  /kiranpc ozel sil"); return; }
+        if (!p.hasPermission("kira.kiraver")) { p.sendMessage(ChatColor.RED + "Bunun için yetkiniz yok."); return; }
+        if (args.length < 3) { p.sendMessage(ChatColor.RED + "Kullanım: /kiranpc ozel kirala <NPC adı> (örn. Otel adı)"); return; }
+        String ad = ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&', String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)))).trim();
+        if (ad.isEmpty() || ad.length() > 24) { p.sendMessage(ChatColor.RED + "NPC adı 1-24 karakter olmalıdır."); return; }
+        Claim claim = anaClaim(GriefPrevention.instance.dataStore.getClaimAt(p.getLocation(), false, null));
+        if (claim == null || !p.getUniqueId().equals(claim.getOwnerID())) {
+            p.sendMessage(ChatColor.RED + "Özel NPC'yi sadece kendi claim'inizin içinde kurabilirsiniz.");
+            return;
+        }
+        if (ozelNpcler.containsKey(claim.getID())) { p.sendMessage(ChatColor.RED + "Bu claim için zaten bir özel NPC kiralanmış."); return; }
+        double ucret = plugin.getConfig().getDouble("kira.ozel-npc-ucret", 10000.0);
+        double bakiye = plugin.bankaHesaplari.getOrDefault(p.getUniqueId(), 0.0);
+        if (bakiye < ucret) { p.sendMessage(ChatColor.RED + "Banka hesabınızda yeterli para yok. Gereken: $" + ucret); return; }
+        // Önce belediye kasası ödemeyi kabul etmeli; etmezse bankadan para çekilmez
+        if (!plugin.kasayaParaEkle(ucret)) { p.sendMessage(ChatColor.RED + "Belediye kasası şu an ödeme kabul edemiyor, yetkililere bildirin."); return; }
+        plugin.bankaHesaplari.put(p.getUniqueId(), bakiye - ucret);
+        Villager npc = npcOlustur(p, ChatColor.AQUA + "" + ChatColor.BOLD + ad, NPC_OZEL);
+        npc.getPersistentDataContainer().set(npcSahipKey, PersistentDataType.STRING, p.getUniqueId().toString());
+        npc.getPersistentDataContainer().set(npcClaimKey, PersistentDataType.LONG, claim.getID());
+        ozelNpcler.put(claim.getID(), new OzelNpc(p.getUniqueId(), ad));
+        plugin.ekonomiLog("kira-ozel-npc", p.getName(), "Özel NPC '" + ad + "' kiralandı $" + ucret + " (claim " + claim.getID() + ")");
+        veriKaydet();
+        p.sendMessage(ChatColor.GREEN + "'" + ad + "' NPC'si kuruldu ($" + ucret + " ödendi). Bu claim içindeki odalarınızı /kiraver ile ilana ekleyin; sadece bu NPC'de görünürler.");
+    }
+
+    // ------------------------------------------------------------------ MENÜLER
+    private void npcMenusuAc(Player p, Villager npc) {
+        var pdc = npc.getPersistentDataContainer();
+        byte tur = pdc.getOrDefault(npcKey, PersistentDataType.BYTE, NPC_GENEL);
+        switch (tur) {
+            case NPC_BELEDIYE -> openBinaMenu(p);
+            case NPC_OYUNCU -> openEvListe(p, ev -> {
+                if (ev.sahip == null) return false;
+                Long c = anaClaimId(ev);
+                return c == null || !ozelNpcler.containsKey(c); // otel odaları sadece özel NPC'de
+            });
+            case NPC_OZEL -> {
+                String sahip = pdc.get(npcSahipKey, PersistentDataType.STRING);
+                Long claimId = pdc.get(npcClaimKey, PersistentDataType.LONG);
+                openEvListe(p, ev -> ev.sahip != null && ev.sahip.toString().equals(sahip) && claimId != null && claimId.equals(anaClaimId(ev)));
+            }
+            default -> openEvListe(p, ev -> true);
+        }
+    }
+
+    private String binaAdi(Long claimId) {
+        if (claimId == null) return "Diğer Binalar";
+        return plugin.getConfig().getString("kira_bina_isimleri." + claimId, "Bina #" + claimId);
+    }
+
+    private void openBinaMenu(Player p) {
+        // Binalar: belediye evlerinin bağlı olduğu ana claim'ler; yeni bina (yeni claim'de ilan) otomatik eklenir
+        java.util.LinkedHashMap<Long, int[]> binalar = new java.util.LinkedHashMap<>(); // claimId (-1 = bilinmeyen) -> {toplam, bos}
+        for (KiralikEv ev : evler.values()) {
+            if (ev.sahip != null) continue;
+            Long c = anaClaimId(ev);
+            int[] sayac = binalar.computeIfAbsent(c == null ? -1L : c, k -> new int[2]);
+            sayac[0]++;
+            if (ev.kiraci == null) sayac[1]++;
+        }
+        Inventory inv = Bukkit.createInventory(null, 27, BINA_BASLIGI);
+        for (java.util.Map.Entry<Long, int[]> e : binalar.entrySet()) {
+            if (inv.firstEmpty() == -1) break;
+            ItemStack item = new ItemStack(Material.BRICKS);
+            ItemMeta meta = item.getItemMeta();
+            meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + binaAdi(e.getKey() == -1L ? null : e.getKey()));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "Daire: " + ChatColor.WHITE + e.getValue()[0] + ChatColor.GRAY + " (boş: " + ChatColor.GREEN + e.getValue()[1] + ChatColor.GRAY + ")");
+            lore.add(ChatColor.GRAY + "Kira süresi: " + ChatColor.WHITE + "10 saat");
+            lore.add("");
+            lore.add(ChatColor.YELLOW + "► Daireleri görmek için tıkla");
+            meta.setLore(lore);
+            meta.getPersistentDataContainer().set(binaKey, PersistentDataType.LONG, e.getKey());
+            item.setItemMeta(meta);
+            inv.addItem(item);
+        }
+        if (binalar.isEmpty()) p.sendMessage(ChatColor.YELLOW + "[Emlak] Şu an belediye ilanı yok.");
+        p.openInventory(inv);
+    }
+
+    private void openEvListe(Player p, java.util.function.Predicate<KiralikEv> filtre) {
         Inventory inv = Bukkit.createInventory(null, MENU_BOYUTU, MENU_BASLIGI);
 
         for (KiralikEv ev : evler.values()) {
+            if (!filtre.test(ev)) continue;
             if (inv.firstEmpty() == -1) break; // 54'ten fazla ev varsa menü taşmasın
             ItemStack item = new ItemStack(ev.kiraci == null ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE);
             ItemMeta meta = item.getItemMeta();
             meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + ev.isim);
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Kira Bedeli (10 Saat): " + ChatColor.DARK_GREEN + "$" + ev.fiyat);
+            lore.add(ChatColor.GRAY + "Kira Bedeli (" + ev.saat + " Saat): " + ChatColor.DARK_GREEN + "$" + ev.fiyat);
             lore.add(ChatColor.GRAY + "Ev Sahibi: " + ChatColor.WHITE + sahipAdi(ev));
             lore.add("");
 
@@ -369,6 +549,21 @@ public class KiraManager implements Listener, CommandExecutor {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
+        if (event.getView().getTitle().equals(BINA_BASLIGI)) {
+            event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= 27) return;
+            if (event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) return;
+            ItemMeta bm = event.getCurrentItem().getItemMeta();
+            if (bm == null || !bm.getPersistentDataContainer().has(binaKey, PersistentDataType.LONG)) return;
+            long hedef = bm.getPersistentDataContainer().get(binaKey, PersistentDataType.LONG);
+            Player bp = (Player) event.getWhoClicked();
+            Bukkit.getScheduler().runTask(plugin, () -> openEvListe(bp, ev -> {
+                if (ev.sahip != null) return false;
+                Long c = anaClaimId(ev);
+                return (c == null ? -1L : c) == hedef;
+            }));
+            return;
+        }
         if (event.getView().getTitle().equals(MENU_BASLIGI)) {
             event.setCancelled(true);
             // Sadece üstteki menüye yapılan tıklamalar işlenir (oyuncu envanteri değil)
@@ -446,7 +641,7 @@ public class KiraManager implements Listener, CommandExecutor {
                     plugin.bankaHesaplari.put(ev.kiraci, bakiye - ev.fiyat);
                     if (kiraciOyuncu != null) kiraciOyuncu.sendMessage(ChatColor.GREEN + "[Emlak] " + ev.isim + " evinizin kirası ($" + ev.fiyat + ") otomatik olarak bankanızdan kesildi.");
                 }
-                ev.kalanSureMs += KIRA_SURESI_MS;
+                ev.kalanSureMs += ev.sureMs();
                 degisiklik = true;
             } else {
                 // Parası yok, HACİZ (Evden çıkarma)
@@ -479,11 +674,27 @@ public class KiraManager implements Listener, CommandExecutor {
             plugin.getConfig().set(yol + ".kiraci", ev.kiraci != null ? ev.kiraci.toString() : null);
             plugin.getConfig().set(yol + ".kalanSure", ev.kalanSureMs);
             plugin.getConfig().set(yol + ".kaldirilacak", ev.kaldirilacak ? true : null);
+            plugin.getConfig().set(yol + ".saat", ev.saat != 10 ? ev.saat : null);
+        }
+        plugin.getConfig().set("kira_ozel", null);
+        for (java.util.Map.Entry<Long, OzelNpc> e : ozelNpcler.entrySet()) {
+            plugin.getConfig().set("kira_ozel." + e.getKey() + ".sahip", e.getValue().sahip.toString());
+            plugin.getConfig().set("kira_ozel." + e.getKey() + ".isim", e.getValue().isim);
         }
         plugin.saveConfig();
     }
 
     private void veriYukle() {
+        ConfigurationSection ozelBolum = plugin.getConfig().getConfigurationSection("kira_ozel");
+        if (ozelBolum != null) {
+            for (String k : ozelBolum.getKeys(false)) {
+                try {
+                    ozelNpcler.put(Long.parseLong(k), new OzelNpc(UUID.fromString(ozelBolum.getString(k + ".sahip", "")), ozelBolum.getString(k + ".isim", "Otel")));
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.WARNING, "[Kira] Özel NPC kaydı okunamadı: " + k, e);
+                }
+            }
+        }
         ConfigurationSection bolum = plugin.getConfig().getConfigurationSection("kiralik_evler");
         if (bolum == null) return;
         for (String id : bolum.getKeys(false)) {
@@ -504,6 +715,7 @@ public class KiraManager implements Listener, CommandExecutor {
                 );
                 KiralikEv ev = new KiralikEv(id, isim, loc, fiyat);
                 ev.dunya = dunyaAdi;
+                ev.saat = Math.max(1, plugin.getConfig().getInt(yol + ".saat", 10));
 
                 // Eski kayıtlarda sahip yok, onlar belediye evi sayılır
                 String sUUID = plugin.getConfig().getString(yol + ".sahip");

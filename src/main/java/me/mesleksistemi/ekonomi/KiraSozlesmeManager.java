@@ -193,7 +193,7 @@ public class KiraSozlesmeManager implements Listener, CommandExecutor {
                 meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + (op.getName() != null ? op.getName() : "Bilinmiyor"));
                 List<String> lore = new ArrayList<>();
                 lore.add(ChatColor.GRAY + "Ev: " + ChatColor.WHITE + ev.isim);
-                lore.add(ChatColor.GRAY + "Kira (10 Saat): " + ChatColor.GREEN + "$" + ev.fiyat);
+                lore.add(ChatColor.GRAY + "Kira (" + ev.saat + " Saat): " + ChatColor.GREEN + "$" + ev.fiyat);
                 lore.add(ChatColor.GRAY + "Durum: " + (op.isOnline() ? ChatColor.GREEN + "Çevrimiçi" : ChatColor.RED + "Çevrimdışı"));
                 lore.add("");
                 lore.add(ChatColor.YELLOW + "► Sözleşme hazırlamak için tıkla");
@@ -306,7 +306,7 @@ public class KiraSozlesmeManager implements Listener, CommandExecutor {
         evSozlesmeleriniIptalEt(ev.id);
 
         p.sendMessage(ChatColor.GREEN + "Tebrikler! " + ChatColor.GOLD + ev.isim + ChatColor.GREEN + " adlı evi kiraladınız. ($" + s.fiyat + " ödendi)");
-        p.sendMessage(ChatColor.YELLOW + "Kira süresi sadece oyundayken akar; her 10 saatte bir banka hesabınızdan otomatik çekilir.");
+        p.sendMessage(ChatColor.YELLOW + "Kira süresi sadece oyundayken akar; her " + ev.saat + " saatte bir banka hesabınızdan otomatik çekilir.");
         p.sendMessage(ChatColor.GRAY + "Sözleşmenizi görmek veya kiradan çıkmak için: " + ChatColor.AQUA + "/kira");
         p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
 
@@ -421,7 +421,7 @@ public class KiraSozlesmeManager implements Listener, CommandExecutor {
                 .append(satir("Ev Sahibi", kira.sahipAdi(ev)))
                 .append(satir("Kiracı", kiraciAdi))
                 .append(satir("Kira", "$" + s.fiyat))
-                .append(satir("Dönem", "10 saat (oyunda)"))
+                .append(satir("Dönem", ev.saat + " saat (oyunda)"))
                 .append(satir("Konum", ev.dunya + " " + ev.loc.getBlockX() + ", " + ev.loc.getBlockY() + ", " + ev.loc.getBlockZ()))
                 .append(Component.text("\nNo: " + s.id, NamedTextColor.GRAY))
                 .build();
@@ -457,7 +457,7 @@ public class KiraSozlesmeManager implements Listener, CommandExecutor {
                 .append(Component.text("(Yürürlükte)\n\n", NamedTextColor.DARK_GREEN))
                 .append(satir("Daire", ev.isim))
                 .append(satir("Ev Sahibi", kira.sahipAdi(ev)))
-                .append(satir("Kira", "$" + ev.fiyat + " / 10 saat"))
+                .append(satir("Kira", "$" + ev.fiyat + " / " + ev.saat + " saat"))
                 .append(satir("Kalan Süre", KiraManager.sureMetni(ev.kalanSureMs)))
                 .append(ev.kaldirilacak
                         ? Component.text("\nEv sahibi süre bitince sözleşmeyi sonlandıracak.", NamedTextColor.DARK_RED)

@@ -17,7 +17,7 @@ commands:
     permission: meslek.baskan
   kiraver:
     description: Kendi claim'inizdeki evi/odayi kiraya verir (kira banka hesabiniza gider).
-    usage: /kiraver <id> <fiyat> <Ekranda Görünecek İsim>
+    usage: /kiraver <id> <fiyat> [saat] <Ekranda Görünecek İsim>
     permission: kira.kiraver
   kirasil:
     description: Kiralik ev ilanini kaldirir (kiradaysa sure bitince kapanir).
@@ -29,9 +29,8 @@ commands:
     description: Aktif kira sozlesmenizi gosterir, buradan kiradan cikabilirsiniz.
     usage: /kira
   kiranpc:
-    description: Kiralik daireler icin Emlakci NPC'sini kurar.
-    usage: /kiranpc
-    permission: kira.admin
+    description: Emlak NPC'leri. belediye/oyuncu/genel (yetkili), ozel kirala <isim> (otel NPC'si, $10.000), ozel sil, binaisim <ad>.
+    usage: /kiranpc <belediye|oyuncu|genel|binaisim|ozel>
 
   # ==========================================
   # SEÇİM VE OYLAMA KOMUTLARI
