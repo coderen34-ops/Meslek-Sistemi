@@ -113,6 +113,10 @@ public class BasarimManager implements Listener, CommandExecutor {
                 "{n} olgunlaşmış ekin hasat ettin.", new long[]{100, 1000, 5000, 20000}));
         l.addAll(kademeli("Üretim/Meslek", "uretim_balik", new String[]{"Olta Kurdu", "Balıkçı", "Usta Balıkçı", "Denizlerin Efendisi"},
                 "{n} balık tuttun.", new long[]{25, 250, 1000, 5000}));
+        l.addAll(kademeli("Ekonomi", "pazar_satis", new String[]{"İlk Müşteri", "Tezgâh Ustası", "Pazar Kurdu", "Ticaret Kralı"},
+                "Pazar standında {n} adet eşya sattın.", new long[]{10, 200, 2000, 15000}));
+        l.addAll(kademeli("Ekonomi", "sozlesme_tamam", new String[]{"Sözünün Eri", "Güvenilir İşçi", "Sözleşme Ustası", "Usta Müteahhit"},
+                "{n} sözleşmeyi başarıyla tamamladın.", new long[]{1, 10, 40, 120}));
         // Görev (Görev Panosu)
         l.addAll(kademeli("Görev", "gorev", new String[]{"Göreve Hazır", "Güvenilir", "Görev Adamı", "Her İşin Ustası"},
                 "{n} görev tamamladın.", new long[]{1, 5, 15, 30}));

@@ -611,6 +611,7 @@ public class PazarManager implements Listener, CommandExecutor {
 
         alici.sendMessage(ChatColor.GREEN + "" + adet + " adet " + isim + " satın alındı! $" + fmt(toplam) + " ödendi.");
         alici.playSound(alici.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
+        try { if (plugin.basarimManager != null && s.sahip != null) plugin.basarimManager.sayacArtir(s.sahip, "pazar_satis", adet); } catch (Exception ignored) { }
         plugin.ekonomiLog("pazar-satis", alici.getName(), adet + "x " + l.ornek.getType().name() + " | stand: " + s.id + " | sahip: " + adiniBul(s.sahip)
                 + " | toplam: $" + fmt(toplam) + " | vergi: $" + fmt(vergi));
 

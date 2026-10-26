@@ -19,6 +19,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.BookMeta;
@@ -48,6 +49,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
         double tutar = 0.0;
         String detay = "";
         String tip = "NORMAL";
+        String kategori = "Diğer";
     }
 
     private static class AktifSozlesme {
@@ -209,6 +211,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                 double isciBakiye = plugin.bankaHesaplari.getOrDefault(sozlesme.isciUUID, 0.0);
                 plugin.bankaHesaplari.put(sozlesme.isciUUID, isciBakiye + sozlesme.tutar);
                 plugin.veriKaydet();
+                if (plugin.basarimManager != null) plugin.basarimManager.sayacArtir(sozlesme.isciUUID, "sozlesme_tamam", 1);
 
                 if (sozlesme.tip.equals("BELEDIYE")) {
                     plugin.ekonomiLog("belediye-sozlesme", player.getName(), "ÖDENDİ (emanetten) " + sozlesmeID + " | işçi: " + sozlesme.isciAdi + " | $" + sozlesme.tutar);
@@ -308,14 +311,45 @@ public class SozlesmeManager implements Listener, CommandExecutor {
             }
 
             taslak.isciIsmi = isci.getName();
+            // asama hâlâ 1: iş kategorisi seçilene kadar sohbet girişi başlamaz
+            kategoriMenuAc(isveren);
+            return;
+        }
+        if (title.equals(KATEGORI_BASLIK)) {
+            event.setCancelled(true);
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) return;
+            Player isveren = (Player) event.getWhoClicked();
+            SozlesmeTaslagi taslak = taslaklar.get(isveren.getUniqueId());
+            ItemStack k = event.getCurrentItem();
+            if (taslak == null || k == null || !k.hasItemMeta() || taslak.isciIsmi.isEmpty()) return;
+            String ad = ChatColor.stripColor(k.getItemMeta().getDisplayName());
+            if (!ad.equals("Kurye") && !ad.equals("İnşaat") && !ad.equals("Kazı") && !ad.equals("Diğer")) return;
+            taslak.kategori = ad;
             taslak.asama = 2;
-
             isveren.closeInventory();
             String baslik = taslak.tip.equals("BELEDIYE") ? "BELEDİYE SÖZLEŞMESİ" : "ŞAHSİ SÖZLEŞME";
             isveren.sendMessage(ChatColor.AQUA + "--- YENİ " + baslik + " ---");
-            isveren.sendMessage(ChatColor.GREEN + "İşçi Seçildi: " + isci.getName());
+            isveren.sendMessage(ChatColor.GREEN + "İşçi Seçildi: " + taslak.isciIsmi + ChatColor.GRAY + " | Kategori: " + ad);
             isveren.sendMessage(ChatColor.YELLOW + "Adım 2: " + ChatColor.WHITE + "İş bittiğinde ödenecek net tutarı yazın (Örn: 5000):");
         }
+    }
+
+    private static final String KATEGORI_BASLIK = ChatColor.DARK_BLUE + "İş Kategorisi Seç";
+
+    private void kategoriMenuAc(Player p) {
+        Inventory gui = Bukkit.createInventory(null, 9, KATEGORI_BASLIK);
+        Object[][] k = {{Material.CHEST_MINECART, "Kurye", "Eşya/paket taşıma işi."}, {Material.BRICKS, "İnşaat", "Yapı/inşaat işi."},
+                {Material.IRON_PICKAXE, "Kazı", "Kazı/madencilik işi."}, {Material.PAPER, "Diğer", "Elle açıklama yazılan serbest iş."}};
+        int[] slot = {1, 3, 5, 7};
+        for (int i = 0; i < 4; i++) {
+            ItemStack it = new ItemStack((Material) k[i][0]);
+            ItemMeta m = it.getItemMeta();
+            m.setDisplayName(ChatColor.YELLOW + (String) k[i][1]);
+            m.setLore(List.of(ChatColor.GRAY + (String) k[i][2], ChatColor.GRAY + "Tıkla: bu kategoriyi seç."));
+            it.setItemMeta(m);
+            gui.setItem(slot[i], it);
+        }
+        p.openInventory(gui);
     }
 
     @EventHandler
@@ -447,7 +481,7 @@ public class SozlesmeManager implements Listener, CommandExecutor {
                 aktif.isciAdi = isci.getName();
                 aktif.isciUUID = isci.getUniqueId();
                 aktif.tutar = taslak.tutar;
-                aktif.detay = taslak.detay;
+                aktif.detay = "[" + taslak.kategori + "] " + taslak.detay;
                 aktif.durum = "TEKLIF";
                 aktif.tip = taslak.tip;
                 aktifSozlesmeler.put(sozlesmeID, aktif);
