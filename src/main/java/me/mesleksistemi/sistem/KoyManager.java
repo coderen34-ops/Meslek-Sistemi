@@ -263,6 +263,14 @@ public class KoyManager implements CommandExecutor, TabCompleter, Listener {
 
         Player p = event.getPlayer();
         String meslek = plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas");
+        if (meslek.equalsIgnoreCase("doktor")) {
+            // Doktor köy sınırından dışarı çıkamaz (zaten dışarıdaysa geri girebilir)
+            if (icerideMi(from) && !icerideMi(to) && !p.hasPermission(YETKI)) {
+                event.setTo(from.clone().setDirection(to.getDirection()));
+                doktorUyar(p);
+            }
+            return;
+        }
         if (!meslek.equalsIgnoreCase("gocmen")) return;
         if (!icerideMi(to)) return;
 
@@ -275,6 +283,28 @@ public class KoyManager implements CommandExecutor, TabCompleter, Listener {
 
         p.sendMessage(ChatColor.RED + "Göçmen olduğunuz için köye giremezsiniz!");
         polisleriUyar(p);
+    }
+
+    /** Işınlanma (ender pearl, komut vb.) ile de köy dışına çıkış engellenir. */
+    @EventHandler(ignoreCancelled = true)
+    public void onDoktorTeleport(org.bukkit.event.player.PlayerTeleportEvent event) {
+        if (!sinirHazirMi()) return;
+        Player p = event.getPlayer();
+        if (!plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas").equalsIgnoreCase("doktor")) return;
+        if (p.hasPermission(YETKI)) return;
+        Location to = event.getTo();
+        if (to != null && icerideMi(event.getFrom()) && !icerideMi(to)) {
+            event.setCancelled(true);
+            doktorUyar(p);
+        }
+    }
+
+    private void doktorUyar(Player p) {
+        long simdi = System.currentTimeMillis();
+        Long son = sonUyariZamani.get(p.getUniqueId());
+        if (son != null && simdi - son < 3000L) return;
+        sonUyariZamani.put(p.getUniqueId(), simdi);
+        p.sendActionBar(net.kyori.adventure.text.Component.text("Doktor olarak köy sınırının dışına çıkamazsın!", net.kyori.adventure.text.format.NamedTextColor.RED));
     }
 
     private void polisleriUyar(Player gocmen) {
