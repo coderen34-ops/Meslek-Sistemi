@@ -50,7 +50,33 @@ public class KoyManager implements CommandExecutor, TabCompleter, Listener {
         this.plugin = plugin;
         this.dosya = new File(plugin.getDataFolder(), "koy.yml");
         yukle();
+        // Garanti katmanı: hız/araç/lag ile PlayerMoveEvent'i atlatan doktorları son içerideki konuma geri çeker
+        Bukkit.getScheduler().runTaskTimer(plugin, this::doktorKontrol, 20L, 3L);
     }
+
+    private final java.util.Map<java.util.UUID, Location> doktorSonIcerde = new java.util.HashMap<>();
+
+    private void doktorKontrol() {
+        if (!sinirHazirMi()) { doktorSonIcerde.clear(); return; }
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            java.util.UUID id = p.getUniqueId();
+            if (!plugin.oyuncuMeslekCache.getOrDefault(id, "vatandas").equalsIgnoreCase("doktor") || p.hasPermission(YETKI)) {
+                doktorSonIcerde.remove(id);
+                continue;
+            }
+            Location su = p.getLocation();
+            if (icerideMi(su)) { doktorSonIcerde.put(id, su.clone()); continue; }
+            Location son = doktorSonIcerde.get(id);
+            if (son == null) continue; // köye hiç girmemiş (dışarıdan doktor olmuş): geri girebilsin
+            if (p.isInsideVehicle()) p.leaveVehicle();
+            p.setFallDistance(0);
+            p.teleport(son);
+            doktorUyar(p);
+        }
+    }
+
+    @EventHandler
+    public void onDoktorCikis(org.bukkit.event.player.PlayerQuitEvent e) { doktorSonIcerde.remove(e.getPlayer().getUniqueId()); }
 
     // ------------------------------------------------------------------ kayıt
     private void yukle() {
