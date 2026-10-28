@@ -258,7 +258,7 @@ commands:
   # ==========================================
   pazarnpc:
     description: Koy pazarindaki kiralanabilir stand NPC'sini kurar veya siler.
-    usage: /pazarnpc <kur|sil>
+    usage: /pazarnpc <kur|sil|liste|bilgi|onar|ilankaldir|at>
     permission: pazar.admin
 
   # ==========================================

@@ -142,22 +142,130 @@ public class PazarManager implements Listener, CommandExecutor {
             p.sendMessage(ChatColor.RED + "Bu komutu kullanma yetkin yok.");
             return true;
         }
+        String kullanim = "Kullanım: /pazarnpc <kur|sil|liste|bilgi <oyuncu>|onar <oyuncu>|ilankaldir <oyuncu> <no>|at <oyuncu>>";
         if (args.length == 0) {
-            p.sendMessage(ChatColor.YELLOW + "Kullanım: /pazarnpc <kur|sil>");
+            p.sendMessage(ChatColor.YELLOW + kullanim);
             return true;
         }
-        if (args[0].equalsIgnoreCase("kur")) {
-            kur(p);
-        } else if (args[0].equalsIgnoreCase("sil")) {
-            sil(p);
-        } else {
-            p.sendMessage(ChatColor.YELLOW + "Kullanım: /pazarnpc <kur|sil>");
+        String alt = args[0].toLowerCase(Locale.ROOT);
+        switch (alt) {
+            case "kur" -> kur(p);
+            case "sil" -> sil(p);
+            case "liste" -> adminListe(p);
+            case "bilgi" -> adminBilgi(p, args);
+            case "onar" -> adminOnar(p, args);
+            case "ilankaldir" -> adminIlanKaldir(p, args);
+            case "at" -> adminAt(p, args);
+            default -> p.sendMessage(ChatColor.YELLOW + kullanim);
         }
         return true;
     }
 
+    // ------------------------------------------------------------------ ADMIN ARAÇLARI
+    /** "oyuncuAdi" ya da stand id (başı) ile stand bulur. */
+    private Stand standBul(String arg) {
+        for (Stand s : standlar.values()) {
+            if (s.id.equals(arg) || (arg.length() >= 6 && s.id.startsWith(arg))) return s;
+        }
+        for (Stand s : standlar.values()) {
+            if (s.sahip != null && adiniBul(s.sahip).equalsIgnoreCase(arg)) return s;
+        }
+        return null;
+    }
+
+    private void adminListe(Player p) {
+        int n = 0;
+        for (Stand s : standlar.values()) {
+            if (s.sahip == null && s.listings.isEmpty()) continue;
+            Entity e = bulEntity(s.id);
+            String konum = e == null ? ChatColor.RED + "NPC YOK (onar gerekli)"
+                    : ChatColor.GRAY + e.getWorld().getName() + " " + e.getLocation().getBlockX() + "," + e.getLocation().getBlockY() + "," + e.getLocation().getBlockZ();
+            p.sendMessage(ChatColor.YELLOW + adiniBul(s.sahip) + ChatColor.GRAY + " | ilan: " + s.listings.size() + " | " + konum);
+            n++;
+        }
+        p.sendMessage(ChatColor.GOLD + "Toplam " + n + " dolu stand. Boş stand: " + standlar.values().stream().filter(x -> x.sahip == null && x.listings.isEmpty()).count());
+    }
+
+    private void adminBilgi(Player p, String[] args) {
+        if (args.length < 2) { p.sendMessage(ChatColor.YELLOW + "/pazarnpc bilgi <oyuncu>"); return; }
+        Stand s = standBul(args[1]);
+        if (s == null) { p.sendMessage(ChatColor.RED + "Bu oyuncuya ait stand bulunamadı."); return; }
+        Entity e = bulEntity(s.id);
+        p.sendMessage(ChatColor.GOLD + "Stand sahibi: " + ChatColor.YELLOW + adiniBul(s.sahip) + ChatColor.GRAY + " | NPC: " + (e == null ? ChatColor.RED + "YOK" : ChatColor.GREEN + "var"));
+        int i = 1;
+        for (Listing l : s.listings.values()) {
+            p.sendMessage(ChatColor.GRAY + " " + i++ + ". " + ChatColor.WHITE + esyaGorunenIsim(l.ornek) + ChatColor.GRAY + " | stok " + l.stok + " | $" + fmt(l.fiyat));
+        }
+        if (s.listings.isEmpty()) p.sendMessage(ChatColor.GRAY + " (ilan yok)");
+    }
+
+    /** NPC yitirilmiş (ör. yıldırımla cadıya dönüşmüş) standı bulunduğun yere yeniden kurar; ilan/stok/sahip verisi aynen korunur. */
+    private void adminOnar(Player p, String[] args) {
+        if (args.length < 2) { p.sendMessage(ChatColor.YELLOW + "/pazarnpc onar <oyuncu> (NPC'nin olmasını istediğin yerde dur)"); return; }
+        Stand s = standBul(args[1]);
+        if (s == null) { p.sendMessage(ChatColor.RED + "Bu oyuncuya ait stand bulunamadı."); return; }
+        Entity eski = bulEntity(s.id);
+        if (eski != null) eski.remove();
+        int cadi = 0;
+        for (Entity e : p.getNearbyEntities(6, 6, 6)) {
+            if (e instanceof org.bukkit.entity.Witch && e.getCustomName() != null) {
+                String n = ChatColor.stripColor(e.getCustomName());
+                if (n.endsWith("Standı") || n.startsWith("Boş Stand")) { e.remove(); cadi++; }
+            }
+        }
+        npcOlustur(p.getLocation(), s.id);
+        standAdiGuncelle(s.id);
+        plugin.ekonomiLog("pazar-onar", p.getName(), "Stand " + s.id + " (" + adiniBul(s.sahip) + ") NPC'si yeniden kuruldu.");
+        p.sendMessage(ChatColor.GREEN + "Stand NPC'si yeniden kuruldu (veri korundu" + (cadi > 0 ? ", " + cadi + " cadı temizlendi" : "") + ").");
+    }
+
+    private void adminIlanKaldir(Player p, String[] args) {
+        if (args.length < 3) { p.sendMessage(ChatColor.YELLOW + "/pazarnpc ilankaldir <oyuncu> <no>  (no: /pazarnpc bilgi listesindeki sıra)"); return; }
+        Stand s = standBul(args[1]);
+        if (s == null) { p.sendMessage(ChatColor.RED + "Bu oyuncuya ait stand bulunamadı."); return; }
+        int no;
+        try { no = Integer.parseInt(args[2]); } catch (NumberFormatException ex) { p.sendMessage(ChatColor.RED + "Geçersiz numara."); return; }
+        int i = 1; String hedef = null;
+        for (String id : s.listings.keySet()) { if (i++ == no) { hedef = id; break; } }
+        if (hedef == null) { p.sendMessage(ChatColor.RED + "Bu numarada ilan yok."); return; }
+        Listing l = s.listings.remove(hedef);
+        if (l.stok > 0) geriVer(p, l.ornek, l.stok);
+        veriKaydetPazar();
+        plugin.ekonomiLog("pazar-admin-ilan-kaldir", p.getName(), "Stand " + s.id + " (" + adiniBul(s.sahip) + ") | " + l.stok + "x " + esyaGorunenIsim(l.ornek) + " admin'e verildi.");
+        p.sendMessage(ChatColor.YELLOW + esyaGorunenIsim(l.ornek) + " ilanı kaldırıldı, " + l.stok + " adet SANA verildi (sahibine sen ver).");
+    }
+
+    /** Standı sahibinden alır: tüm stok admin'e verilir, ilanlar silinir, stand boşalır. */
+    private void adminAt(Player p, String[] args) {
+        if (args.length < 2) { p.sendMessage(ChatColor.YELLOW + "/pazarnpc at <oyuncu>"); return; }
+        Stand s = standBul(args[1]);
+        if (s == null) { p.sendMessage(ChatColor.RED + "Bu oyuncuya ait stand bulunamadı."); return; }
+        String eskiSahip = adiniBul(s.sahip);
+        int toplam = 0;
+        for (Listing l : s.listings.values()) {
+            if (l.stok > 0) { geriVer(p, l.ornek, l.stok); toplam += l.stok; }
+        }
+        s.listings.clear();
+        s.sahip = null;
+        veriKaydetPazar();
+        standAdiGuncelle(s.id);
+        plugin.ekonomiLog("pazar-admin-at", p.getName(), "Stand " + s.id + " (" + eskiSahip + ") boşaltıldı, " + toplam + " adet eşya admin'e verildi.");
+        p.sendMessage(ChatColor.YELLOW + eskiSahip + " standından atıldı; " + toplam + " adet eşya SANA verildi.");
+    }
+
     private void kur(Player p) {
-        Villager v = (Villager) p.getWorld().spawnEntity(p.getLocation(), EntityType.VILLAGER);
+        String standId = UUID.randomUUID().toString();
+        Villager v = npcOlustur(p.getLocation(), standId);
+        Stand s = new Stand(standId);
+        standlar.put(standId, s);
+        veriKaydetPazar();
+        standAdiGuncelle(standId, v);
+
+        p.sendMessage(ChatColor.GREEN + "Pazar stand NPC'si kuruldu! Kiralama fiyatı: $" + fmt(plugin.pazarKiralamaFiyati()));
+    }
+
+    private Villager npcOlustur(org.bukkit.Location loc, String standId) {
+        Villager v = (Villager) loc.getWorld().spawnEntity(loc, EntityType.VILLAGER);
         v.setAI(false);
         v.setInvulnerable(true);
         v.setSilent(true);
@@ -167,17 +275,9 @@ public class PazarManager implements Listener, CommandExecutor {
         // NITWIT: bu meslekteki köylünün vanilla ticareti olmaz, böylece sağ tık menümüz yerine
         // yanlışlıkla köylü ticaret ekranı açılmaz (Arena Ligi'nde görülen aynı bug'ın önceden önlenmesi).
         v.setProfession(Villager.Profession.NITWIT);
-
-        String standId = UUID.randomUUID().toString();
         v.getPersistentDataContainer().set(standKey, PersistentDataType.BYTE, (byte) 1);
         v.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, standId);
-
-        Stand s = new Stand(standId);
-        standlar.put(standId, s);
-        veriKaydetPazar();
-        standAdiGuncelle(standId, v);
-
-        p.sendMessage(ChatColor.GREEN + "Pazar stand NPC'si kuruldu! Kiralama fiyatı: $" + fmt(plugin.pazarKiralamaFiyati()));
+        return v;
     }
 
     private void sil(Player p) {
@@ -228,6 +328,12 @@ public class PazarManager implements Listener, CommandExecutor {
         } else {
             acKategoriGui(p, standId);
         }
+    }
+
+    /** Yıldırım (cadı), zombi bulaşması vb. dönüşümler stand NPC'sini bozmasın (PDC kaybolup stand erişilemez oluyordu). */
+    @EventHandler(ignoreCancelled = true)
+    public void onDonusum(org.bukkit.event.entity.EntityTransformEvent event) {
+        if (event.getEntity().getPersistentDataContainer().has(standKey, PersistentDataType.BYTE)) event.setCancelled(true);
     }
 
     @EventHandler(ignoreCancelled = true)
