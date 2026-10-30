@@ -61,9 +61,6 @@ public class ArayuzManager implements Listener {
     private final NamespacedKey anahtar;
     private final Map<UUID, Gosterge> gostergeler = new HashMap<>();
     private Team gizliTakim;
-    /** Klan NPC'leri (nöbetçi/lider/muhafız): entity -> etiket. Etiket sadece nişan alanlara (ve savaş/kuşatmadakilere) görünür. */
-    private final Map<UUID, TextDisplay> npcEtiket = new HashMap<>();
-    private static final NamespacedKey NPC_ISIM_KEY = new NamespacedKey("klansistemi", "isim_gizli");
 
     public ArayuzManager(MeslekSistemi plugin) {
         this.plugin = plugin;
@@ -94,8 +91,6 @@ public class ArayuzManager implements Listener {
     private boolean aktif() { return plugin.getConfig().getBoolean("arayuz.aktif", true); }
 
     public void kapat() {
-        for (TextDisplay d : npcEtiket.values()) if (d != null && d.isValid()) d.remove();
-        npcEtiket.clear();
         for (Gosterge g : gostergeler.values()) kaldir(g);
         gostergeler.clear();
     }
@@ -120,7 +115,7 @@ public class ArayuzManager implements Listener {
 
     // ------------------------------------------------------------------ gösterge entity'leri
     // NOT: Oyuncunun yolcusu YAPILMAZ (yolcusu olan oyuncu ışınlanamaz); her 2 tickte oyuncuya taşınır.
-    private TextDisplay olustur(Entity sahip, Component metin) {
+    private TextDisplay olustur(Player sahip, Component metin) {
         return sahip.getWorld().spawn(konum(sahip, 0), TextDisplay.class, e -> {
             e.setVisibleByDefault(false);
             e.setPersistent(false);
@@ -135,7 +130,7 @@ public class ArayuzManager implements Listener {
         });
     }
 
-    private org.bukkit.Location konum(Entity p, double ek) {
+    private org.bukkit.Location konum(Player p, double ek) {
         double taban = plugin.getConfig().getDouble("arayuz.yukseklik-taban", 0.35);
         return p.getLocation().add(0, p.getHeight() + taban + ek, 0);
     }
@@ -147,7 +142,7 @@ public class ArayuzManager implements Listener {
     }
 
     /** Gösterge varsa/gerekliyse oluşturur, konumlar; izleyen kümesine göre izleyici başına açar/kapatır. */
-    private TextDisplay esitle(Entity sahip, TextDisplay d, Set<UUID> izleyenler, Component metin, double ek) {
+    private TextDisplay esitle(Player sahip, TextDisplay d, Set<UUID> izleyenler, Component metin, double ek) {
         if (izleyenler.isEmpty()) {
             if (d != null && d.isValid()) d.remove();
             return null;
@@ -202,8 +197,6 @@ public class ArayuzManager implements Listener {
     private void guncelle() {
         Map<UUID, Set<UUID>> isimIzleyen = new HashMap<>();
         Map<UUID, Set<UUID>> arananIzleyen = new HashMap<>();
-        Map<UUID, Set<UUID>> npcIzleyen = new HashMap<>();
-        Map<UUID, Entity> npcVarlik = new HashMap<>();
 
         for (Player izleyen : Bukkit.getOnlinePlayers()) {
             if (izleyen.hasMetadata("NPC")) continue;
@@ -211,20 +204,6 @@ public class ArayuzManager implements Listener {
             boolean tam = tamGorunur(izleyen);
             Entity hedef = null;
             try { hedef = izleyen.getTargetEntity((int) MENZIL, false); } catch (Throwable ignored) { }
-
-            // Klan NPC'leri: nişan alınan ya da (savaş/kuşatmadaysa) yakındaki isim-gizli NPC'ler
-            if (hedef != null && !(hedef instanceof Player) && hedef.getPersistentDataContainer().has(NPC_ISIM_KEY, org.bukkit.persistence.PersistentDataType.STRING)) {
-                npcIzleyen.computeIfAbsent(hedef.getUniqueId(), x -> new HashSet<>()).add(izleyen.getUniqueId());
-                npcVarlik.put(hedef.getUniqueId(), hedef);
-            }
-            if (tam) {
-                for (Entity yakin : izleyen.getNearbyEntities(TAM_MENZIL, TAM_MENZIL, TAM_MENZIL)) {
-                    if (yakin instanceof Player) continue;
-                    if (!yakin.getPersistentDataContainer().has(NPC_ISIM_KEY, org.bukkit.persistence.PersistentDataType.STRING)) continue;
-                    npcIzleyen.computeIfAbsent(yakin.getUniqueId(), x -> new HashSet<>()).add(izleyen.getUniqueId());
-                    npcVarlik.put(yakin.getUniqueId(), yakin);
-                }
-            }
 
             for (Player hp : Bukkit.getOnlinePlayers()) {
                 if (hp.getUniqueId().equals(izleyen.getUniqueId()) || hp.hasMetadata("NPC")) continue;
@@ -263,21 +242,6 @@ public class ArayuzManager implements Listener {
         }
         for (UUID id : new ArrayList<>(gostergeler.keySet())) {
             if (!canli.contains(id)) kaldir(gostergeler.remove(id));
-        }
-
-        // Klan NPC etiketleri
-        for (Map.Entry<UUID, Entity> e : npcVarlik.entrySet()) {
-            Entity ent = e.getValue();
-            if (!ent.isValid()) continue;
-            String ham = ent.getPersistentDataContainer().get(NPC_ISIM_KEY, org.bukkit.persistence.PersistentDataType.STRING);
-            Component metin = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().deserialize(ham == null ? "" : ham);
-            TextDisplay d = esitle(ent, npcEtiket.get(e.getKey()), npcIzleyen.get(e.getKey()), metin, 0.0);
-            if (d != null) npcEtiket.put(e.getKey(), d);
-        }
-        for (UUID id : new ArrayList<>(npcEtiket.keySet())) {
-            if (npcVarlik.containsKey(id)) continue;
-            TextDisplay d = npcEtiket.remove(id);
-            if (d != null && d.isValid()) d.remove();
         }
     }
 
