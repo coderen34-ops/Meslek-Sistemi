@@ -162,6 +162,12 @@ public class MenuManager implements Listener {
             new BorsaUrunu(Material.COPPER_INGOT, "Bakir (Belediye)", 30, 2),
             new BorsaUrunu(Material.COAL, "Komur (Belediye)", 20, 1));
 
+    /** Belediye borsasında 1 zümrüt ALIŞ fiyatı (oyuncunun ödediği). Tüccar menüsü zümrüt ürünlerinde bunu kullanır. */
+    public static int zumrutAlisFiyati() {
+        for (BorsaUrunu u : BORSA) if (u.mat() == Material.EMERALD) return u.alis();
+        return 250;
+    }
+
     private ItemStack getBorsaItem(Material mat, String name, int alis, int satis) {
         ItemStack item = new ItemStack(mat); ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(ChatColor.AQUA + name);

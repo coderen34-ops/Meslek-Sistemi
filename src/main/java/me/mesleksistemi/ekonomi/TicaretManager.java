@@ -465,6 +465,16 @@ public class TicaretManager implements Listener, CommandExecutor {
                 }
             } else {
                 lore.add(ChatColor.GOLD + "Maliyet:");
+                if (zumrutUrunuMu(recipe.getResult())) {
+                    // Zümrüt eşyayla alınamaz: sadece parayla, banka fiyatından (indirim yok)
+                    lore.add(ChatColor.GREEN + "- $" + formatAmount(zumrutUrunFiyati(recipe.getResult())) + " Nakit");
+                    lore.add(ChatColor.GRAY + "(Banka fiyatı, eşya kabul edilmez)");
+                    lore.add("");
+                    lore.add(ChatColor.YELLOW + "► Satın Almak İçin Tıkla");
+                    if (meta != null) { meta.setLore(lore); result.setItemMeta(meta); }
+                    gui.setItem(i, result);
+                    continue;
+                }
                 double zümrütDegeri = 0;
 
                 for (ItemStack ingredient : recipe.getIngredients()) {
@@ -574,8 +584,9 @@ public class TicaretManager implements Listener, CommandExecutor {
 
         double zumrutDegeri = 0;
         List<ItemStack> requiredItems = new ArrayList<>();
+        boolean zumrutUrunu = zumrutUrunuMu(recipe.getResult());
 
-        for (ItemStack ingredient : recipe.getIngredients()) {
+        for (ItemStack ingredient : zumrutUrunu ? new ArrayList<ItemStack>() : recipe.getIngredients()) {
             if (ingredient.getType() == Material.EMERALD) {
                 zumrutDegeri += ingredient.getAmount() * ZUMRUT_TABAN_KURU;
             } else if (ingredient.getType() == Material.EMERALD_BLOCK) {
@@ -588,8 +599,8 @@ public class TicaretManager implements Listener, CommandExecutor {
         // YENİ: Sadakat indirimini satın alma işlemine de yansıtıyoruz
         int sadakatSeviyesi = getSadakatSeviyesi(player, villager);
         double sadakatIndirimOrani = getSadakatIndirimi(sadakatSeviyesi);
-        double basePrice = calculateDinamikFiyat(recipe.getResult(), zumrutDegeri);
-        double finalPrice = basePrice * (1.0 - getToplamIndirim(sadakatIndirimOrani));
+        double basePrice = zumrutUrunu ? zumrutUrunFiyati(recipe.getResult()) : calculateDinamikFiyat(recipe.getResult(), zumrutDegeri);
+        double finalPrice = zumrutUrunu ? basePrice : basePrice * (1.0 - getToplamIndirim(sadakatIndirimOrani));
 
         for (ItemStack req : requiredItems) {
             if (!player.getInventory().containsAtLeast(req, req.getAmount())) {
@@ -717,6 +728,16 @@ public class TicaretManager implements Listener, CommandExecutor {
         if (event.getView().getTitle().equals(ChatColor.DARK_BLUE + "Tüccar Menüsü")) {
             islemdekiKoyluler.remove(event.getPlayer().getUniqueId());
         }
+    }
+
+    /** Sonucu zümrüt/zümrüt bloğu olan tarif: eşya karşılığı DEĞİL, banka (belediye borsası) alış fiyatıyla PARAYLA satılır. */
+    private static boolean zumrutUrunuMu(ItemStack result) {
+        return result != null && (result.getType() == Material.EMERALD || result.getType() == Material.EMERALD_BLOCK);
+    }
+
+    private static double zumrutUrunFiyati(ItemStack result) {
+        int adetZumrut = result.getAmount() * (result.getType() == Material.EMERALD_BLOCK ? 9 : 1);
+        return (double) adetZumrut * me.mesleksistemi.sistem.MenuManager.zumrutAlisFiyati();
     }
 
     private double calculateDinamikFiyat(ItemStack result, double baseZumrutDegeri) {
