@@ -81,11 +81,31 @@ public class ArayuzManager implements Listener {
         new BukkitRunnable() {
             @Override public void run() { if (aktif()) etiketGizle(); }
         }.runTaskTimer(plugin, 40L, 40L);
+        // Sabit duran (AI'sı kapalı) NPC köylülerin isimleri sadece nişan alınınca görünsün (vanilla davranışı); pazar standları hariç
+        pazarAnahtar = new NamespacedKey(plugin, "pazar_stand");
+        new BukkitRunnable() {
+            @Override public void run() { if (aktif()) sabitNpcIsimGizle(); }
+        }.runTaskTimer(plugin, 60L, 40L);
         // Eski "Aranıyor" tab son eki kalmışsa temizle
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             for (String ad : new ArrayList<>(plugin.polisManager.arananOyuncular))
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + ad);
         }, 200L);
+    }
+
+    private NamespacedKey pazarAnahtar;
+
+    private void sabitNpcIsimGizle() {
+        if (!plugin.getConfig().getBoolean("arayuz.sabit-npc-isim-gizle", true)) return;
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p.hasMetadata("NPC")) continue;
+            for (Entity e : p.getNearbyEntities(48, 48, 48)) {
+                if (!(e instanceof org.bukkit.entity.Villager v)) continue;
+                if (v.hasAI() || !v.isCustomNameVisible()) continue;
+                if (v.getPersistentDataContainer().has(pazarAnahtar, org.bukkit.persistence.PersistentDataType.BYTE)) continue;
+                v.setCustomNameVisible(false);
+            }
+        }
     }
 
     private boolean aktif() { return plugin.getConfig().getBoolean("arayuz.aktif", true); }
