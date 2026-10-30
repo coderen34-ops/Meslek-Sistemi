@@ -185,6 +185,14 @@ public class ArayuzManager implements Listener {
         return false;
     }
 
+    /** Vanish'teki (Essentials/SuperVanish/PremiumVanish "vanished" metadata) oyuncu: etiket, Aranıyor ve balon gösterilmez. */
+    private boolean vanishli(Player p) {
+        for (org.bukkit.metadata.MetadataValue v : p.getMetadata("vanished")) {
+            if (v.asBoolean()) return true;
+        }
+        return false;
+    }
+
     // ------------------------------------------------------------------ güncelleme döngüsü
     private void guncelle() {
         Map<UUID, Set<UUID>> isimIzleyen = new HashMap<>();
@@ -200,6 +208,7 @@ public class ArayuzManager implements Listener {
             for (Player hp : Bukkit.getOnlinePlayers()) {
                 if (hp.getUniqueId().equals(izleyen.getUniqueId()) || hp.hasMetadata("NPC")) continue;
                 if (!hp.getWorld().equals(izleyen.getWorld())) continue;
+                if (vanishli(hp) || !izleyen.canSee(hp)) continue; // vanish'teki / izleyenin göremediği oyuncuyu açığa çıkarma
                 double mesafe2 = hp.getLocation().distanceSquared(izleyen.getLocation());
                 boolean hedefte = hedef != null && hedef.getUniqueId().equals(hp.getUniqueId());
                 if ((tam && mesafe2 <= TAM_MENZIL * TAM_MENZIL) || hedefte)
@@ -251,12 +260,13 @@ public class ArayuzManager implements Listener {
     }
 
     private void balonGoster(Player p, String metin, Set<UUID> alicilar) {
-        if (!p.isOnline() || p.hasMetadata("NPC")) return;
+        if (!p.isOnline() || p.hasMetadata("NPC") || vanishli(p)) return;
         final Gosterge g = gostergeler.computeIfAbsent(p.getUniqueId(), x -> new Gosterge());
         Set<UUID> izleyenler = new HashSet<>();
         for (Player v : Bukkit.getOnlinePlayers()) {
             if (!v.getWorld().equals(p.getWorld())) continue;
             if (!v.getUniqueId().equals(p.getUniqueId()) && !alicilar.contains(v.getUniqueId())) continue;
+            if (!v.getUniqueId().equals(p.getUniqueId()) && !v.canSee(p)) continue;
             if (v.getLocation().distanceSquared(p.getLocation()) <= MENZIL * MENZIL) izleyenler.add(v.getUniqueId());
         }
         if (izleyenler.isEmpty()) return;
