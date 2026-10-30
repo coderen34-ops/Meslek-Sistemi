@@ -112,6 +112,10 @@ public class KacakciManager implements Listener, CommandExecutor {
         plugin.getConfig().addDefault("kacakci.fiyat.kazan", 2500.0);
         plugin.getConfig().addDefault("kacakci.fiyat.maske", 800.0);
         plugin.getConfig().addDefault("kacakci.saatler", List.of("21:00-01:00", "02:00-06:00"));
+        plugin.getConfig().addDefault("kacakci.saat-turu", "gercek");          // gercek (Europe/Istanbul) | oyun (Minecraft saati)
+        plugin.getConfig().addDefault("kacakci.rastgele.aktif", true);          // aralık içinde rastgele zamanlarda çıkıp kaybolsun
+        plugin.getConfig().addDefault("kacakci.rastgele.kalma-dk", "10-25");    // her çıkışta ne kadar kalsın (gerçek dk)
+        plugin.getConfig().addDefault("kacakci.rastgele.bekleme-dk", "10-40"); // kaybolunca ne kadar sonra yeniden çıksın (gerçek dk)
         plugin.getConfig().addDefault("kacakci.fiyat.golge-koku", 150.0);
         plugin.getConfig().addDefault("kacakci.fiyat.kizil-kul", 200.0);
         plugin.getConfig().addDefault("kacakci.fiyat.mavi-tuz", 120.0);
@@ -230,24 +234,53 @@ public class KacakciManager implements Listener, CommandExecutor {
         return Math.round(((dk - 360 + 1440) % 1440) * 24000.0 / 1440.0);
     }
 
-    /** Şu anki oyun saatinin düştüğü aralığın indeksi, yoksa -1. */
+    private boolean gercekSaat() { return !"oyun".equalsIgnoreCase(plugin.getConfig().getString("kacakci.saat-turu", "gercek")); }
+
+    private static int dakika(String hhmm) {
+        String[] p = hhmm.trim().split(":");
+        return Integer.parseInt(p[0]) * 60 + Integer.parseInt(p[1]);
+    }
+
+    /** Şu anki saatin (gerçek: Europe/Istanbul, ya da oyun saati) düştüğü aralığın indeksi, yoksa -1. */
     private int aktifPencere(World w) {
         List<String> saatler = plugin.getConfig().getStringList("kacakci.saatler");
+        boolean gercek = gercekSaat();
+        java.time.ZonedDateTime z = java.time.ZonedDateTime.now(java.time.ZoneId.of("Europe/Istanbul"));
+        int simdiDk = z.getHour() * 60 + z.getMinute();
         long t = w.getTime();
         for (int i = 0; i < saatler.size(); i++) {
             try {
                 String[] ab = saatler.get(i).split("-");
-                long bas = saatTick(ab[0]), bit = saatTick(ab[1]);
-                boolean icinde = bas <= bit ? (t >= bas && t < bit) : (t >= bas || t < bit);
+                boolean icinde;
+                if (gercek) {
+                    int bas = dakika(ab[0]), bit = dakika(ab[1]);
+                    icinde = bas <= bit ? (simdiDk >= bas && simdiDk < bit) : (simdiDk >= bas || simdiDk < bit);
+                } else {
+                    long bas = saatTick(ab[0]), bit = saatTick(ab[1]);
+                    icinde = bas <= bit ? (t >= bas && t < bit) : (t >= bas || t < bit);
+                }
                 if (icinde) return i;
             } catch (Exception ignored) { }
         }
         return -1;
     }
 
+    private long rastgeleMs(String anahtar, String varsayilan) {
+        String[] ab = plugin.getConfig().getString(anahtar, varsayilan).split("-");
+        try {
+            double lo = Double.parseDouble(ab[0].trim()), hi = Double.parseDouble(ab[ab.length > 1 ? 1 : 0].trim());
+            if (hi < lo) { double x = lo; lo = hi; hi = x; }
+            return (long) ((lo + rnd.nextDouble() * (hi - lo)) * 60_000L);
+        } catch (Exception e) {
+            return 15 * 60_000L;
+        }
+    }
+
     private String aktifAnahtar;       // pencere + gün: değişince yeni rastgele nokta seçilir
     private int secilenNokta = -1;
     private long zorlaBitis = 0;       // /kacakci cagir: bu zamana kadar saat kuralından bağımsız ortada
+    private long oturumBitis = 0;      // rastgele mod: şu anki çıkışın bitişi (0 = şu an ortada değil)
+    private long sonrakiCikis = 0;     // rastgele mod: bir sonraki çıkış zamanı (0 = henüz planlanmadı)
 
     private void gece() {
         List<Location> noktalar = noktalar();
@@ -256,14 +289,36 @@ public class KacakciManager implements Listener, CommandExecutor {
         if (noktalar.isEmpty()) { if (mevcut != null) { mevcut.remove(); npcId = null; } return; }
 
         World ref = noktalar.get(0).getWorld();
-        boolean zorla = System.currentTimeMillis() < zorlaBitis;
+        long simdi = System.currentTimeMillis();
+        boolean zorla = simdi < zorlaBitis;
         int pencere = aktifPencere(ref);
+        boolean rastgele = plugin.getConfig().getBoolean("kacakci.rastgele.aktif", true);
+
         if (pencere < 0 && !zorla) {
             if (mevcut != null) { mevcut.remove(); npcId = null; }
-            aktifAnahtar = null;
+            aktifAnahtar = null; oturumBitis = 0; sonrakiCikis = 0;
             return;
         }
-        String anahtar = (zorla ? "z" + zorlaBitis : "p" + pencere + ":" + (ref.getFullTime() / 24000L)) + ":" + noktalar.size();
+
+        if (rastgele && !zorla) {
+            if (oturumBitis > 0 && simdi >= oturumBitis) {          // çıkış bitti: kaybol, sonrakini planla
+                if (mevcut != null) { mevcut.remove(); npcId = null; mevcut = null; }
+                oturumBitis = 0;
+                sonrakiCikis = simdi + rastgeleMs("kacakci.rastgele.bekleme-dk", "10-40");
+                aktifAnahtar = null;
+            }
+            if (oturumBitis == 0) {                                   // şu an ortada değil
+                if (sonrakiCikis == 0) sonrakiCikis = simdi + (long) (rnd.nextDouble() * rastgeleMs("kacakci.rastgele.bekleme-dk", "10-40"));
+                if (simdi < sonrakiCikis) {
+                    if (mevcut != null) { mevcut.remove(); npcId = null; }
+                    return;
+                }
+                oturumBitis = simdi + rastgeleMs("kacakci.rastgele.kalma-dk", "10-25");   // yeni çıkış başlıyor
+                aktifAnahtar = null;
+            }
+        }
+
+        String anahtar = (zorla ? "z" + zorlaBitis : rastgele ? "r" + oturumBitis : "p" + pencere + ":" + (ref.getFullTime() / 24000L)) + ":" + noktalar.size();
         if (!anahtar.equals(aktifAnahtar)) {
             aktifAnahtar = anahtar;
             secilenNokta = rnd.nextInt(noktalar.size());
@@ -860,8 +915,18 @@ public class KacakciManager implements Listener, CommandExecutor {
                         plugin.getConfig().set("kacakci.saatler", sa);
                         plugin.saveConfig();
                         aktifAnahtar = null;
-                        s.sendMessage(ChatColor.GREEN + "Saat aralığı eklendi: " + a[2] + " (oyun saati)");
+                        s.sendMessage(ChatColor.GREEN + "Saat aralığı eklendi: " + a[2] + " (" + (gercekSaat() ? "gerçek saat" : "oyun saati") + ")");
                     } catch (Exception ex) { s.sendMessage(ChatColor.RED + "Biçim: /kacakci saat ekle 21:00-01:00"); }
+                } else if (islem.equals("tur") && a.length >= 3 && (a[2].equalsIgnoreCase("gercek") || a[2].equalsIgnoreCase("oyun"))) {
+                    plugin.getConfig().set("kacakci.saat-turu", a[2].toLowerCase(Locale.ROOT));
+                    plugin.saveConfig();
+                    aktifAnahtar = null;
+                    s.sendMessage(ChatColor.GREEN + "Saat türü: " + a[2].toLowerCase(Locale.ROOT));
+                } else if (islem.equals("rastgele") && a.length >= 3) {
+                    plugin.getConfig().set("kacakci.rastgele.aktif", a[2].equalsIgnoreCase("ac"));
+                    plugin.saveConfig();
+                    oturumBitis = 0; sonrakiCikis = 0; aktifAnahtar = null;
+                    s.sendMessage(ChatColor.GREEN + "Rastgele çıkış: " + (a[2].equalsIgnoreCase("ac") ? "açık" : "kapalı (aralık boyunca hep ortada)"));
                 } else if (islem.equals("sil") && a.length >= 3) {
                     try {
                         int no = Integer.parseInt(a[2]);
@@ -873,9 +938,10 @@ public class KacakciManager implements Listener, CommandExecutor {
                         s.sendMessage(ChatColor.YELLOW + "Aralık silindi.");
                     } catch (NumberFormatException ex) { s.sendMessage(ChatColor.RED + "Numara yaz."); }
                 } else {
-                    s.sendMessage(ChatColor.YELLOW + "Kaçakçı saatleri (oyun saati, 06:00 = sabah): " + (sa.isEmpty() ? "yok (hiç çıkmaz)" : ""));
+                    s.sendMessage(ChatColor.YELLOW + "Kaçakçı saatleri (" + (gercekSaat() ? "gerçek saat, İstanbul" : "oyun saati") + "; rastgele çıkış: "
+                            + (plugin.getConfig().getBoolean("kacakci.rastgele.aktif", true) ? "açık, kalma " + plugin.getConfig().getString("kacakci.rastgele.kalma-dk") + " dk, bekleme " + plugin.getConfig().getString("kacakci.rastgele.bekleme-dk") + " dk" : "kapalı") + "): " + (sa.isEmpty() ? "yok (hiç çıkmaz)" : ""));
                     for (int i = 0; i < sa.size(); i++) s.sendMessage(ChatColor.GRAY + " #" + (i + 1) + " " + sa.get(i));
-                    s.sendMessage(ChatColor.GRAY + "/kacakci saat ekle 21:00-01:00 | sil <no> | liste");
+                    s.sendMessage(ChatColor.GRAY + "/kacakci saat ekle 21:00-01:00 | sil <no> | tur gercek|oyun | rastgele ac|kapat | liste");
                 }
                 return true;
             }
