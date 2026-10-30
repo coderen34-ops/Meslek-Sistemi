@@ -109,6 +109,7 @@ public class KacakciManager implements Listener, CommandExecutor {
         this.npcKey = new NamespacedKey(plugin, "kacakci_npc");
         this.veriDosyasi = new File(plugin.getDataFolder(), "kacakci-kazanlar.yml");
 
+        plugin.getConfig().addDefault("kacakci.min-polis", 1);
         plugin.getConfig().addDefault("kacakci.fiyat.kazan", 2500.0);
         plugin.getConfig().addDefault("kacakci.fiyat.maske", 800.0);
         plugin.getConfig().addDefault("kacakci.saatler", List.of("21:00-01:00", "02:00-06:00"));
@@ -611,6 +612,12 @@ public class KacakciManager implements Listener, CommandExecutor {
         // Malzeme ekleme
         if (id != null && (id.equals(ESYA_GOLGE) || id.equals(ESYA_KIZIL) || id.equals(ESYA_TUZ))) {
             if (k.asama != Asama.BOS && k.asama != Asama.MALZEME) { p.sendMessage(ChatColor.RED + "Kazan şu an malzeme kabul etmiyor."); return; }
+            int gerekli = plugin.getConfig().getInt("kacakci.min-polis", 1);
+            if (gerekli > 0 && cevrimiciPolis() < gerekli) {
+                p.sendMessage(ChatColor.RED + "Şehirde polis yok; kimse bu işe kalkışmaz. Polis çevrimiçi olunca tekrar dene.");
+                p.playSound(b.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.8f, 1f);
+                return;
+            }
             malzemeEkle(p, k, b, id, el);
             return;
         }
@@ -633,6 +640,14 @@ public class KacakciManager implements Listener, CommandExecutor {
     private List<String> tarif(KacakMal.Tur t) {
         if (t == KacakMal.Tur.KARA_TOZ) return List.of(ESYA_GOLGE, ESYA_GOLGE, ESYA_KIZIL, ESYA_TUZ);
         return List.of(ESYA_TUZ, ESYA_TUZ, ESYA_GOLGE);
+    }
+
+    private int cevrimiciPolis() {
+        int n = 0;
+        if (plugin.gbtManager == null) return 0;
+        for (Player o : Bukkit.getOnlinePlayers())
+            if (!o.hasMetadata("NPC") && plugin.gbtManager.polisMi(o)) n++;
+        return n;
     }
 
     private void malzemeEkle(Player p, Kazan k, Block b, String id, ItemStack el) {
