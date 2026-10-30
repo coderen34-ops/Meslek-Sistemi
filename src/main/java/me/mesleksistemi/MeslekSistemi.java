@@ -105,6 +105,7 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.sistem.KoyManager koyManager;
     public me.mesleksistemi.sistem.EtkilesimManager etkilesimManager;
     public me.mesleksistemi.meslekler.GbtManager gbtManager;
+    public me.mesleksistemi.guvenlik.AlarmManager alarmManager;
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
     public me.mesleksistemi.basarim.BasarimManager basarimManager;
@@ -266,6 +267,11 @@ public class MeslekSistemi extends JavaPlugin {
         // YENİ ENTEGRASYON 7: SaglikManager (Kanama, Kırık, Hastane ve Ambulans)
         this.saglikManager = new SaglikManager(this);
         getServer().getPluginManager().registerEvents(this.saglikManager, this);
+        this.alarmManager = new me.mesleksistemi.guvenlik.AlarmManager(this);
+        getServer().getPluginManager().registerEvents(this.alarmManager, this);
+        me.mesleksistemi.guvenlik.GirisSozlesmeManager girisSozlesme = new me.mesleksistemi.guvenlik.GirisSozlesmeManager(this);
+        getServer().getPluginManager().registerEvents(girisSozlesme, this);
+        if (getCommand("kurallar") != null) getCommand("kurallar").setExecutor(girisSozlesme);
         BaskanDusurManager baskanDusur = new BaskanDusurManager(this);
         getServer().getPluginManager().registerEvents(baskanDusur, this);
         if (getCommand("doktormarket") != null) getCommand("doktormarket").setExecutor(this.saglikManager);

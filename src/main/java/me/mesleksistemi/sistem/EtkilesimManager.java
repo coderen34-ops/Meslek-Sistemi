@@ -666,6 +666,7 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
             hp.playSound(hp.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.2f);
         }
         plugin.getLogger().info("[PARA] " + p.getName() + " -> " + ad + " " + yazi);
+        if (plugin.alarmManager != null) plugin.alarmManager.transfer(p, hedef, ad, miktar);
     }
 
     private void yorumIsle(Player p, String ham) {
