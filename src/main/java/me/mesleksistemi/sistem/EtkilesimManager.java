@@ -451,6 +451,13 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
         // Polis ve amirlere sağ tık: şikayet menüsü (PolisManager)
         if (polisMi(meslekOf(hedef))) return;
 
+        // Polis/amir: sağ tık GBT kontrolü açar (GBT menüsünden oyuncu menüsüne ulaşılır)
+        if (plugin.gbtManager != null && polisMi(meslekOf(izleyen))) {
+            event.setCancelled(true);
+            plugin.gbtManager.gbtAc(izleyen, hedef);
+            return;
+        }
+
         event.setCancelled(true);
         adKaydet(hedef);
         adKaydet(izleyen);

@@ -103,6 +103,7 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.sistem.AdminCagriManager adminCagriManager;
     public me.mesleksistemi.sistem.KoyManager koyManager;
     public me.mesleksistemi.sistem.EtkilesimManager etkilesimManager;
+    public me.mesleksistemi.meslekler.GbtManager gbtManager;
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
     public me.mesleksistemi.basarim.BasarimManager basarimManager;
@@ -229,6 +230,8 @@ public class MeslekSistemi extends JavaPlugin {
             getCommand("poster").setExecutor(posterManager);
             getCommand("poster").setTabCompleter(posterManager);
         }
+        this.gbtManager = new me.mesleksistemi.meslekler.GbtManager(this);
+        getServer().getPluginManager().registerEvents(this.gbtManager, this);
         this.etkilesimManager = new me.mesleksistemi.sistem.EtkilesimManager(this);
         getServer().getPluginManager().registerEvents(this.etkilesimManager, this);
         if (getCommand("profil") != null) {
