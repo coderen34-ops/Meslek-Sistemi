@@ -65,6 +65,9 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
     private final YamlConfiguration kayit;
     private final Set<UUID> bekleyen = new HashSet<>();
     private final Set<UUID> okuyor = new HashSet<>();
+    /** Girmiş ama AuthMe girişi/kaydı henüz tamamlanmamış oyuncular: giriş bitince sözleşme duvarı kurulur. */
+    private final Set<UUID> girisBekleyen = new HashSet<>();
+    private java.lang.reflect.Method authApiInstance, authIsAuth;
 
     public GirisSozlesmeManager(MeslekSistemi plugin) {
         this.plugin = plugin;
@@ -79,6 +82,32 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
         plugin.saveConfig();
         this.kayitDosyasi = new File(plugin.getDataFolder(), "sozlesme-kabul.yml");
         this.kayit = YamlConfiguration.loadConfiguration(kayitDosyasi);
+        // AuthMe girişi tamamlanana kadar bekle (her 2 sn kontrol)
+        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            for (UUID id : new java.util.ArrayList<>(girisBekleyen)) {
+                Player p = Bukkit.getPlayer(id);
+                if (p == null || !p.isOnline()) { girisBekleyen.remove(id); continue; }
+                if (girisTamam(p)) { girisBekleyen.remove(id); duvarKur(p); }
+            }
+        }, 40L, 40L);
+    }
+
+    /** AuthMe yoksa true; varsa oyuncu giriş/kayıt yapmış mı (reflection, derleme bağımlılığı yok). */
+    private boolean girisTamam(Player p) {
+        org.bukkit.plugin.Plugin am = Bukkit.getPluginManager().getPlugin("AuthMe");
+        if (am == null || !am.isEnabled()) return true;
+        try {
+            if (authApiInstance == null) {
+                Class<?> api = Class.forName("fr.xephi.authme.api.v3.AuthMeApi");
+                authApiInstance = api.getMethod("getInstance");
+                authIsAuth = api.getMethod("isAuthenticated", Player.class);
+            }
+            Object inst = authApiInstance.invoke(null);
+            return Boolean.TRUE.equals(authIsAuth.invoke(inst, p));
+        } catch (Throwable t) {
+            plugin.getLogger().warning("AuthMe API okunamadı, sözleşme duvarı hemen kuruluyor: " + t);
+            return true;
+        }
     }
 
     private boolean aktif() { return plugin.getConfig().getBoolean("sozlesme.aktif", true); }
@@ -144,6 +173,7 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
         if (!aktif() || p.hasPermission("meslek.sozlesme.muaf")) return;
         if (kabulEtmis(p.getUniqueId())) return;
         UUID id = p.getUniqueId();
+        if (bekleyen.contains(id)) return;
         bekleyen.add(id);
         p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, Integer.MAX_VALUE, 0, false, false));
         p.sendMessage(ChatColor.GOLD + "Sunucuya girmek için oyuncu sözleşmesini kabul etmelisin.");
@@ -176,11 +206,14 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
     @EventHandler
     public void onGiris(PlayerJoinEvent e) {
         Player p = e.getPlayer();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> { if (p.isOnline()) duvarKur(p); }, 20L);
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!p.isOnline()) return;
+            if (girisTamam(p)) duvarKur(p); else girisBekleyen.add(p.getUniqueId());
+        }, 20L);
     }
 
     @EventHandler
-    public void onCikis(PlayerQuitEvent e) { bekleyen.remove(e.getPlayer().getUniqueId()); okuyor.remove(e.getPlayer().getUniqueId()); }
+    public void onCikis(PlayerQuitEvent e) { bekleyen.remove(e.getPlayer().getUniqueId()); girisBekleyen.remove(e.getPlayer().getUniqueId()); okuyor.remove(e.getPlayer().getUniqueId()); }
 
     @EventHandler
     public void onTikla(InventoryClickEvent e) {
