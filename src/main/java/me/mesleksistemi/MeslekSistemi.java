@@ -107,6 +107,7 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.meslekler.GbtManager gbtManager;
     public me.mesleksistemi.guvenlik.AlarmManager alarmManager;
     public me.mesleksistemi.arayuz.ArayuzManager arayuzManager;
+    public me.mesleksistemi.kacak.KacakciManager kacakciManager;
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
     public me.mesleksistemi.basarim.BasarimManager basarimManager;
@@ -268,6 +269,9 @@ public class MeslekSistemi extends JavaPlugin {
         // YENİ ENTEGRASYON 7: SaglikManager (Kanama, Kırık, Hastane ve Ambulans)
         this.saglikManager = new SaglikManager(this);
         getServer().getPluginManager().registerEvents(this.saglikManager, this);
+        this.kacakciManager = new me.mesleksistemi.kacak.KacakciManager(this);
+        getServer().getPluginManager().registerEvents(this.kacakciManager, this);
+        if (getCommand("kacakci") != null) getCommand("kacakci").setExecutor(this.kacakciManager);
         this.arayuzManager = new me.mesleksistemi.arayuz.ArayuzManager(this);
         getServer().getPluginManager().registerEvents(this.arayuzManager, this);
         this.alarmManager = new me.mesleksistemi.guvenlik.AlarmManager(this);
@@ -354,6 +358,7 @@ public class MeslekSistemi extends JavaPlugin {
     @Override
     public void onDisable() {
         if (arayuzManager != null) arayuzManager.kapat();
+        if (kacakciManager != null) kacakciManager.kapat();
         if (ohalBar != null) ohalBar.removeAll();
 
         // Bekleyen arka plan yazımları bitsin ki eski içerik son kaydın üzerine yazılmasın

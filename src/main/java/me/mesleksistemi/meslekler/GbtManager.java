@@ -190,6 +190,11 @@ public class GbtManager implements Listener {
         }
         hedef.updateInventory();
 
+        cezaKes(polis, hedef, ozet.toString().trim());
+    }
+
+    /** Kaçak mal cezası (GBT müsaderesi ve kazan baskını ortak): $5000 ceza (banka eksiye düşebilir), 10 dk hapis, sabıka, log. */
+    public void cezaKes(Player polis, Player hedef, String ozet) {
         // 2) Ceza: parası yoksa banka hesabı eksiye düşer. Ceza belediye kasasına yazılır.
         UUID id = hedef.getUniqueId();
         double eski = plugin.bankaHesaplari.getOrDefault(id, 0.0);
@@ -199,15 +204,18 @@ public class GbtManager implements Listener {
 
         // 3) Sabıka kaydı ve hapis
         sabikaArttir(id);
-        plugin.polisManager.hapseGonder(id, hedef.getName(), HAPIS_SANIYE);
+        if (plugin.polisManager != null) plugin.polisManager.hapseGonder(id, hedef.getName(), HAPIS_SANIYE);
         plugin.veriKaydet();
 
-        plugin.ekonomiLog("kacak-mal-musadere", polis.getName(), hedef.getName() + " | el konan: " + ozet.toString().trim()
+        String polisAd = polis == null ? "baskın" : polis.getName();
+        plugin.ekonomiLog("kacak-mal-musadere", polisAd, hedef.getName() + " | el konan: " + ozet
                 + " | ceza $" + (long) CEZA + " | banka " + eski + " -> " + yeni + " | hapis 10 dk");
-        polis.sendMessage(ChatColor.GREEN + hedef.getName() + " üzerinde kaçak mal bulundu: " + ozet.toString().trim() + ". Müsadere edildi, 10 dk hapse atıldı, $5000 ceza kesildi.");
-        hedef.sendMessage(ChatColor.DARK_RED + "Üzerinde kaçak mal bulundu! Müsadere edildi, $" + (long) CEZA + " ceza kesildi"
+        if (polis != null) {
+            polis.sendMessage(ChatColor.GREEN + hedef.getName() + " üzerinde kaçak mal bulundu: " + ozet + ". Müsadere edildi, 10 dk hapse atıldı, $5000 ceza kesildi.");
+            polis.playSound(polis.getLocation(), Sound.BLOCK_ANVIL_USE, 0.6f, 1.2f);
+        }
+        hedef.sendMessage(ChatColor.DARK_RED + "Kaçak mal yüzünden yakalandın! Müsadere edildi, $" + (long) CEZA + " ceza kesildi"
                 + (yeni < 0 ? ChatColor.RED + " (hesabın eksiye düştü: $" + String.format(Locale.US, "%.2f", yeni) + ")" : "") + ".");
-        polis.playSound(polis.getLocation(), Sound.BLOCK_ANVIL_USE, 0.6f, 1.2f);
     }
 
     // ------------------------------------------------------------------ SABIKA
