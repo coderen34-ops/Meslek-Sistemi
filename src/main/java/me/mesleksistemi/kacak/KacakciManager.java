@@ -112,10 +112,13 @@ public class KacakciManager implements Listener, CommandExecutor {
         plugin.getConfig().addDefault("kacakci.fiyat.kazan", 2500.0);
         plugin.getConfig().addDefault("kacakci.fiyat.maske", 800.0);
         plugin.getConfig().addDefault("kacakci.saatler", List.of("21:00-01:00", "02:00-06:00"));
-        plugin.getConfig().addDefault("kacakci.saat-turu", "gercek");          // gercek (Europe/Istanbul) | oyun (Minecraft saati)
+        plugin.getConfig().addDefault("kacakci.saat-turu", "oyun");            // oyun (Minecraft saati) | gercek (Europe/Istanbul)
         plugin.getConfig().addDefault("kacakci.rastgele.aktif", true);          // aralık içinde rastgele zamanlarda çıkıp kaybolsun
         plugin.getConfig().addDefault("kacakci.rastgele.kalma-dk", "10-25");    // her çıkışta ne kadar kalsın (gerçek dk)
-        plugin.getConfig().addDefault("kacakci.rastgele.bekleme-dk", "10-40"); // kaybolunca ne kadar sonra yeniden çıksın (gerçek dk)
+        plugin.getConfig().addDefault("kacakci.rastgele.bekleme-dk", "10-40"); // (gerçek saat modu) kaybolunca ne kadar sonra yeniden çıksın (gerçek dk)
+        // Oyun saati modunda bir gece aralığı sadece ~3,3 gerçek dakika sürdüğü için süreler daha kısa
+        plugin.getConfig().addDefault("kacakci.rastgele-oyun.kalma-dk", "1-2");
+        plugin.getConfig().addDefault("kacakci.rastgele-oyun.bekleme-dk", "0.5-1.5");
         plugin.getConfig().addDefault("kacakci.fiyat.golge-koku", 150.0);
         plugin.getConfig().addDefault("kacakci.fiyat.kizil-kul", 200.0);
         plugin.getConfig().addDefault("kacakci.fiyat.mavi-tuz", 120.0);
@@ -127,6 +130,11 @@ public class KacakciManager implements Listener, CommandExecutor {
         plugin.getConfig().options().copyDefaults(true);
         plugin.saveConfig();
 
+        // Önceki sürüm saat türünü "gercek" yazmış olabilir; admin elle seçmediyse oyun saatine al
+        if (!plugin.getConfig().getBoolean("kacakci.saat-turu-elle", false)) {
+            plugin.getConfig().set("kacakci.saat-turu", "oyun");
+            plugin.saveConfig();
+        }
         // Eski tek noktalı ayarı yeni nokta listesine taşı
         ConfigurationSection eski = plugin.getConfig().getConfigurationSection("kacakci.konum");
         if (eski != null && noktalar().isEmpty()) {
@@ -266,6 +274,8 @@ public class KacakciManager implements Listener, CommandExecutor {
     }
 
     private long rastgeleMs(String anahtar, String varsayilan) {
+        if (!gercekSaat()) anahtar = anahtar.replace("kacakci.rastgele.", "kacakci.rastgele-oyun.");
+        if (!gercekSaat()) varsayilan = anahtar.endsWith("kalma-dk") ? "1-2" : "0.5-1.5";
         String[] ab = plugin.getConfig().getString(anahtar, varsayilan).split("-");
         try {
             double lo = Double.parseDouble(ab[0].trim()), hi = Double.parseDouble(ab[ab.length > 1 ? 1 : 0].trim());
@@ -919,6 +929,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                     } catch (Exception ex) { s.sendMessage(ChatColor.RED + "Biçim: /kacakci saat ekle 21:00-01:00"); }
                 } else if (islem.equals("tur") && a.length >= 3 && (a[2].equalsIgnoreCase("gercek") || a[2].equalsIgnoreCase("oyun"))) {
                     plugin.getConfig().set("kacakci.saat-turu", a[2].toLowerCase(Locale.ROOT));
+                    plugin.getConfig().set("kacakci.saat-turu-elle", true);
                     plugin.saveConfig();
                     aktifAnahtar = null;
                     s.sendMessage(ChatColor.GREEN + "Saat türü: " + a[2].toLowerCase(Locale.ROOT));
@@ -939,7 +950,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                     } catch (NumberFormatException ex) { s.sendMessage(ChatColor.RED + "Numara yaz."); }
                 } else {
                     s.sendMessage(ChatColor.YELLOW + "Kaçakçı saatleri (" + (gercekSaat() ? "gerçek saat, İstanbul" : "oyun saati") + "; rastgele çıkış: "
-                            + (plugin.getConfig().getBoolean("kacakci.rastgele.aktif", true) ? "açık, kalma " + plugin.getConfig().getString("kacakci.rastgele.kalma-dk") + " dk, bekleme " + plugin.getConfig().getString("kacakci.rastgele.bekleme-dk") + " dk" : "kapalı") + "): " + (sa.isEmpty() ? "yok (hiç çıkmaz)" : ""));
+                            + (plugin.getConfig().getBoolean("kacakci.rastgele.aktif", true) ? "açık, kalma " + plugin.getConfig().getString(gercekSaat() ? "kacakci.rastgele.kalma-dk" : "kacakci.rastgele-oyun.kalma-dk") + " dk, bekleme " + plugin.getConfig().getString(gercekSaat() ? "kacakci.rastgele.bekleme-dk" : "kacakci.rastgele-oyun.bekleme-dk") + " dk (gerçek)" : "kapalı") + "): " + (sa.isEmpty() ? "yok (hiç çıkmaz)" : ""));
                     for (int i = 0; i < sa.size(); i++) s.sendMessage(ChatColor.GRAY + " #" + (i + 1) + " " + sa.get(i));
                     s.sendMessage(ChatColor.GRAY + "/kacakci saat ekle 21:00-01:00 | sil <no> | tur gercek|oyun | rastgele ac|kapat | liste");
                 }
