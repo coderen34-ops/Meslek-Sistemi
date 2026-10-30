@@ -422,7 +422,7 @@ public class PolisManager implements Listener, CommandExecutor {
                 player.sendMessage(ChatColor.YELLOW + "Şikayet dosyası kapatıldı ve arşivlendi.");
             } else if (karar.equalsIgnoreCase("sorusturma")) {
                 arananOyuncular.add(sikayet.sikayetEdilen.toLowerCase());
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag setsuffix " + sikayet.sikayetEdilen + " Aranıyor");
+                // "Aranıyor" artık tab'de görünmez; sadece polislere kafa üstünde gösterilir (ArayuzManager)
                 
                 ItemStack davaDosyasi = new ItemStack(Material.WRITTEN_BOOK);
                 BookMeta bMeta = (BookMeta) davaDosyasi.getItemMeta();

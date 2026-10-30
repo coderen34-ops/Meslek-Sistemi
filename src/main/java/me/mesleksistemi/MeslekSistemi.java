@@ -106,6 +106,7 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.sistem.EtkilesimManager etkilesimManager;
     public me.mesleksistemi.meslekler.GbtManager gbtManager;
     public me.mesleksistemi.guvenlik.AlarmManager alarmManager;
+    public me.mesleksistemi.arayuz.ArayuzManager arayuzManager;
     public TicaretManager ticaretManager;
     public ToptanciManager toptanciManager;
     public me.mesleksistemi.basarim.BasarimManager basarimManager;
@@ -267,6 +268,8 @@ public class MeslekSistemi extends JavaPlugin {
         // YENİ ENTEGRASYON 7: SaglikManager (Kanama, Kırık, Hastane ve Ambulans)
         this.saglikManager = new SaglikManager(this);
         getServer().getPluginManager().registerEvents(this.saglikManager, this);
+        this.arayuzManager = new me.mesleksistemi.arayuz.ArayuzManager(this);
+        getServer().getPluginManager().registerEvents(this.arayuzManager, this);
         this.alarmManager = new me.mesleksistemi.guvenlik.AlarmManager(this);
         getServer().getPluginManager().registerEvents(this.alarmManager, this);
         me.mesleksistemi.guvenlik.GirisSozlesmeManager girisSozlesme = new me.mesleksistemi.guvenlik.GirisSozlesmeManager(this);
@@ -350,6 +353,7 @@ public class MeslekSistemi extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (arayuzManager != null) arayuzManager.kapat();
         if (ohalBar != null) ohalBar.removeAll();
 
         // Bekleyen arka plan yazımları bitsin ki eski içerik son kaydın üzerine yazılmasın
