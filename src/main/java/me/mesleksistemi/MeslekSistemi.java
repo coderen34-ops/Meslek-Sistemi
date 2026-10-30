@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 // YENİ: Adliye paketindeki dosyalarımızı çağırıyoruz
+import me.mesleksistemi.sistem.BaskanDusurManager;
 import me.mesleksistemi.adliye.AdliyeManager;
 import me.mesleksistemi.adliye.AdliyeCommands;
 import me.mesleksistemi.adliye.AdliyeListener;
@@ -265,6 +266,8 @@ public class MeslekSistemi extends JavaPlugin {
         // YENİ ENTEGRASYON 7: SaglikManager (Kanama, Kırık, Hastane ve Ambulans)
         this.saglikManager = new SaglikManager(this);
         getServer().getPluginManager().registerEvents(this.saglikManager, this);
+        BaskanDusurManager baskanDusur = new BaskanDusurManager(this);
+        getServer().getPluginManager().registerEvents(baskanDusur, this);
         if (getCommand("doktormarket") != null) getCommand("doktormarket").setExecutor(this.saglikManager);
         if (getCommand("hastanenpc") != null) getCommand("hastanenpc").setExecutor(this.saglikManager);
         if (getCommand("ambulanscagir") != null) getCommand("ambulanscagir").setExecutor(this.saglikManager);
