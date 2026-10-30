@@ -54,8 +54,8 @@ import me.mesleksistemi.MeslekSistemi;
 /**
  * Kaçakçı NPC'si ve gizli kazan üretimi (tamamen oyun içi, uydurma maddeler).
  *
- * KAÇAKÇI: admin /kacakci kur ile gizli noktayı belirler; sadece geceleri (config: kacakci.gece-baslangic/bitis)
- *   o noktada bir tüccar belirir, sabah kaybolur. Ekonomi: oyuncunun ödediği para BELEDİYE KASASINA gider,
+ * KAÇAKÇI: admin /kacakci nokta ekle ile istediği kadar nokta ekler; /kacakci saat ekle ile oyun saati aralıkları
+ *   (varsayılan 21:00-01:00 ve 02:00-06:00) belirler. Her aralıkta noktalardan biri rastgele seçilir, tüccar orada belirir. Ekonomi: oyuncunun ödediği para BELEDİYE KASASINA gider,
  *   kaçakçının mal alırken ödediği para BELEDİYE KASASINDAN çekilir (para basılmaz; kasada yoksa alım reddedilir).
  *
  * KAZAN ÜRETİMİ (~10 dk): Gizli Kazan yere konur -> sırayla malzeme atılır (yanlış sıra = bozulur) -> ISINMA 4 dk
@@ -66,7 +66,7 @@ import me.mesleksistemi.MeslekSistemi;
 public class KacakciManager implements Listener, CommandExecutor {
 
     // ---------------------------------------------------------------- eşya tanımları
-    private static final String ESYA_KAZAN = "kazan", ESYA_GOLGE = "golge_koku", ESYA_KIZIL = "kizil_kul", ESYA_TUZ = "mavi_tuz";
+    private static final String ESYA_MASKE = "maske", ESYA_KAZAN = "kazan", ESYA_GOLGE = "golge_koku", ESYA_KIZIL = "kizil_kul", ESYA_TUZ = "mavi_tuz";
 
     private enum Asama { BOS, MALZEME, ISINMA, KARISTIRMA, SOGUMA, HAZIR }
 
@@ -109,9 +109,9 @@ public class KacakciManager implements Listener, CommandExecutor {
         this.npcKey = new NamespacedKey(plugin, "kacakci_npc");
         this.veriDosyasi = new File(plugin.getDataFolder(), "kacakci-kazanlar.yml");
 
-        plugin.getConfig().addDefault("kacakci.gece-baslangic", 13000);
-        plugin.getConfig().addDefault("kacakci.gece-bitis", 23000);
         plugin.getConfig().addDefault("kacakci.fiyat.kazan", 2500.0);
+        plugin.getConfig().addDefault("kacakci.fiyat.maske", 800.0);
+        plugin.getConfig().addDefault("kacakci.saatler", List.of("21:00-01:00", "02:00-06:00"));
         plugin.getConfig().addDefault("kacakci.fiyat.golge-koku", 150.0);
         plugin.getConfig().addDefault("kacakci.fiyat.kizil-kul", 200.0);
         plugin.getConfig().addDefault("kacakci.fiyat.mavi-tuz", 120.0);
@@ -122,6 +122,19 @@ public class KacakciManager implements Listener, CommandExecutor {
         plugin.getConfig().addDefault("kacakci.ihbar-sans-karistirma", 0.4);
         plugin.getConfig().options().copyDefaults(true);
         plugin.saveConfig();
+
+        // Eski tek noktalı ayarı yeni nokta listesine taşı
+        ConfigurationSection eski = plugin.getConfig().getConfigurationSection("kacakci.konum");
+        if (eski != null && noktalar().isEmpty()) {
+            World w = Bukkit.getWorld(eski.getString("dunya", ""));
+            if (w != null) {
+                List<Location> l = new ArrayList<>();
+                l.add(new Location(w, eski.getDouble("x"), eski.getDouble("y"), eski.getDouble("z"), (float) eski.getDouble("yaw"), 0f));
+                noktalariKaydet(l);
+            }
+            plugin.getConfig().set("kacakci.konum", null);
+            plugin.saveConfig();
+        }
 
         yukle();
 
@@ -158,6 +171,14 @@ public class KacakciManager implements Listener, CommandExecutor {
 
     private ItemStack esyaYap(String id) {
         switch (id) {
+            case ESYA_MASKE: {
+                ItemStack m = esya(id, Material.LEATHER_HELMET, ChatColor.YELLOW + "" + ChatColor.BOLD + "Koruyucu Maske", "Kazan dumanından korur. Başına tak.");
+                org.bukkit.inventory.meta.LeatherArmorMeta lm = (org.bukkit.inventory.meta.LeatherArmorMeta) m.getItemMeta();
+                lm.setColor(org.bukkit.Color.YELLOW);
+                lm.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ATTRIBUTES, org.bukkit.inventory.ItemFlag.HIDE_DYE);
+                m.setItemMeta(lm);
+                return m;
+            }
             case ESYA_KAZAN: return esya(id, Material.CAULDRON, ChatColor.DARK_GRAY + "" + ChatColor.BOLD + "Gizli Kazan", "Yere koy; malzemeleri sırayla at.");
             case ESYA_GOLGE: return esya(id, Material.SPIDER_EYE, ChatColor.DARK_PURPLE + "Gölge Kökü", "Kazan malzemesi.");
             case ESYA_KIZIL: return esya(id, Material.BLAZE_POWDER, ChatColor.RED + "Kızıl Kül", "Kazan malzemesi.");
@@ -176,29 +197,79 @@ public class KacakciManager implements Listener, CommandExecutor {
     }
 
     // ---------------------------------------------------------------- kaçakçı NPC
-    private Location npcKonum() {
-        ConfigurationSection s = plugin.getConfig().getConfigurationSection("kacakci.konum");
-        if (s == null) return null;
-        World w = Bukkit.getWorld(s.getString("dunya", ""));
-        if (w == null) return null;
-        return new Location(w, s.getDouble("x"), s.getDouble("y"), s.getDouble("z"), (float) s.getDouble("yaw"), 0f);
+    // Birden çok nokta (admin ekler) + oyun saati aralıkları. Her aralığın başında noktalardan biri rastgele seçilir.
+    private List<Location> noktalar() {
+        List<Location> l = new ArrayList<>();
+        for (Map<?, ?> m : plugin.getConfig().getMapList("kacakci.noktalar")) {
+            try {
+                World w = Bukkit.getWorld(String.valueOf(m.get("dunya")));
+                if (w == null) continue;
+                l.add(new Location(w, ((Number) m.get("x")).doubleValue(), ((Number) m.get("y")).doubleValue(),
+                        ((Number) m.get("z")).doubleValue(), ((Number) m.get("yaw")).floatValue(), 0f));
+            } catch (Exception ignored) { }
+        }
+        return l;
     }
 
-    private boolean geceMi(World w) {
-        long t = w.getTime();
-        return t >= plugin.getConfig().getLong("kacakci.gece-baslangic", 13000L) && t < plugin.getConfig().getLong("kacakci.gece-bitis", 23000L);
+    private void noktalariKaydet(List<Location> l) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Location k : l) {
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("dunya", k.getWorld().getName()); m.put("x", k.getX()); m.put("y", k.getY()); m.put("z", k.getZ()); m.put("yaw", (double) k.getYaw());
+            out.add(m);
+        }
+        plugin.getConfig().set("kacakci.noktalar", out);
+        plugin.saveConfig();
+        aktifAnahtar = null;
     }
+
+    /** "21:00" -> oyun tick'i (06:00 = tick 0, 18:00 = tick 12000, 00:00 = tick 18000). */
+    private static long saatTick(String hhmm) {
+        String[] p = hhmm.trim().split(":");
+        int dk = Integer.parseInt(p[0]) * 60 + Integer.parseInt(p[1]);
+        return Math.round(((dk - 360 + 1440) % 1440) * 24000.0 / 1440.0);
+    }
+
+    /** Şu anki oyun saatinin düştüğü aralığın indeksi, yoksa -1. */
+    private int aktifPencere(World w) {
+        List<String> saatler = plugin.getConfig().getStringList("kacakci.saatler");
+        long t = w.getTime();
+        for (int i = 0; i < saatler.size(); i++) {
+            try {
+                String[] ab = saatler.get(i).split("-");
+                long bas = saatTick(ab[0]), bit = saatTick(ab[1]);
+                boolean icinde = bas <= bit ? (t >= bas && t < bit) : (t >= bas || t < bit);
+                if (icinde) return i;
+            } catch (Exception ignored) { }
+        }
+        return -1;
+    }
+
+    private String aktifAnahtar;       // pencere + gün: değişince yeni rastgele nokta seçilir
+    private int secilenNokta = -1;
+    private long zorlaBitis = 0;       // /kacakci cagir: bu zamana kadar saat kuralından bağımsız ortada
 
     private void gece() {
-        Location k = npcKonum();
+        List<Location> noktalar = noktalar();
         Entity mevcut = npcId == null ? null : Bukkit.getEntity(npcId);
         if (mevcut != null && !mevcut.isValid()) { mevcut = null; npcId = null; }
-        if (k == null) { if (mevcut != null) { mevcut.remove(); npcId = null; } return; }
-        boolean gece = geceMi(k.getWorld());
-        if (!gece) {
+        if (noktalar.isEmpty()) { if (mevcut != null) { mevcut.remove(); npcId = null; } return; }
+
+        World ref = noktalar.get(0).getWorld();
+        boolean zorla = System.currentTimeMillis() < zorlaBitis;
+        int pencere = aktifPencere(ref);
+        if (pencere < 0 && !zorla) {
             if (mevcut != null) { mevcut.remove(); npcId = null; }
+            aktifAnahtar = null;
             return;
         }
+        String anahtar = (zorla ? "z" + zorlaBitis : "p" + pencere + ":" + (ref.getFullTime() / 24000L)) + ":" + noktalar.size();
+        if (!anahtar.equals(aktifAnahtar)) {
+            aktifAnahtar = anahtar;
+            secilenNokta = rnd.nextInt(noktalar.size());
+            if (mevcut != null) { mevcut.remove(); npcId = null; mevcut = null; }
+        }
+        Location k = noktalar.get(Math.min(secilenNokta, noktalar.size() - 1));
         if (mevcut == null && k.getWorld().isChunkLoaded(k.getBlockX() >> 4, k.getBlockZ() >> 4)) {
             Villager v = k.getWorld().spawn(k, Villager.class, vv -> {
                 vv.setAI(false);
@@ -273,6 +344,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                 ChatColor.GRAY + "Kalite 1/2/3: $" + (long) alisFiyati(KacakMal.Tur.KARA_TOZ, 1) + " / $" + (long) alisFiyati(KacakMal.Tur.KARA_TOZ, 2) + " / $" + (long) alisFiyati(KacakMal.Tur.KARA_TOZ, 3)));
         inv.setItem(16, menuEsya(Material.LIGHT_BLUE_DYE, ChatColor.AQUA + "Mavi Öz sat", ChatColor.GRAY + "Üstündeki hepsini satar (kota dahilinde)",
                 ChatColor.GRAY + "Kalite 1/2/3: $" + (long) alisFiyati(KacakMal.Tur.MAVI_OZ, 1) + " / $" + (long) alisFiyati(KacakMal.Tur.MAVI_OZ, 2) + " / $" + (long) alisFiyati(KacakMal.Tur.MAVI_OZ, 3)));
+        inv.setItem(14, menuEsya(Material.LEATHER_HELMET, ChatColor.YELLOW + "Koruyucu Maske", ChatColor.YELLOW + "$" + (long) fiyat("maske"), ChatColor.GRAY + "Kazan dumanından korur", ChatColor.GRAY + "Tıkla: satın al"));
         inv.setItem(22, menuEsya(Material.CLOCK, ChatColor.YELLOW + "Bu gece kalan satış kotan: " + kalanKota(p),
                 ChatColor.DARK_GRAY + "Ödemeler belediye kasasından/kasasına işler."));
         p.openInventory(inv);
@@ -289,6 +361,7 @@ public class KacakciManager implements Listener, CommandExecutor {
             case 11: satinAl(p, ESYA_GOLGE, "golge-koku", "Gölge Kökü"); break;
             case 12: satinAl(p, ESYA_KIZIL, "kizil-kul", "Kızıl Kül"); break;
             case 13: satinAl(p, ESYA_TUZ, "mavi-tuz", "Mavi Tuz"); break;
+            case 14: satinAl(p, ESYA_MASKE, "maske", "Koruyucu Maske"); break;
             case 15: sat(p, KacakMal.Tur.KARA_TOZ); break;
             case 16: sat(p, KacakMal.Tur.MAVI_OZ); break;
             default: break;
@@ -367,12 +440,32 @@ public class KacakciManager implements Listener, CommandExecutor {
     public void onYerlestir(BlockPlaceEvent e) {
         if (!ESYA_KAZAN.equals(esyaId(e.getItemInHand()))) return;
         Block b = e.getBlockPlaced();
+        if (plugin.koyManager == null || !plugin.koyManager.icerideMi(b.getLocation())) {
+            e.setCancelled(true);
+            e.getPlayer().sendMessage(ChatColor.RED + "Gizli kazan sadece köy sınırları içinde kurulabilir.");
+            return;
+        }
+        if (!kendiClaiminde(e.getPlayer(), b.getLocation())) {
+            e.setCancelled(true);
+            e.getPlayer().sendMessage(ChatColor.RED + "Gizli kazan sadece kendi claim'inin içinde kurulabilir.");
+            return;
+        }
         Kazan k = new Kazan();
         k.dunya = b.getWorld().getName(); k.x = b.getX(); k.y = b.getY(); k.z = b.getZ();
         k.sahip = e.getPlayer().getUniqueId(); k.sahipAd = e.getPlayer().getName();
         kazanlar.put(k.anahtar(), k);
         kaydet();
         e.getPlayer().sendMessage(ChatColor.GRAY + "Gizli kazan kuruldu. Malzemeleri sırayla at: Gölge Kökü ile başlarsan Kara Toz, Mavi Tuz ile başlarsan Mavi Öz.");
+    }
+
+    /** Konum, oyuncunun KENDİ sahip olduğu bir GriefPrevention claim'inin içinde mi? */
+    private boolean kendiClaiminde(Player p, Location l) {
+        try {
+            me.ryanhamshire.GriefPrevention.Claim c = me.ryanhamshire.GriefPrevention.GriefPrevention.instance.dataStore.getClaimAt(l, false, null);
+            return c != null && p.getUniqueId().equals(c.getOwnerID());
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -589,11 +682,19 @@ public class KacakciManager implements Listener, CommandExecutor {
         }
     }
 
-    /** Kazanın 3 blok çevresindeki oyuncular duman yüzünden bulanır. */
+    private boolean maskeli(Player p) {
+        return ESYA_MASKE.equals(esyaId(p.getInventory().getHelmet()));
+    }
+
+    /** Kazanın 4 blok çevresinde Koruyucu Maske takmayanların başı döner ve zehirlenirler (5 sn'de bir uygulanır). */
     private void duman(World w, Location merkez) {
-        if ((System.currentTimeMillis() / 1000) % 10 != 0) return;
+        if ((System.currentTimeMillis() / 1000) % 5 != 0) return;
         for (Player p : w.getPlayers()) {
-            if (p.getLocation().distanceSquared(merkez) <= 9) p.addPotionEffect(new PotionEffect(PotionEffectType.NAUSEA, 120, 0, false, false));
+            if (p.getLocation().distanceSquared(merkez) > 16) continue;
+            if (maskeli(p)) continue;
+            p.addPotionEffect(new PotionEffect(PotionEffectType.NAUSEA, 200, 0, false, false));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 120, 0, false, false));
+            p.sendActionBar(ac("Zehirli duman! Koruyucu Maske tak.", ChatColor.RED));
         }
     }
 
@@ -716,27 +817,81 @@ public class KacakciManager implements Listener, CommandExecutor {
         String alt = a.length == 0 ? "bilgi" : a[0].toLowerCase(Locale.ROOT);
         switch (alt) {
             case "kur":
+            case "nokta": {
                 if (!(s instanceof Player p)) return true;
-                Location l = p.getLocation();
-                plugin.getConfig().set("kacakci.konum.dunya", l.getWorld().getName());
-                plugin.getConfig().set("kacakci.konum.x", l.getX());
-                plugin.getConfig().set("kacakci.konum.y", l.getY());
-                plugin.getConfig().set("kacakci.konum.z", l.getZ());
-                plugin.getConfig().set("kacakci.konum.yaw", (double) l.getYaw());
-                plugin.saveConfig();
-                Entity eski = npcId == null ? null : Bukkit.getEntity(npcId);
-                if (eski != null) eski.remove();
-                npcId = null;
-                s.sendMessage(ChatColor.GREEN + "Kaçakçı noktası ayarlandı. Sadece geceleri belirecek.");
+                String islem = alt.equals("kur") ? "ekle" : (a.length >= 2 ? a[1].toLowerCase(Locale.ROOT) : "liste");
+                List<Location> n = noktalar();
+                if (islem.equals("ekle")) {
+                    n.add(p.getLocation());
+                    noktalariKaydet(n);
+                    s.sendMessage(ChatColor.GREEN + "Kaçakçı noktası #" + n.size() + " eklendi. Toplam nokta: " + n.size() + ". Her saat aralığında rastgele biri seçilir.");
+                } else if (islem.equals("sil") && a.length >= 3) {
+                    try {
+                        int no = Integer.parseInt(a[2]);
+                        if (no < 1 || no > n.size()) { s.sendMessage(ChatColor.RED + "Geçersiz numara."); return true; }
+                        n.remove(no - 1);
+                        noktalariKaydet(n);
+                        s.sendMessage(ChatColor.YELLOW + "Nokta #" + no + " silindi.");
+                    } catch (NumberFormatException ex) { s.sendMessage(ChatColor.RED + "Numara yaz: /kacakci nokta sil <no>"); }
+                } else if (islem.equals("git") && a.length >= 3) {
+                    try {
+                        int no = Integer.parseInt(a[2]);
+                        if (no < 1 || no > n.size()) { s.sendMessage(ChatColor.RED + "Geçersiz numara."); return true; }
+                        p.teleport(n.get(no - 1));
+                    } catch (NumberFormatException ex) { s.sendMessage(ChatColor.RED + "Numara yaz."); }
+                } else {
+                    s.sendMessage(ChatColor.YELLOW + "Kaçakçı noktaları (" + n.size() + "):");
+                    for (int i = 0; i < n.size(); i++) {
+                        Location k = n.get(i);
+                        s.sendMessage(ChatColor.GRAY + " #" + (i + 1) + " " + k.getWorld().getName() + " " + k.getBlockX() + "," + k.getBlockY() + "," + k.getBlockZ());
+                    }
+                    s.sendMessage(ChatColor.GRAY + "/kacakci nokta ekle | sil <no> | git <no> | liste");
+                }
                 return true;
-            case "kaldir":
-                plugin.getConfig().set("kacakci.konum", null);
-                plugin.saveConfig();
+            }
+            case "saat": {
+                String islem = a.length >= 2 ? a[1].toLowerCase(Locale.ROOT) : "liste";
+                List<String> sa = new ArrayList<>(plugin.getConfig().getStringList("kacakci.saatler"));
+                if (islem.equals("ekle") && a.length >= 3) {
+                    try {
+                        String[] ab = a[2].split("-");
+                        saatTick(ab[0]); saatTick(ab[1]);
+                        sa.add(a[2]);
+                        plugin.getConfig().set("kacakci.saatler", sa);
+                        plugin.saveConfig();
+                        aktifAnahtar = null;
+                        s.sendMessage(ChatColor.GREEN + "Saat aralığı eklendi: " + a[2] + " (oyun saati)");
+                    } catch (Exception ex) { s.sendMessage(ChatColor.RED + "Biçim: /kacakci saat ekle 21:00-01:00"); }
+                } else if (islem.equals("sil") && a.length >= 3) {
+                    try {
+                        int no = Integer.parseInt(a[2]);
+                        if (no < 1 || no > sa.size()) { s.sendMessage(ChatColor.RED + "Geçersiz numara."); return true; }
+                        sa.remove(no - 1);
+                        plugin.getConfig().set("kacakci.saatler", sa);
+                        plugin.saveConfig();
+                        aktifAnahtar = null;
+                        s.sendMessage(ChatColor.YELLOW + "Aralık silindi.");
+                    } catch (NumberFormatException ex) { s.sendMessage(ChatColor.RED + "Numara yaz."); }
+                } else {
+                    s.sendMessage(ChatColor.YELLOW + "Kaçakçı saatleri (oyun saati, 06:00 = sabah): " + (sa.isEmpty() ? "yok (hiç çıkmaz)" : ""));
+                    for (int i = 0; i < sa.size(); i++) s.sendMessage(ChatColor.GRAY + " #" + (i + 1) + " " + sa.get(i));
+                    s.sendMessage(ChatColor.GRAY + "/kacakci saat ekle 21:00-01:00 | sil <no> | liste");
+                }
+                return true;
+            }
+            case "cagir":
+                zorlaBitis = System.currentTimeMillis() + 10 * 60_000L;
+                aktifAnahtar = null;
+                s.sendMessage(ChatColor.GREEN + "Kaçakçı 10 dakikalığına rastgele bir noktada belirecek (test).");
+                return true;
+            case "kaldir": {
+                noktalariKaydet(new ArrayList<>());
                 Entity e = npcId == null ? null : Bukkit.getEntity(npcId);
                 if (e != null) e.remove();
                 npcId = null;
-                s.sendMessage(ChatColor.YELLOW + "Kaçakçı noktası silindi.");
+                s.sendMessage(ChatColor.YELLOW + "Tüm kaçakçı noktaları silindi.");
                 return true;
+            }
             case "kazanlar":
                 s.sendMessage(ChatColor.YELLOW + "Kayıtlı kazan sayısı: " + kazanlar.size());
                 for (Kazan k : kazanlar.values())
@@ -749,6 +904,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                 ItemStack it;
                 switch (a[1].toLowerCase(Locale.ROOT)) {
                     case "kazan": it = esyaYap(ESYA_KAZAN); break;
+                    case "maske": it = esyaYap(ESYA_MASKE); break;
                     case "golge": it = esyaYap(ESYA_GOLGE); break;
                     case "kizil": it = esyaYap(ESYA_KIZIL); break;
                     case "tuz": it = esyaYap(ESYA_TUZ); break;
@@ -761,10 +917,9 @@ public class KacakciManager implements Listener, CommandExecutor {
                 plugin.ekonomiLog("kacakci-admin-ver", s.getName(), a[1] + " x" + adet);
                 return true;
             default:
-                Location k = npcKonum();
-                s.sendMessage(ChatColor.YELLOW + "Kaçakçı: " + (k == null ? "ayarlanmamış" : k.getWorld().getName() + " " + k.getBlockX() + "," + k.getBlockY() + "," + k.getBlockZ())
+                s.sendMessage(ChatColor.YELLOW + "Kaçakçı: " + noktalar().size() + " nokta, saatler " + plugin.getConfig().getStringList("kacakci.saatler")
                         + " | şu an " + (npcId != null && Bukkit.getEntity(npcId) != null ? "ortada" : "yok") + " | kazan: " + kazanlar.size());
-                s.sendMessage(ChatColor.GRAY + "/kacakci kur | kaldir | kazanlar | ver <eşya> [adet]");
+                s.sendMessage(ChatColor.GRAY + "/kacakci nokta ekle|sil|git|liste | saat ekle|sil|liste | cagir | kaldir | kazanlar | ver <eşya> [adet]");
                 return true;
         }
     }

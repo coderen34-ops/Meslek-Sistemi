@@ -12,7 +12,7 @@ libraries:
 commands:
   kacakci:
     description: Kacakci tuccar ve kazan yonetimi (admin).
-    usage: /kacakci kur|kaldir|kazanlar|ver <esya> [adet]
+    usage: /kacakci nokta|saat|cagir|kaldir|kazanlar|ver
   kurallar:
     description: Oyuncu sözleşmesini göster / kabul et.
     usage: /kurallar [durum|sifirla <oyuncu>]
