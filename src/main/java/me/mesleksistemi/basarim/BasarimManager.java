@@ -333,6 +333,11 @@ public class BasarimManager implements Listener, CommandExecutor {
         if (!(sender instanceof Player)) return true;
         Player player = (Player) sender;
 
+        if (command.getName().equalsIgnoreCase("basarimlarim") && !(args.length >= 1 && args[0].equalsIgnoreCase("liste"))) {
+            menuAc(player, 0, 0);
+            return true;
+        }
+
         if (command.getName().equalsIgnoreCase("basarimlarim")) {
             Set<String> kazanilanlar = kazanilanlar(player.getUniqueId());
             player.sendMessage(ChatColor.GOLD + "" + ChatColor.BOLD + "=== Başarımların (" + kazanilanlar.size() + "/" + TUM_BASARIMLAR.size() + ") ===");
@@ -352,6 +357,109 @@ public class BasarimManager implements Listener, CommandExecutor {
             return true;
         }
         return false;
+    }
+
+    // ---- Başarım menüsü (GUI) ----
+
+    private static final class BasarimMenu implements org.bukkit.inventory.InventoryHolder {
+        int kategori, sayfa;
+        org.bukkit.inventory.Inventory inv;
+        @Override public org.bukkit.inventory.Inventory getInventory() { return inv; }
+    }
+
+    private List<String> kategoriler() {
+        List<String> l = new ArrayList<>();
+        for (BasarimTanim t : TUM_BASARIMLAR) if (!l.contains(t.kategori)) l.add(t.kategori);
+        return l;
+    }
+
+    private static org.bukkit.Material tierMadde(String tier, boolean var) {
+        if (!var) return org.bukkit.Material.GRAY_DYE;
+        switch (tier) {
+            case "Bronz": return org.bukkit.Material.COPPER_INGOT;
+            case "Gümüş": return org.bukkit.Material.IRON_INGOT;
+            case "Altın": return org.bukkit.Material.GOLD_INGOT;
+            default: return org.bukkit.Material.NETHER_STAR;
+        }
+    }
+
+    private void menuAc(Player p, int kategoriNo, int sayfa) {
+        List<String> kats = kategoriler();
+        if (kats.isEmpty()) { p.sendMessage(ChatColor.RED + "Başarım yok."); return; }
+        kategoriNo = Math.max(0, Math.min(kats.size() - 1, kategoriNo));
+        String kat = kats.get(kategoriNo);
+        List<BasarimTanim> liste = new ArrayList<>();
+        for (BasarimTanim t : TUM_BASARIMLAR) if (t.kategori.equals(kat)) liste.add(t);
+        int sayfaSayisi = Math.max(1, (liste.size() + 44) / 45);
+        sayfa = Math.max(0, Math.min(sayfaSayisi - 1, sayfa));
+
+        BasarimMenu h = new BasarimMenu();
+        h.kategori = kategoriNo; h.sayfa = sayfa;
+        Set<String> kazan = kazanilanlar(p.getUniqueId());
+        int toplamKat = 0, kazanKat = 0;
+        for (BasarimTanim t : liste) { toplamKat++; if (kazan.contains(t.id)) kazanKat++; }
+        org.bukkit.inventory.Inventory inv = Bukkit.createInventory(h, 54,
+                ChatColor.DARK_GREEN + "Başarımlar: " + kat + " (" + kazanKat + "/" + toplamKat + ")");
+        h.inv = inv;
+
+        for (int i = 0; i < 45; i++) {
+            int idx = sayfa * 45 + i;
+            if (idx >= liste.size()) break;
+            BasarimTanim t = liste.get(idx);
+            boolean var = kazan.contains(t.id);
+            org.bukkit.inventory.ItemStack it = new org.bukkit.inventory.ItemStack(tierMadde(t.tier, var));
+            org.bukkit.inventory.meta.ItemMeta m = it.getItemMeta();
+            m.setDisplayName((var ? ChatColor.GREEN : ChatColor.DARK_GRAY) + t.ad + ChatColor.GRAY + " [" + t.tier + "]");
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + t.aciklama);
+            if (var) lore.add(ChatColor.GREEN + "✔ Kazanıldı");
+            else if (t.sayac != null) {
+                long v = Math.min(sayacDegeri(p.getUniqueId(), t.sayac), t.esik);
+                int dolu = t.esik > 0 ? (int) (10 * v / t.esik) : 0;
+                lore.add(ChatColor.DARK_AQUA + "İlerleme: " + v + "/" + t.esik + " " + ChatColor.GREEN + "█".repeat(dolu) + ChatColor.DARK_GRAY + "█".repeat(10 - dolu));
+            } else lore.add(ChatColor.RED + "✘ Henüz kazanılmadı");
+            m.setLore(lore);
+            if (var && "Efsane".equals(t.tier)) { m.addEnchant(org.bukkit.enchantments.Enchantment.UNBREAKING, 1, true); m.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS); }
+            it.setItemMeta(m);
+            inv.setItem(i, it);
+        }
+
+        // Alt satır: kategoriler (45-51), önceki/sonraki sayfa (52/53)
+        for (int i = 0; i < kats.size() && i < 7; i++) {
+            org.bukkit.inventory.ItemStack it = new org.bukkit.inventory.ItemStack(i == kategoriNo ? org.bukkit.Material.ENCHANTED_BOOK : org.bukkit.Material.BOOK);
+            org.bukkit.inventory.meta.ItemMeta m = it.getItemMeta();
+            m.setDisplayName((i == kategoriNo ? ChatColor.GOLD : ChatColor.YELLOW) + kats.get(i));
+            it.setItemMeta(m);
+            inv.setItem(45 + i, it);
+        }
+        if (sayfa > 0) inv.setItem(52, menuDugme(org.bukkit.Material.ARROW, ChatColor.YELLOW + "◀ Önceki sayfa"));
+        if (sayfa < sayfaSayisi - 1) inv.setItem(53, menuDugme(org.bukkit.Material.ARROW, ChatColor.YELLOW + "Sonraki sayfa ▶"));
+        p.openInventory(inv);
+    }
+
+    private static org.bukkit.inventory.ItemStack menuDugme(org.bukkit.Material m, String ad) {
+        org.bukkit.inventory.ItemStack it = new org.bukkit.inventory.ItemStack(m);
+        org.bukkit.inventory.meta.ItemMeta meta = it.getItemMeta();
+        meta.setDisplayName(ad);
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    @EventHandler
+    public void onMenuTikla(org.bukkit.event.inventory.InventoryClickEvent e) {
+        if (!(e.getView().getTopInventory().getHolder() instanceof BasarimMenu h)) return;
+        e.setCancelled(true);
+        if (!(e.getWhoClicked() instanceof Player p)) return;
+        int slot = e.getRawSlot();
+        if (slot >= 45 && slot <= 51) {
+            if (slot - 45 < kategoriler().size()) menuAc(p, slot - 45, 0);
+        } else if (slot == 52) menuAc(p, h.kategori, h.sayfa - 1);
+        else if (slot == 53) menuAc(p, h.kategori, h.sayfa + 1);
+    }
+
+    @EventHandler
+    public void onMenuSurukle(org.bukkit.event.inventory.InventoryDragEvent e) {
+        if (e.getView().getTopInventory().getHolder() instanceof BasarimMenu) e.setCancelled(true);
     }
 
     // ---- Veri güvenliği: standVeriYuklendi kalıbının aynısı ----

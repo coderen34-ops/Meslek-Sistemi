@@ -225,8 +225,8 @@ commands:
     description: Basarim sayacini artirir (Klan-Sistemi/Arena-Ligi konsol komutu).
     usage: /basarimsayac <oyuncu> <sayac> [artis]
   basarimlarim:
-    description: Kazandigin ve kazanmadigin basarimlari listeler.
-    usage: /basarimlarim
+    description: Basarim menusunu acar (kazandigin ve kazanmadigin basarimlar).
+    usage: /basarimlarim [liste]
 
   # ==========================================
   # BOUNTY (ÖDÜLLÜ AVCILIK) SİSTEMİ
