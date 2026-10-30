@@ -64,6 +64,7 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
     private final File kayitDosyasi;
     private final YamlConfiguration kayit;
     private final Set<UUID> bekleyen = new HashSet<>();
+    private final Set<UUID> okuyor = new HashSet<>();
 
     public GirisSozlesmeManager(MeslekSistemi plugin) {
         this.plugin = plugin;
@@ -179,7 +180,7 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
     }
 
     @EventHandler
-    public void onCikis(PlayerQuitEvent e) { bekleyen.remove(e.getPlayer().getUniqueId()); }
+    public void onCikis(PlayerQuitEvent e) { bekleyen.remove(e.getPlayer().getUniqueId()); okuyor.remove(e.getPlayer().getUniqueId()); }
 
     @EventHandler
     public void onTikla(InventoryClickEvent e) {
@@ -188,8 +189,18 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
         if (!(e.getWhoClicked() instanceof Player p)) return;
         int s = e.getRawSlot();
         if (s == SLOT_OKU) {
+            okuyor.add(p.getUniqueId());
             p.closeInventory();
-            Bukkit.getScheduler().runTask(plugin, () -> { p.openBook(kitap()); });
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                p.openBook(kitap());
+                p.sendMessage(net.kyori.adventure.text.Component.text("Okuduktan sonra: ", net.kyori.adventure.text.format.NamedTextColor.GRAY)
+                    .append(net.kyori.adventure.text.Component.text("[KABUL EDİYORUM] ", net.kyori.adventure.text.format.NamedTextColor.GREEN)
+                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/kurallar kabul")))
+                    .append(net.kyori.adventure.text.Component.text("[KABUL ETMİYORUM] ", net.kyori.adventure.text.format.NamedTextColor.RED)
+                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/kurallar red")))
+                    .append(net.kyori.adventure.text.Component.text("[MENÜ] ", net.kyori.adventure.text.format.NamedTextColor.YELLOW)
+                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/kurallar"))));
+            });
         } else if (s == SLOT_KABUL) {
             kabulEt(p);
         } else if (s == SLOT_RED) {
@@ -207,6 +218,7 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
     public void onKapat(InventoryCloseEvent e) {
         if (!(e.getPlayer() instanceof Player p) || !bekleyen.contains(p.getUniqueId())) return;
         if (!(e.getInventory().getHolder() instanceof Menu)) return;
+        if (okuyor.remove(p.getUniqueId())) return;
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (p.isOnline() && bekleyen.contains(p.getUniqueId()) && !(p.getOpenInventory().getTopInventory().getHolder() instanceof Menu)) {
                 menuAc(p);
@@ -266,6 +278,10 @@ public class GirisSozlesmeManager implements Listener, CommandExecutor {
             return true;
         }
         if (!(s instanceof Player p)) return true;
+        if (a.length >= 1 && bekleyen.contains(p.getUniqueId())) {
+            if (a[0].equalsIgnoreCase("kabul")) { kabulEt(p); return true; }
+            if (a[0].equalsIgnoreCase("red")) { bekleyen.remove(p.getUniqueId()); p.kickPlayer(ChatColor.RED + "Sözleşmeyi kabul etmeyen oyuncu sunucuya giremez."); return true; }
+        }
         if (bekleyen.contains(p.getUniqueId())) menuAc(p);
         else {
             p.sendMessage(ChatColor.GREEN + "Sözleşmeyi kabul etmişsin (v" + surum() + "). İstersen tekrar okuyabilirsin:");
