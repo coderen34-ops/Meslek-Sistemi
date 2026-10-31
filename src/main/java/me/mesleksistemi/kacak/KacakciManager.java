@@ -69,7 +69,7 @@ import me.mesleksistemi.MeslekSistemi;
 public class KacakciManager implements Listener, CommandExecutor {
 
     // ---------------------------------------------------------------- eşya tanımları
-    private static final String ESYA_MASKE = "maske", ESYA_KAZAN = "kazan", ESYA_GOLGE = "golge_koku", ESYA_KIZIL = "kizil_kul", ESYA_TUZ = "mavi_tuz";
+    private static final String ESYA_MASKE = "maske", ESYA_KAZAN = "kazan", ESYA_GOLGE = "golge_koku", ESYA_KIZIL = "kizil_kul", ESYA_TUZ = "mavi_tuz", ESYA_SEKER = "seker";
 
     private enum Asama { BOS, MALZEME, ISINMA, KARISTIRMA, SOGUMA, HAZIR }
 
@@ -131,6 +131,7 @@ public class KacakciManager implements Listener, CommandExecutor {
         plugin.getConfig().addDefault("kacakci.fiyat.mavi-tuz", 120.0);
         plugin.getConfig().addDefault("kacakci.alis.kara-toz", 900.0);
         plugin.getConfig().addDefault("kacakci.alis.mavi-oz", 700.0);
+        plugin.getConfig().addDefault("kacakci.alis.ak-billur", 800.0);
         plugin.getConfig().addDefault("kacakci.gece-satis-kotasi", 12);
         plugin.getConfig().addDefault("kacakci.ihbar-sans-isinma", 0.6);
         plugin.getConfig().addDefault("kacakci.ihbar-sans-karistirma", 0.4);
@@ -382,7 +383,7 @@ public class KacakciManager implements Listener, CommandExecutor {
     private double fiyat(String anahtar) { return plugin.getConfig().getDouble("kacakci.fiyat." + anahtar, 100.0); }
 
     private double alisFiyati(KacakMal.Tur t, int kalite) {
-        double taban = plugin.getConfig().getDouble("kacakci.alis." + (t == KacakMal.Tur.KARA_TOZ ? "kara-toz" : "mavi-oz"), 500.0);
+        double taban = plugin.getConfig().getDouble("kacakci.alis." + (t == KacakMal.Tur.KARA_TOZ ? "kara-toz" : t == KacakMal.Tur.AK_BILLUR ? "ak-billur" : "mavi-oz"), 500.0);
         double carpan = kalite >= 3 ? 1.7 : kalite == 2 ? 1.3 : 1.0;
         return Math.round(taban * carpan);
     }
@@ -419,6 +420,8 @@ public class KacakciManager implements Listener, CommandExecutor {
                 ChatColor.GRAY + "Kalite 1/2/3: $" + (long) alisFiyati(KacakMal.Tur.KARA_TOZ, 1) + " / $" + (long) alisFiyati(KacakMal.Tur.KARA_TOZ, 2) + " / $" + (long) alisFiyati(KacakMal.Tur.KARA_TOZ, 3)));
         inv.setItem(16, menuEsya(Material.LIGHT_BLUE_DYE, ChatColor.AQUA + "Mavi Öz sat", ChatColor.GRAY + "Üstündeki hepsini satar (kota dahilinde)",
                 ChatColor.GRAY + "Kalite 1/2/3: $" + (long) alisFiyati(KacakMal.Tur.MAVI_OZ, 1) + " / $" + (long) alisFiyati(KacakMal.Tur.MAVI_OZ, 2) + " / $" + (long) alisFiyati(KacakMal.Tur.MAVI_OZ, 3)));
+        inv.setItem(17, menuEsya(Material.SUGAR, ChatColor.WHITE + "Ak Billur sat", ChatColor.GRAY + "Üstündeki hepsini satar (kota dahilinde)",
+                ChatColor.GRAY + "Kalite 1/2/3: $" + (long) alisFiyati(KacakMal.Tur.AK_BILLUR, 1) + " / $" + (long) alisFiyati(KacakMal.Tur.AK_BILLUR, 2) + " / $" + (long) alisFiyati(KacakMal.Tur.AK_BILLUR, 3)));
         inv.setItem(14, menuEsya(Material.LEATHER_HELMET, ChatColor.YELLOW + "Koruyucu Maske", ChatColor.YELLOW + "$" + (long) fiyat("maske"), ChatColor.GRAY + "Kazan dumanından korur", ChatColor.GRAY + "Tıkla: satın al"));
         inv.setItem(22, menuEsya(Material.CLOCK, ChatColor.YELLOW + "Bu gece kalan satış kotan: " + kalanKota(p),
                 ChatColor.DARK_GRAY + "Ödemeler belediye kasasından/kasasına işler."));
@@ -439,6 +442,7 @@ public class KacakciManager implements Listener, CommandExecutor {
             case 14: satinAl(p, ESYA_MASKE, "maske", "Koruyucu Maske"); break;
             case 15: sat(p, KacakMal.Tur.KARA_TOZ); break;
             case 16: sat(p, KacakMal.Tur.MAVI_OZ); break;
+            case 17: sat(p, KacakMal.Tur.AK_BILLUR); break;
             default: break;
         }
     }
@@ -531,7 +535,7 @@ public class KacakciManager implements Listener, CommandExecutor {
         k.suluSistem = true;
         kazanlar.put(k.anahtar(), k);
         kaydet();
-        e.getPlayer().sendMessage(ChatColor.GRAY + "Gizli kazan kuruldu. Önce kovayla ya da su şişeleriyle suyla doldur, sonra malzemeleri sırayla at: Gölge Kökü ile başlarsan Kara Toz, Mavi Tuz ile başlarsan Mavi Öz.");
+        e.getPlayer().sendMessage(ChatColor.GRAY + "Gizli kazan kuruldu. Önce kovayla ya da su şişeleriyle suyla doldur, sonra malzemeleri sırayla at: Gölge Kökü ile başlarsan Kara Toz, Mavi Tuz ile başlarsan Mavi Öz, Kızıl Kül ile başlarsan Ak Billur (Kızıl Kül, 2 şeker, Mavi Tuz).");
     }
 
     /** Konum, oyuncunun KENDİ sahip olduğu bir GriefPrevention claim'inin içinde mi? */
@@ -589,6 +593,7 @@ public class KacakciManager implements Listener, CommandExecutor {
         }
         ItemStack el = p.getInventory().getItemInMainHand();
         String id = esyaId(el);
+        if (id == null && el.getType() == Material.SUGAR && KacakMal.turu(plugin, el) == null) id = ESYA_SEKER; // sade şeker: Ak Billur malzemesi
 
         // Hazır ürünü al
         if (k.asama == Asama.HAZIR) {
@@ -644,7 +649,7 @@ public class KacakciManager implements Listener, CommandExecutor {
         }
 
         // Malzeme ekleme
-        if (id != null && (id.equals(ESYA_GOLGE) || id.equals(ESYA_KIZIL) || id.equals(ESYA_TUZ))) {
+        if (id != null && (id.equals(ESYA_GOLGE) || id.equals(ESYA_KIZIL) || id.equals(ESYA_TUZ) || id.equals(ESYA_SEKER))) {
             if (k.asama != Asama.BOS && k.asama != Asama.MALZEME) { p.sendMessage(ChatColor.RED + "Kazan şu an malzeme kabul etmiyor."); return; }
             if (suSeviye(b) < (k.asama == Asama.BOS ? 3 : 1)) {
                 p.sendActionBar(ac(k.asama == Asama.BOS ? "Önce kazanı suyla doldur (kova ya da 3 su şişesi)." : "Kazanda su yok!", ChatColor.RED));
@@ -678,6 +683,7 @@ public class KacakciManager implements Listener, CommandExecutor {
 
     private List<String> tarif(KacakMal.Tur t) {
         if (t == KacakMal.Tur.KARA_TOZ) return List.of(ESYA_GOLGE, ESYA_GOLGE, ESYA_KIZIL, ESYA_TUZ);
+        if (t == KacakMal.Tur.AK_BILLUR) return List.of(ESYA_KIZIL, ESYA_SEKER, ESYA_SEKER, ESYA_TUZ);
         return List.of(ESYA_TUZ, ESYA_TUZ, ESYA_GOLGE);
     }
 
@@ -710,6 +716,7 @@ public class KacakciManager implements Listener, CommandExecutor {
         if (k.asama == Asama.BOS) {
             if (id.equals(ESYA_GOLGE)) k.tur = KacakMal.Tur.KARA_TOZ;
             else if (id.equals(ESYA_TUZ)) k.tur = KacakMal.Tur.MAVI_OZ;
+            else if (id.equals(ESYA_KIZIL)) k.tur = KacakMal.Tur.AK_BILLUR;
             else { bozul(p, k, b); el.setAmount(el.getAmount() - 1); return; }
             k.sahip = p.getUniqueId(); k.sahipAd = p.getName();
             k.asama = Asama.MALZEME;
@@ -965,6 +972,15 @@ public class KacakciManager implements Listener, CommandExecutor {
                 p.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 20 * 20, 0));
                 p.addPotionEffect(new PotionEffect(PotionEffectType.HUNGER, 20 * 20, 1));
             }, sure);
+        } else if (t == KacakMal.Tur.AK_BILLUR) {
+            p.addPotionEffect(new PotionEffect(PotionEffectType.HASTE, sure, 1));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, sure, 1));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, sure, 0));
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (!p.isOnline()) return;
+                p.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS, 25 * 20, 0));
+                p.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 15 * 20, 1));
+            }, sure);
         } else {
             p.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, sure / 2, 1));
             p.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, sure, 0));
@@ -1122,7 +1138,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                     s.sendMessage(ChatColor.GRAY + "- " + k.dunya + " " + k.x + "," + k.y + "," + k.z + " | " + k.sahipAd + " | " + k.asama);
                 return true;
             case "ver":
-                if (!(s instanceof Player pp) || a.length < 2) { s.sendMessage(ChatColor.RED + "/kacakci ver <kazan|golge|kizil|tuz|kara|mavi> [adet]"); return true; }
+                if (!(s instanceof Player pp) || a.length < 2) { s.sendMessage(ChatColor.RED + "/kacakci ver <kazan|maske|golge|kizil|tuz|kara|mavi|ak> [adet]"); return true; }
                 int adet = 1;
                 if (a.length >= 3) try { adet = Math.max(1, Math.min(64, Integer.parseInt(a[2]))); } catch (NumberFormatException ignored) { }
                 ItemStack it;
@@ -1134,6 +1150,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                     case "tuz": it = esyaYap(ESYA_TUZ); break;
                     case "kara": it = KacakMal.olustur(plugin, KacakMal.Tur.KARA_TOZ, 2, 1); break;
                     case "mavi": it = KacakMal.olustur(plugin, KacakMal.Tur.MAVI_OZ, 2, 1); break;
+                    case "ak": it = KacakMal.olustur(plugin, KacakMal.Tur.AK_BILLUR, 2, 1); break;
                     default: s.sendMessage(ChatColor.RED + "Bilinmeyen eşya."); return true;
                 }
                 it.setAmount(adet);

@@ -183,7 +183,7 @@ public class GbtManager implements Listener {
         if (pi.getItemInOffHand().getType() != Material.AIR) inv.setItem(40, pi.getItemInOffHand().clone());
         for (int i = 41; i < 45; i++) inv.setItem(i, esya(Material.GRAY_STAINED_GLASS_PANE, " "));
         inv.setItem(49, esya(Material.TRIPWIRE_HOOK, ChatColor.RED + "" + ChatColor.BOLD + "Kaçak Mal Müsadere Et",
-                ChatColor.GRAY + "Üstünde kaçak mal varsa el konur,",
+                ChatColor.GRAY + "Üstünde (zırh dahil) kaçak mal ya da üretim eşyası varsa el konur,",
                 ChatColor.GRAY + "oyuncu 10 dk hapse girer ve $5000 ceza keser.",
                 ChatColor.DARK_GRAY + "Başka eşya alınamaz."));
         inv.setItem(45, esya(Material.ARROW, ChatColor.YELLOW + "Geri (GBT)"));
@@ -236,21 +236,39 @@ public class GbtManager implements Listener {
         StringBuilder ozet = new StringBuilder();
         ItemStack[] icerik = pi.getContents();
         for (ItemStack it : icerik) {
-            KacakMal.Tur t = KacakMal.turu(plugin, it);
-            if (t == null) continue;
+            String ad = kacakAdi(it);
+            if (ad == null) continue;
             toplam += it.getAmount();
-            ozet.append(it.getAmount()).append("x ").append(t.ad).append(' ');
+            ozet.append(it.getAmount()).append("x ").append(ad).append(' ');
         }
         if (toplam == 0) {
             polis.sendMessage(ChatColor.YELLOW + "Üstünde kaçak mal bulunamadı.");
             return;
         }
         for (int i = 0; i < icerik.length; i++) {
-            if (KacakMal.kacakMalMi(plugin, icerik[i])) pi.setItem(i, null);
+            if (kacakAdi(icerik[i]) != null) pi.setItem(i, null);
         }
         hedef.updateInventory();
 
         cezaKes(polis, hedef, ozet.toString().trim());
+    }
+
+    /** Kaçak mal (Kara Toz vb.) ya da kaçak üretim eşyası (kazan, malzemeler, koruyucu maske; zırh/elde dahil) ise adı, değilse null. */
+    private String kacakAdi(ItemStack it) {
+        if (it == null || it.getType() == Material.AIR) return null;
+        KacakMal.Tur t = KacakMal.turu(plugin, it);
+        if (t != null) return t.ad;
+        if (!it.hasItemMeta()) return null;
+        String id = it.getItemMeta().getPersistentDataContainer().get(new org.bukkit.NamespacedKey(plugin, "kacak_esya"), org.bukkit.persistence.PersistentDataType.STRING);
+        if (id == null) return null;
+        switch (id) {
+            case "kazan": return "Gizli Kazan";
+            case "golge_koku": return "Gölge Kökü";
+            case "kizil_kul": return "Kızıl Kül";
+            case "mavi_tuz": return "Mavi Tuz";
+            case "maske": return "Koruyucu Maske";
+            default: return "kaçak eşya";
+        }
     }
 
     /** Kaçak mal cezası (GBT müsaderesi ve kazan baskını ortak): $5000 ceza (banka eksiye düşebilir), 10 dk hapis, sabıka, log. */

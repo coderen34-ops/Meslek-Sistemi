@@ -22,7 +22,8 @@ public final class KacakMal {
 
     public enum Tur {
         KARA_TOZ("kara_toz", "Kara Toz", Material.GUNPOWDER, ChatColor.DARK_GRAY),
-        MAVI_OZ("mavi_oz", "Mavi Öz", Material.LIGHT_BLUE_DYE, ChatColor.AQUA);
+        MAVI_OZ("mavi_oz", "Mavi Öz", Material.LIGHT_BLUE_DYE, ChatColor.AQUA),
+        AK_BILLUR("ak_billur", "Ak Billur", Material.SUGAR, ChatColor.WHITE);
 
         public final String id, ad;
         public final Material madde;
