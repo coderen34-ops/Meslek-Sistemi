@@ -18,6 +18,7 @@ import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.Levelled;
 import org.bukkit.block.data.Lightable;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -44,6 +45,8 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.PotionMeta;
+import org.bukkit.potion.PotionType;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -83,6 +86,9 @@ public class KacakciManager implements Listener, CommandExecutor {
         int kalite = 1;
         int adet = 0;
         boolean ihbar1, ihbar2;
+        boolean suluSistem;     // su katmanı: eski (susuz) kazanları bir kereye mahsus doldurmak için
+        int buharSn;            // bir sonraki buharlaşmaya kalan saniye
+        int susuzSn;            // su bitince yanmaya kalan sayaç
 
         String anahtar() { return dunya + ";" + x + ";" + y + ";" + z; }
     }
@@ -157,6 +163,9 @@ public class KacakciManager implements Listener, CommandExecutor {
         new BukkitRunnable() {
             @Override public void run() { kazanTick(); }
         }.runTaskTimer(plugin, 40L, 20L);
+        new BukkitRunnable() {
+            @Override public void run() { kabarcikTick(); }
+        }.runTaskTimer(plugin, 50L, 4L);
         new BukkitRunnable() {
             @Override public void run() { kaydet(); }
         }.runTaskTimer(plugin, 1200L, 1200L);
@@ -498,7 +507,7 @@ public class KacakciManager implements Listener, CommandExecutor {
 
     // ---------------------------------------------------------------- kazan: yerleştirme / kırma
     private Kazan kazanBul(Block b) {
-        if (b == null || b.getType() != Material.CAULDRON) return null;
+        if (b == null || (b.getType() != Material.CAULDRON && b.getType() != Material.WATER_CAULDRON)) return null;
         return kazanlar.get(b.getWorld().getName() + ";" + b.getX() + ";" + b.getY() + ";" + b.getZ());
     }
 
@@ -519,9 +528,10 @@ public class KacakciManager implements Listener, CommandExecutor {
         Kazan k = new Kazan();
         k.dunya = b.getWorld().getName(); k.x = b.getX(); k.y = b.getY(); k.z = b.getZ();
         k.sahip = e.getPlayer().getUniqueId(); k.sahipAd = e.getPlayer().getName();
+        k.suluSistem = true;
         kazanlar.put(k.anahtar(), k);
         kaydet();
-        e.getPlayer().sendMessage(ChatColor.GRAY + "Gizli kazan kuruldu. Malzemeleri sırayla at: Gölge Kökü ile başlarsan Kara Toz, Mavi Tuz ile başlarsan Mavi Öz.");
+        e.getPlayer().sendMessage(ChatColor.GRAY + "Gizli kazan kuruldu. Önce kovayla ya da su şişeleriyle suyla doldur, sonra malzemeleri sırayla at: Gölge Kökü ile başlarsan Kara Toz, Mavi Tuz ile başlarsan Mavi Öz.");
     }
 
     /** Konum, oyuncunun KENDİ sahip olduğu bir GriefPrevention claim'inin içinde mi? */
@@ -587,6 +597,7 @@ public class KacakciManager implements Listener, CommandExecutor {
             p.sendMessage(ChatColor.GREEN + "Kazandan " + k.adet + "x " + k.tur.ad + " aldın (" + KacakMal.KALITE_ADI[k.kalite] + ").");
             plugin.ekonomiLog("kazan-uretim", p.getName(), k.adet + "x " + k.tur.ad + " kalite " + k.kalite);
             sifirla(k);
+            suAyarla(b, 0);
             kaydet();
             return;
         }
@@ -609,9 +620,37 @@ public class KacakciManager implements Listener, CommandExecutor {
             return;
         }
 
+        // Su ekleme (su kovası / su şişesi)
+        boolean kova = el.getType() == Material.WATER_BUCKET;
+        if (kova || suSisesi(el)) {
+            int su = suSeviye(b);
+            if (su >= 3) { p.sendActionBar(ac("Kazan zaten dolu.", ChatColor.GRAY)); return; }
+            if (kova) {
+                suAyarla(b, 3);
+                if (p.getGameMode() != org.bukkit.GameMode.CREATIVE) p.getInventory().setItemInMainHand(new ItemStack(Material.BUCKET));
+                p.playSound(b.getLocation(), Sound.ITEM_BUCKET_EMPTY, 1f, 1f);
+            } else {
+                suAyarla(b, su + 1);
+                if (p.getGameMode() != org.bukkit.GameMode.CREATIVE) {
+                    el.setAmount(el.getAmount() - 1);
+                    p.getInventory().addItem(new ItemStack(Material.GLASS_BOTTLE)).values()
+                            .forEach(art -> p.getWorld().dropItemNaturally(p.getLocation(), art));
+                }
+                p.playSound(b.getLocation(), Sound.ITEM_BOTTLE_EMPTY, 1f, 1f);
+            }
+            k.susuzSn = 0;
+            p.sendActionBar(ac("Kazandaki su: " + suSeviye(b) + "/3", ChatColor.GREEN));
+            return;
+        }
+
         // Malzeme ekleme
         if (id != null && (id.equals(ESYA_GOLGE) || id.equals(ESYA_KIZIL) || id.equals(ESYA_TUZ))) {
             if (k.asama != Asama.BOS && k.asama != Asama.MALZEME) { p.sendMessage(ChatColor.RED + "Kazan şu an malzeme kabul etmiyor."); return; }
+            if (suSeviye(b) < (k.asama == Asama.BOS ? 3 : 1)) {
+                p.sendActionBar(ac(k.asama == Asama.BOS ? "Önce kazanı suyla doldur (kova ya da 3 su şişesi)." : "Kazanda su yok!", ChatColor.RED));
+                p.playSound(b.getLocation(), Sound.ENTITY_VILLAGER_NO, 0.8f, 1f);
+                return;
+            }
             int gerekli = plugin.getConfig().getInt("kacakci.min-polis", 1);
             if (gerekli > 0 && cevrimiciPolis() < gerekli) {
                 p.sendMessage(ChatColor.RED + "Şehirde polis yok; kimse bu işe kalkışmaz. Polis çevrimiçi olunca tekrar dene.");
@@ -623,12 +662,12 @@ public class KacakciManager implements Listener, CommandExecutor {
         }
 
         // Durum
-        p.sendActionBar(ac(durumMetni(k), ChatColor.YELLOW));
+        p.sendActionBar(ac(durumMetni(k) + " | Su: " + suSeviye(b) + "/3", ChatColor.YELLOW));
     }
 
     private String durumMetni(Kazan k) {
         switch (k.asama) {
-            case BOS: return "Kazan boş. Malzeme at.";
+            case BOS: return "Kazan boş. Su doldur, sonra malzeme at.";
             case MALZEME: return "Malzemeler: " + k.eklenen.size() + "/" + tarif(k.tur).size();
             case ISINMA: return "Isınıyor... kalan " + k.kalanSn + " sn (altı yanmalı)";
             case KARISTIRMA: return k.pencereAcikSn > 0 ? "ŞİMDİ KARIŞTIR! (Shift+sağ tık)" : "Karışım kaynıyor... sonraki karıştırma " + k.kalanSn + " sn";
@@ -640,6 +679,23 @@ public class KacakciManager implements Listener, CommandExecutor {
     private List<String> tarif(KacakMal.Tur t) {
         if (t == KacakMal.Tur.KARA_TOZ) return List.of(ESYA_GOLGE, ESYA_GOLGE, ESYA_KIZIL, ESYA_TUZ);
         return List.of(ESYA_TUZ, ESYA_TUZ, ESYA_GOLGE);
+    }
+
+    private int suSeviye(Block b) {
+        if (b.getType() == Material.WATER_CAULDRON && b.getBlockData() instanceof Levelled l) return l.getLevel();
+        return 0;
+    }
+
+    private void suAyarla(Block b, int seviye) {
+        seviye = Math.max(0, Math.min(3, seviye));
+        if (seviye == 0) { b.setType(Material.CAULDRON, false); return; }
+        if (b.getType() != Material.WATER_CAULDRON) b.setType(Material.WATER_CAULDRON, false);
+        if (b.getBlockData() instanceof Levelled l) { l.setLevel(seviye); b.setBlockData(l, false); }
+    }
+
+    private boolean suSisesi(ItemStack el) {
+        return el != null && el.getType() == Material.POTION && el.getItemMeta() instanceof PotionMeta pm
+                && pm.getBasePotionType() == PotionType.WATER;
     }
 
     private int cevrimiciPolis() {
@@ -668,6 +724,7 @@ public class KacakciManager implements Listener, CommandExecutor {
         if (k.eklenen.size() >= t.size()) {
             k.asama = Asama.ISINMA;
             k.kalanSn = 240;
+            k.buharSn = 0;
             p.sendMessage(ChatColor.GRAY + "Karışım hazır. Kazanın altına bir kamp ateşi (veya ateş/lav) yak; 4 dk ısınması lazım.");
             if (rnd.nextDouble() < plugin.getConfig().getDouble("kacakci.ihbar-sans-isinma", 0.6)) { k.ihbar1 = true; ihbarEt(b.getLocation()); }
         }
@@ -679,6 +736,7 @@ public class KacakciManager implements Listener, CommandExecutor {
         p.playSound(b.getLocation(), Sound.ENTITY_GENERIC_EXTINGUISH_FIRE, 1f, 0.8f);
         b.getWorld().spawnParticle(Particle.SMOKE, b.getLocation().add(0.5, 1.0, 0.5), 25, 0.2, 0.2, 0.2, 0.02);
         sifirla(k);
+        suAyarla(b, 0);
         kaydet();
     }
 
@@ -709,13 +767,51 @@ public class KacakciManager implements Listener, CommandExecutor {
             World w = Bukkit.getWorld(k.dunya);
             if (w == null || !w.isChunkLoaded(k.x >> 4, k.z >> 4)) continue;
             Block b = w.getBlockAt(k.x, k.y, k.z);
-            if (b.getType() != Material.CAULDRON) { kazanlar.remove(k.anahtar()); continue; }
+            if (b.getType() != Material.CAULDRON && b.getType() != Material.WATER_CAULDRON) { kazanlar.remove(k.anahtar()); continue; }
             Location merkez = b.getLocation().add(0.5, 1.0, 0.5);
             Player sahip = Bukkit.getPlayer(k.sahip);
+            boolean sahipYakin = sahip != null && sahip.getWorld().equals(w) && sahip.getLocation().distanceSquared(merkez) < 900;
+
+            // Su katmanı: eski kazanları bir kereliğine doldur
+            if (!k.suluSistem) {
+                k.suluSistem = true;
+                if (k.asama != Asama.BOS && k.asama != Asama.HAZIR) { suAyarla(b, 3); k.buharSn = 0; }
+            }
+            if ((k.asama == Asama.ISINMA || k.asama == Asama.KARISTIRMA) && isiVar(b)) {
+                int su = suSeviye(b);
+                if (k.buharSn <= 0) k.buharSn = 50 + rnd.nextInt(36);
+                else if (--k.buharSn <= 0) {
+                    k.buharSn = 50 + rnd.nextInt(36);
+                    if (su > 0) {
+                        su--;
+                        suAyarla(b, su);
+                        w.playSound(merkez, Sound.BLOCK_LAVA_EXTINGUISH, 0.5f, 1.4f);
+                        w.spawnParticle(Particle.CLOUD, merkez, 8, 0.15, 0.1, 0.15, 0.02);
+                        if (sahipYakin) sahip.sendMessage(ChatColor.AQUA + (su == 0 ? "Kazandaki su bitti, karışım yanıyor!" : "Kazandaki su azalıyor (" + su + "/3). Su ekle."));
+                    }
+                }
+                int tolerans = Math.max(1, plugin.getConfig().getInt("kacakci.susuz-tolerans-sn", 0));
+                if (su == 0) {
+                    k.susuzSn++;
+                    if (sahipYakin && k.susuzSn % 4 == 0) sahip.sendActionBar(ac("SU BİTTİ! Kova ya da şişeyle su ekle (" + Math.max(0, tolerans - k.susuzSn) + " sn)", ChatColor.RED));
+                    if (k.susuzSn >= tolerans) {
+                        w.spawnParticle(Particle.SMOKE, merkez, 40, 0.2, 0.3, 0.2, 0.03);
+                        w.playSound(merkez, Sound.ENTITY_GENERIC_EXTINGUISH_FIRE, 1f, 0.7f);
+                        if (sahipYakin) sahip.sendMessage(ChatColor.RED + "Kazanda su kalmadı, karışım yandı!");
+                        ihbarKoordinat(merkez);
+                        sifirla(k);
+                        suAyarla(b, 0);
+                        kaydet();
+                        continue;
+                    }
+                } else {
+                    k.susuzSn = 0;
+                }
+            }
 
             switch (k.asama) {
                 case ISINMA:
-                    if (isiVar(b)) {
+                    if (isiVar(b) && suSeviye(b) > 0) {
                         k.kalanSn--;
                         w.spawnParticle(Particle.CAMPFIRE_COSY_SMOKE, merkez, 2, 0.1, 0.3, 0.1, 0.01);
                         if (k.kalanSn <= 0) {
@@ -725,7 +821,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                             if (rnd.nextDouble() < plugin.getConfig().getDouble("kacakci.ihbar-sans-karistirma", 0.4)) { k.ihbar2 = true; ihbarEt(merkez); }
                         }
                     } else if (k.kalanSn % 10 == 0 && sahip != null && sahip.getWorld().equals(w) && sahip.getLocation().distanceSquared(merkez) < 400) {
-                        sahip.sendActionBar(ac("Kazanın altı soğuk! Ateş yak.", ChatColor.RED));
+                        sahip.sendActionBar(ac(isiVar(b) ? "Kazanda su yok!" : "Kazanın altı soğuk! Ateş yak.", ChatColor.RED));
                     }
                     duman(w, merkez);
                     break;
@@ -743,7 +839,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                     } else {
                         k.kalanSn--;
                         if (k.kalanSn <= 0) {
-                            k.pencereAcikSn = 15;
+                            k.pencereAcikSn = 5;
                             w.playSound(merkez, Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1.8f);
                         }
                     }
@@ -762,6 +858,28 @@ public class KacakciManager implements Listener, CommandExecutor {
         }
     }
 
+    /** Kaynayan suda ruh kumundaki gibi kabarcıklar: ısınmanın ikinci yarısında seyrek, kaynarken yoğun. */
+    private void kabarcikTick() {
+        for (Kazan k : kazanlar.values()) {
+            boolean kaynar = k.asama == Asama.KARISTIRMA;
+            boolean isiniyor = k.asama == Asama.ISINMA && k.kalanSn <= 120;
+            if (!kaynar && !isiniyor) continue;
+            World w = Bukkit.getWorld(k.dunya);
+            if (w == null || !w.isChunkLoaded(k.x >> 4, k.z >> 4)) continue;
+            Block b = w.getBlockAt(k.x, k.y, k.z);
+            int su = suSeviye(b);
+            if (su <= 0 || !isiVar(b)) continue;
+            Location yuzey = b.getLocation().add(0.5, 0.375 + 0.1875 * su, 0.5);
+            if (kaynar) {
+                w.spawnParticle(Particle.BUBBLE_COLUMN_UP, yuzey, 6, 0.18, 0.02, 0.18, 0.0);
+                w.spawnParticle(Particle.BUBBLE_POP, yuzey, 3, 0.2, 0.03, 0.2, 0.0);
+                if (rnd.nextInt(6) == 0) w.playSound(yuzey, Sound.BLOCK_BUBBLE_COLUMN_UPWARDS_AMBIENT, 0.5f, 1.2f);
+            } else if (rnd.nextInt(3) == 0) {
+                w.spawnParticle(Particle.BUBBLE_POP, yuzey, 2, 0.18, 0.02, 0.18, 0.0);
+            }
+        }
+    }
+
     private boolean maskeli(Player p) {
         return ESYA_MASKE.equals(esyaId(p.getInventory().getHelmet()));
     }
@@ -775,6 +893,17 @@ public class KacakciManager implements Listener, CommandExecutor {
             p.addPotionEffect(new PotionEffect(PotionEffectType.NAUSEA, 200, 0, false, false));
             p.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 120, 0, false, false));
             p.sendActionBar(ac("Zehirli duman! Koruyucu Maske tak.", ChatColor.RED));
+        }
+    }
+
+    /** Karışım yandığında polise tam koordinat gider. */
+    private void ihbarKoordinat(Location l) {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (plugin.gbtManager != null && plugin.gbtManager.polisMi(p)) {
+                p.sendMessage(ChatColor.RED + "[İhbar] " + ChatColor.GRAY + "Yanık kokusu ve yoğun duman! Konum: " + l.getWorld().getName()
+                        + " X:" + l.getBlockX() + " Y:" + l.getBlockY() + " Z:" + l.getBlockZ());
+                p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 1f, 0.7f);
+            }
         }
     }
 
@@ -866,6 +995,7 @@ public class KacakciManager implements Listener, CommandExecutor {
             y.set(p + ".asama", k.asama.name());
             y.set(p + ".kalanSn", k.kalanSn); y.set(p + ".pencere", k.pencere); y.set(p + ".pencereAcikSn", k.pencereAcikSn);
             y.set(p + ".basari", k.basari); y.set(p + ".kalite", k.kalite); y.set(p + ".adet", k.adet);
+            y.set(p + ".suluSistem", k.suluSistem); y.set(p + ".buharSn", k.buharSn); y.set(p + ".susuzSn", k.susuzSn);
         }
         try { plugin.getDataFolder().mkdirs(); y.save(veriDosyasi); } catch (Exception e) { plugin.getLogger().warning("Kazan verisi yazılamadı: " + e.getMessage()); }
     }
@@ -883,6 +1013,7 @@ public class KacakciManager implements Listener, CommandExecutor {
                 k.asama = Asama.valueOf(y.getString(p + ".asama", "BOS"));
                 k.kalanSn = y.getInt(p + ".kalanSn"); k.pencere = y.getInt(p + ".pencere"); k.pencereAcikSn = y.getInt(p + ".pencereAcikSn");
                 k.basari = y.getInt(p + ".basari"); k.kalite = y.getInt(p + ".kalite", 1); k.adet = y.getInt(p + ".adet");
+                k.suluSistem = y.getBoolean(p + ".suluSistem", false); k.buharSn = y.getInt(p + ".buharSn"); k.susuzSn = y.getInt(p + ".susuzSn");
                 kazanlar.put(k.anahtar(), k);
             } catch (Exception ex) {
                 plugin.getLogger().warning("Bozuk kazan kaydı atlandı: " + p);
