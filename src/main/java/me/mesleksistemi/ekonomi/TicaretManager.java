@@ -43,6 +43,7 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -396,7 +397,37 @@ public class TicaretManager implements Listener, CommandExecutor {
         for (Block b : event.blockList()) isBloguYokOldu(b);
     }
 
-    @EventHandler
+    private final Map<UUID, Long> sonTicaretAcilis = new HashMap<>();
+
+    /**
+     * Emniyet ağı: her ne sebeple olursa olsun (eğilerek sağ tık, off-hand, başka eklenti vb.) vanilla köylü
+     * ticaret ekranı açılmaya çalışırsa iptal edilir ve yerine bizim Tüccar Menüsü açılır.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onVanillaTicaretAcilis(org.bukkit.event.inventory.InventoryOpenEvent event) {
+        if (event.getInventory().getType() != org.bukkit.event.inventory.InventoryType.MERCHANT) return;
+        if (!(event.getInventory() instanceof org.bukkit.inventory.MerchantInventory mi)) return;
+        if (!(mi.getMerchant() instanceof AbstractVillager villager)) return;
+        if (!(event.getPlayer() instanceof Player oyuncu)) return;
+        if (ozelNpcMi(villager)) return;
+        event.setCancelled(true);
+        if (!villager.isAdult() || villager.getRecipes().isEmpty()) return;
+        Long son = sonTicaretAcilis.get(oyuncu.getUniqueId());
+        long simdi = System.currentTimeMillis();
+        if (son != null && simdi - son < 400L) return; // aynı tıklamada iki kez açılmasın
+        sonTicaretAcilis.put(oyuncu.getUniqueId(), simdi);
+        Bukkit.getScheduler().runTask(plugin, () -> { if (oyuncu.isOnline() && villager.isValid()) openTradeGUI(oyuncu, villager); });
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onVillagerInteractOffHand(PlayerInteractEntityEvent event) {
+        // Off-hand tıklaması boş geçerse vanilla ekran açılabiliyor; menüsü bizim olan köylülerde iptal et
+        if (event.getHand() == EquipmentSlot.HAND) return;
+        if (event.getRightClicked() instanceof AbstractVillager v && !ozelNpcMi(v) && v.isAdult() && !v.getRecipes().isEmpty())
+            event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
     public void onVillagerInteract(PlayerInteractEntityEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return; 
         
@@ -410,6 +441,7 @@ public class TicaretManager implements Listener, CommandExecutor {
             if (!villager.isAdult() || villager.getRecipes().isEmpty()) return;
 
             event.setCancelled(true); 
+            sonTicaretAcilis.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
             openTradeGUI(event.getPlayer(), villager);
         }
     }
