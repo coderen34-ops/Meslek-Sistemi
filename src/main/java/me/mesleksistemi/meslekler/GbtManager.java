@@ -15,6 +15,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -51,7 +54,62 @@ public class GbtManager implements Listener {
     private final MeslekSistemi plugin;
     private final Map<UUID, Long> sonIslem = new HashMap<>();
 
-    public GbtManager(MeslekSistemi plugin) { this.plugin = plugin; }
+    /** GBT/üst arama süresince hareketsiz bırakılan hedef -> işlemi yapan polis. */
+    private final Map<UUID, UUID> donuk = new HashMap<>();
+
+    public GbtManager(MeslekSistemi plugin) {
+        this.plugin = plugin;
+        // Emniyet: polis menüyü kapattıysa/çıktıysa/hedef için başka menü açık değilse çöz
+        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            for (java.util.Iterator<Map.Entry<UUID, UUID>> it = donuk.entrySet().iterator(); it.hasNext();) {
+                Map.Entry<UUID, UUID> en = it.next();
+                Player polis = Bukkit.getPlayer(en.getValue());
+                Player hedef = Bukkit.getPlayer(en.getKey());
+                if (polis == null || hedef == null || !menuAcikMi(polis, en.getKey())) {
+                    it.remove();
+                    if (hedef != null) hedef.sendMessage(ChatColor.GRAY + "Kontrol bitti, hareket edebilirsin.");
+                }
+            }
+        }, 20L, 10L);
+    }
+
+    private boolean menuAcikMi(Player polis, UUID hedef) {
+        return polis.getOpenInventory().getTopInventory().getHolder() instanceof Menu m && m.hedef.equals(hedef);
+    }
+
+    private void dondur(Player polis, Player hedef) {
+        if (donuk.put(hedef.getUniqueId(), polis.getUniqueId()) == null)
+            hedef.sendMessage(ChatColor.GRAY + "Polis kontrolü bitene kadar hareket edemezsin.");
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onHareket(PlayerMoveEvent e) {
+        if (donuk.isEmpty() || !donuk.containsKey(e.getPlayer().getUniqueId())) return;
+        org.bukkit.Location a = e.getFrom(), b = e.getTo();
+        if (b == null) return;
+        if (a.getX() != b.getX() || a.getY() != b.getY() || a.getZ() != b.getZ()) {
+            b.setX(a.getX()); b.setY(a.getY()); b.setZ(a.getZ());
+            e.setTo(b); // bakış yönü serbest, konum sabit
+        }
+    }
+
+    @EventHandler
+    public void onKapat(InventoryCloseEvent e) {
+        if (!(e.getInventory().getHolder() instanceof Menu menu) || !(e.getPlayer() instanceof Player polis)) return;
+        // GBT <-> arama geçişinde yeniden açılacağı için bir tick sonra kontrol et
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!menuAcikMi(polis, menu.hedef)) {
+                if (donuk.remove(menu.hedef) != null) {
+                    Player h = Bukkit.getPlayer(menu.hedef);
+                    if (h != null) h.sendMessage(ChatColor.GRAY + "Kontrol bitti, hareket edebilirsin.");
+                }
+            }
+        });
+    }
+
+    @EventHandler
+    public void onCikis(PlayerQuitEvent e) { donuk.remove(e.getPlayer().getUniqueId()); }
+
 
     private String meslekOf(Player p) { return plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas"); }
 
@@ -106,6 +164,7 @@ public class GbtManager implements Listener {
         inv.setItem(26, esya(Material.BOOK, ChatColor.AQUA + "Oyuncu Menüsü", ChatColor.GRAY + "Beğeni/yorum/para gönder menüsü."));
 
         polis.openInventory(inv);
+        dondur(polis, hedef);
         hedef.sendMessage(ChatColor.GRAY + "Bir polis üzerinde GBT kontrolü yapıyor.");
         plugin.ekonomiLog("gbt", polis.getName(), "GBT: " + hedef.getName());
     }
@@ -129,6 +188,7 @@ public class GbtManager implements Listener {
                 ChatColor.DARK_GRAY + "Başka eşya alınamaz."));
         inv.setItem(45, esya(Material.ARROW, ChatColor.YELLOW + "Geri (GBT)"));
         polis.openInventory(inv);
+        dondur(polis, hedef);
         hedef.sendMessage(ChatColor.GRAY + "Bir polis üstünü arıyor.");
         plugin.ekonomiLog("ust-arama", polis.getName(), "Üst arama: " + hedef.getName());
     }
