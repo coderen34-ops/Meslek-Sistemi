@@ -937,6 +937,8 @@ public class KacakciManager implements Listener, CommandExecutor {
         String ozet = (k.tur == null ? "kazan" : k.tur.ad) + " kazanı";
         polis.sendMessage(ChatColor.GREEN + "Baskın! " + ozet + " (" + k.sahipAd + ") el konuldu.");
         plugin.ekonomiLog("kazan-baskin", polis.getName(), k.sahipAd + " | " + k.asama + " | " + (k.tur == null ? "-" : k.tur.ad));
+        if (plugin.haberManager != null)
+            plugin.haberManager.yaz("SUÇ", "Gizli kazana baskın", "Polis " + polis.getName() + ", bir gizli " + ozet + " tesisine baskın düzenledi.");
         Player sahip = Bukkit.getPlayer(k.sahip);
         if (sahip != null && sahip.getWorld().equals(polis.getWorld()) && sahip.getLocation().distanceSquared(polis.getLocation()) <= 400
                 && plugin.gbtManager != null && !plugin.hapisteMi(sahip.getUniqueId())) {

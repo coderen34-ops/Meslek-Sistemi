@@ -115,6 +115,8 @@ public class BaskanDusurManager implements Listener {
         Bukkit.broadcastMessage(ChatColor.GOLD + "★ " + ChatColor.RED + (isim == null ? "Başkan" : isim)
                 + ChatColor.YELLOW + " " + sebep + "; Belediye Başkanlığı düştü ve vatandaşa döndü.");
         plugin.ekonomiLog("baskan-dustu", isim == null ? id.toString() : isim, sebep);
+        if (plugin.haberManager != null)
+            plugin.haberManager.yaz("SİYASET", "Başkanlık düştü", (isim == null ? "Başkan" : isim) + " " + sebep + "; Belediye Başkanlığı düştü.");
         kaydet();
         plugin.veriKaydet();
     }

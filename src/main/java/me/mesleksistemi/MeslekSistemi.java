@@ -114,6 +114,8 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.bounty.BountyManager bountyManager;
     public me.mesleksistemi.gorev.GorevManager gorevManager;
     public me.mesleksistemi.kurye.KuryeManager kuryeManager;
+    public me.mesleksistemi.haber.HaberManager haberManager;
+    public me.mesleksistemi.mezat.MezatManager mezatManager;
     public KiraManager kiraManager;
     public PazarManager pazarManager;
     private SecimManager secimManager;
@@ -269,6 +271,12 @@ public class MeslekSistemi extends JavaPlugin {
         // YENİ ENTEGRASYON 7: SaglikManager (Kanama, Kırık, Hastane ve Ambulans)
         this.saglikManager = new SaglikManager(this);
         getServer().getPluginManager().registerEvents(this.saglikManager, this);
+        this.haberManager = new me.mesleksistemi.haber.HaberManager(this);
+        getServer().getPluginManager().registerEvents(this.haberManager, this);
+        if (getCommand("haber") != null) getCommand("haber").setExecutor(this.haberManager);
+        this.mezatManager = new me.mesleksistemi.mezat.MezatManager(this);
+        getServer().getPluginManager().registerEvents(this.mezatManager, this);
+        if (getCommand("mezat") != null) getCommand("mezat").setExecutor(this.mezatManager);
         this.kacakciManager = new me.mesleksistemi.kacak.KacakciManager(this);
         getServer().getPluginManager().registerEvents(this.kacakciManager, this);
         if (getCommand("kacakci") != null) getCommand("kacakci").setExecutor(this.kacakciManager);
@@ -359,6 +367,8 @@ public class MeslekSistemi extends JavaPlugin {
     public void onDisable() {
         if (arayuzManager != null) arayuzManager.kapat();
         if (kacakciManager != null) kacakciManager.kapat();
+        if (mezatManager != null) mezatManager.kapat();
+        if (haberManager != null) haberManager.kapat();
         if (ohalBar != null) ohalBar.removeAll();
 
         // Bekleyen arka plan yazımları bitsin ki eski içerik son kaydın üzerine yazılmasın

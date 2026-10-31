@@ -13,6 +13,12 @@ commands:
   kacakci:
     description: Kacakci tuccar ve kazan yonetimi (admin).
     usage: /kacakci nokta|saat|cagir|kaldir|kazanlar|ver
+  mezat:
+    description: Mezat / acik artirma.
+    usage: /mezat [sat <fiyat> [dk] | teklif <id> <tutar> | teslim | npc kur|sil | iptal <id>]
+  haber:
+    description: Gazete ve haberler.
+    usage: /haber [son | yaz <baslik> | <metin> | npc kur|sil | sil <id>]
   kurallar:
     description: Oyuncu sözleşmesini göster / kabul et.
     usage: /kurallar [durum|sifirla <oyuncu>]
