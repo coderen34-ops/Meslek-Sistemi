@@ -908,7 +908,8 @@ public class KacakciManager implements Listener, CommandExecutor {
     }
 
     private void ihbarEt(Location l) {
-        int x = Math.round(l.getBlockX() / 50f) * 50, z = Math.round(l.getBlockZ() / 50f) * 50;
+        int yk = Math.max(1, plugin.getConfig().getInt("kacakci.ihbar-yuvarlama", 150));
+        int x = Math.round(l.getBlockX() / (float) yk) * yk, z = Math.round(l.getBlockZ() / (float) yk) * yk;
         for (Player p : Bukkit.getOnlinePlayers()) {
             if (plugin.gbtManager != null && plugin.gbtManager.polisMi(p)) {
                 p.sendMessage(ChatColor.RED + "[İhbar] " + ChatColor.GRAY + "Şüpheli duman görüldü: " + l.getWorld().getName() + " yaklaşık X:" + x + " Z:" + z);
