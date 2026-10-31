@@ -15,7 +15,7 @@ commands:
     usage: /kacakci nokta|saat|cagir|kaldir|kazanlar|ver
   asci:
     description: Asci tarifleri ve yemek pisirme.
-    usage: /asci [ver <id> [kalite] [adet]]
+    usage: /asci [menu | ver <id> [kalite] [adet]]
     aliases: [yemek, tarifler]
   mezat:
     description: Mezat / acik artirma.

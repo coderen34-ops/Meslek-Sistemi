@@ -67,7 +67,7 @@ public class AsciManager implements Listener, CommandExecutor {
     private static final String[] KALITE_ADI = {"Sade", "Özenli", "Şefin Seçimi"};
 
     private final MeslekSistemi plugin;
-    private final NamespacedKey yemekKey, kaliteKey;
+    private final NamespacedKey yemekKey, kaliteKey, kitapKey;
     private final File dosya;
     private final Map<String, Tarif> tarifler = new LinkedHashMap<>();
     private final Map<UUID, Integer> pisirilen = new HashMap<>();
@@ -78,6 +78,7 @@ public class AsciManager implements Listener, CommandExecutor {
         this.plugin = plugin;
         this.yemekKey = new NamespacedKey(plugin, "yemek_id");
         this.kaliteKey = new NamespacedKey(plugin, "yemek_kalite");
+        this.kitapKey = new NamespacedKey(plugin, "asci_kitabi");
         this.dosya = new File(plugin.getDataFolder(), "asci.yml");
         plugin.getConfig().addDefault("asci.kalfa-esik", 40);
         plugin.getConfig().addDefault("asci.usta-esik", 150);
@@ -101,37 +102,28 @@ public class AsciManager implements Listener, CommandExecutor {
                 WB = PotionEffectType.WATER_BREATHING, HB = PotionEffectType.HEALTH_BOOST, SF = PotionEffectType.SLOW_FALLING,
                 LUCK = PotionEffectType.LUCK, DOL = PotionEffectType.DOLPHINS_GRACE;
         // ---- ÇIRAK (rank 0)
-        ekle(new Tarif("ekmek_dilimi", "Tereyağlı Ekmek", Material.BREAD, 0, "Hamur").m(Material.WHEAT, 3).t(7, 8).r(ChatColor.YELLOW).a("Sade ve doyurucu."));
-        ekle(new Tarif("kor_patates", "Közde Patates", Material.BAKED_POTATO, 0, "Ana").m(Material.POTATO, 3).t(6, 10).e(SPEED, 0, 180).r(ChatColor.GOLD).a("Sıcak sıcak, ayaklar hızlanır."));
-        ekle(new Tarif("tavuk_izgara", "Izgara Tavuk", Material.COOKED_CHICKEN, 0, "Ana").m(Material.CHICKEN, 2).m(Material.COAL, 1).t(8, 12).e(HASTE, 0, 200).r(ChatColor.GOLD).a("Eller çevik, kazma hızlı (acele)."));
-        ekle(new Tarif("mantar_corbasi", "Mantar Çorbası", Material.MUSHROOM_STEW, 0, "Çorba").m(Material.RED_MUSHROOM, 2).m(Material.BROWN_MUSHROOM, 2).m(Material.BOWL, 1).t(8, 9).e(REG, 0, 180).r(ChatColor.RED).a("Yenilenme verir."));
-        ekle(new Tarif("balik_tava", "Tavada Balık", Material.COOKED_COD, 0, "Ana").m(Material.COD, 3).m(Material.KELP, 2).t(7, 11).e(WB, 0, 240).r(ChatColor.AQUA).a("Suyun altında nefes."));
-        ekle(new Tarif("elmali_turta", "Elmalı Turta", Material.PUMPKIN_PIE, 0, "Tatlı").m(Material.APPLE, 2).m(Material.SUGAR, 2).m(Material.WHEAT, 2).t(8, 9).e(ABS, 0, 240).r(ChatColor.YELLOW).a("Sarı kalpler (emilim) verir."));
-        ekle(new Tarif("sebze_corba", "Sebze Çorbası", Material.BEETROOT_SOUP, 0, "Çorba").m(Material.BEETROOT, 3).m(Material.CARROT, 2).m(Material.BOWL, 1).t(9, 8).e(RES, 0, 180).r(ChatColor.DARK_RED).a("Hafif sertleşir (direnç)."));
-        ekle(new Tarif("tuzlu_kuru", "Kuru Yosun Atıştırmalığı", Material.DRIED_KELP, 0, "Atıştırma").m(Material.KELP, 4).t(3, 6).e(DOL, 0, 180).r(ChatColor.DARK_GREEN).a("Suda hız (yunus zarafeti)."));
-        ekle(new Tarif("bal_kurabiye", "Ballı Kurabiye", Material.COOKIE, 0, "Tatlı").m(Material.COCOA_BEANS, 2).m(Material.WHEAT, 2).m(Material.HONEY_BOTTLE, 1).t(4, 10).e(HASTE, 1, 150).r(ChatColor.GOLD).a("Şekerli acele."));
-        ekle(new Tarif("havuc_tatli", "Altın Havuç Dilimi", Material.GOLDEN_CARROT, 0, "Atıştırma").m(Material.CARROT, 3).m(Material.GOLD_NUGGET, 4).t(6, 14).e(NV, 0, 300).r(ChatColor.GOLD).a("Gece görüşü."));
+        ekle(new Tarif("menemen", "Menemen", Material.BAKED_POTATO, 0, "Türk Mutfağı").m(Material.EGG, 3).m(Material.BEETROOT, 1).m(Material.POTATO, 1).t(7, 11).e(HASTE, 0, 200).r(ChatColor.RED).a("Sabah acelesi: kazma hızlanır."));
+        ekle(new Tarif("pierogi", "Pierogi", Material.BREAD, 0, "Polonya Mutfağı").m(Material.WHEAT, 3).m(Material.POTATO, 2).m(Material.BROWN_MUSHROOM, 1).t(8, 10).e(SPEED, 0, 200).r(ChatColor.YELLOW).a("Dolgun hamur, hafif adım."));
+        ekle(new Tarif("fish_chips", "Fish and Chips", Material.COOKED_COD, 0, "İngiliz Mutfağı").m(Material.COD, 2).m(Material.POTATO, 2).m(Material.COAL, 1).t(7, 11).e(WB, 0, 240).r(ChatColor.AQUA).a("Liman yemeği: suda nefes."));
+        ekle(new Tarif("miso", "Miso Çorbası", Material.MUSHROOM_STEW, 0, "Japon Mutfağı").m(Material.BROWN_MUSHROOM, 2).m(Material.KELP, 2).m(Material.BOWL, 1).t(8, 9).e(REG, 0, 180).r(ChatColor.GOLD).a("Sıcak çorba, yenilenme."));
+        ekle(new Tarif("tom_yum", "Tom Yum", Material.BEETROOT_SOUP, 0, "Tay Mutfağı").m(Material.COD, 2).m(Material.GLOW_BERRIES, 2).m(Material.RED_MUSHROOM, 1).m(Material.BOWL, 1).t(9, 9).e(FIRE, 0, 240).e(SPEED, 0, 120).r(ChatColor.DARK_RED).a("Acı ekşi; ateşe karşı korur."));
+        ekle(new Tarif("krep", "Crêpe Suzette", Material.PUMPKIN_PIE, 0, "Fransız Mutfağı").m(Material.WHEAT, 2).m(Material.EGG, 1).m(Material.SUGAR, 2).t(8, 9).e(ABS, 0, 240).r(ChatColor.YELLOW).a("İnce, tatlı; sarı kalpler (emilim)."));
+        ekle(new Tarif("bruschetta", "Bruschetta", Material.BREAD, 0, "İtalyan Mutfağı").m(Material.WHEAT, 3).m(Material.BEETROOT, 2).m(Material.SWEET_BERRIES, 1).t(7, 9).e(JUMP, 0, 200).r(ChatColor.RED).a("Çıtır ekmek, hafif sıçrayış."));
         // ---- KALFA (rank 1)
-        ekle(new Tarif("biftek_tam", "Tam Pişmiş Biftek", Material.COOKED_BEEF, 1, "Ana").m(Material.BEEF, 3).m(Material.COAL, 1).m(Material.SWEET_BERRIES, 2).t(10, 18).e(STR, 0, 200).r(ChatColor.DARK_RED).a("Güç verir."));
-        ekle(new Tarif("kuzu_tava", "Kuzu Tava", Material.COOKED_MUTTON, 1, "Ana").m(Material.MUTTON, 3).m(Material.POTATO, 2).m(Material.CARROT, 1).t(10, 16).e(RES, 0, 240).e(ABS, 0, 120).r(ChatColor.RED).a("Dayanıklılık ve sarı kalp."));
-        ekle(new Tarif("somon_firin", "Fırın Somon", Material.COOKED_SALMON, 1, "Ana").m(Material.SALMON, 3).t(9, 15).e(WB, 0, 300).e(DOL, 0, 240).r(ChatColor.LIGHT_PURPLE).a("Su altı uzmanı."));
-        ekle(new Tarif("tavsan_yahni", "Tavşan Yahnisi", Material.RABBIT_STEW, 1, "Çorba").m(Material.RABBIT, 2).m(Material.CARROT, 2).m(Material.BAKED_POTATO, 1).m(Material.BOWL, 1).t(10, 17).e(JUMP, 1, 240).e(SPEED, 0, 180).r(ChatColor.GREEN).a("Zıplama ve hız."));
-        ekle(new Tarif("bal_corbasi", "Bal Şerbeti", Material.HONEY_BOTTLE, 1, "İçecek").m(Material.HONEY_BOTTLE, 1).m(Material.SUGAR, 2).t(5, 12).e(REG, 1, 120).e(SF, 0, 240).r(ChatColor.YELLOW).a("Tatlı yenilenme, yavaş düşüş."));
-        ekle(new Tarif("kavun_tabagi", "Soğuk Kavun Tabağı", Material.MELON_SLICE, 1, "Tatlı").m(Material.MELON_SLICE, 4).m(Material.SUGAR, 1).t(5, 10).e(FIRE, 0, 300).r(ChatColor.GREEN).a("Ateşe dayanıklılık."));
-        ekle(new Tarif("kabak_kek", "Kabak Kek", Material.PUMPKIN_PIE, 1, "Tatlı").m(Material.PUMPKIN, 1).m(Material.EGG, 1).m(Material.SUGAR, 2).m(Material.WHEAT, 2).t(8, 14).e(ABS, 1, 240).e(HASTE, 0, 150).r(ChatColor.GOLD).a("Dört kalp emilim."));
-        ekle(new Tarif("avci_tabagi", "Avcı Tabağı", Material.COOKED_PORKCHOP, 1, "Ana").m(Material.PORKCHOP, 3).m(Material.POTATO, 2).m(Material.BROWN_MUSHROOM, 1).t(11, 19).e(SPEED, 1, 200).e(HASTE, 0, 200).r(ChatColor.GOLD).a("Tok ve çevik."));
-        ekle(new Tarif("sutlu_bisk", "Sütlü Bisküvi", Material.COOKIE, 1, "Tatlı").m(Material.COCOA_BEANS, 3).m(Material.WHEAT, 3).m(Material.EGG, 1).t(5, 12).e(HB, 0, 240).r(ChatColor.DARK_GRAY).a("Fazladan canlılık."));
+        ekle(new Tarif("iskender", "İskender Kebap", Material.COOKED_BEEF, 1, "Türk Mutfağı").m(Material.BEEF, 3).m(Material.WHEAT, 2).m(Material.BEETROOT, 1).m(Material.COAL, 1).t(11, 17).e(STR, 0, 200).e(ABS, 0, 120).r(ChatColor.DARK_RED).a("Güç ve fazladan kalp."));
+        ekle(new Tarif("coq_au_vin", "Coq au Vin", Material.COOKED_CHICKEN, 1, "Fransız Mutfağı").m(Material.CHICKEN, 3).m(Material.BROWN_MUSHROOM, 2).m(Material.SWEET_BERRIES, 2).t(10, 16).e(RES, 0, 240).e(REG, 0, 100).r(ChatColor.DARK_PURPLE).a("Şaraplı tavuk; dayanıklılık."));
+        ekle(new Tarif("schnitzel", "Wiener Schnitzel", Material.COOKED_PORKCHOP, 1, "Alman Mutfağı").m(Material.PORKCHOP, 3).m(Material.WHEAT, 2).m(Material.EGG, 2).t(11, 16).e(SPEED, 1, 200).e(HASTE, 0, 200).r(ChatColor.GOLD).a("Çıtır ve hızlı."));
+        ekle(new Tarif("dim_sum", "Dim Sum", Material.COOKED_MUTTON, 1, "Çin Mutfağı").m(Material.MUTTON, 2).m(Material.WHEAT, 3).m(Material.KELP, 1).t(9, 15).e(HB, 0, 240).r(ChatColor.LIGHT_PURPLE).a("Buharda pişmiş; fazladan can."));
+        ekle(new Tarif("bibimbap", "Bibimbap", Material.RABBIT_STEW, 1, "Kore Mutfağı").m(Material.CARROT, 2).m(Material.EGG, 1).m(Material.BEEF, 1).m(Material.KELP, 2).m(Material.BOWL, 1).t(10, 17).e(REG, 1, 150).e(HASTE, 0, 150).r(ChatColor.GREEN).a("Renkli kase; yenilenme."));
+        ekle(new Tarif("sushi", "Sushi Tabağı", Material.COOKED_SALMON, 1, "Japon Mutfağı").m(Material.SALMON, 2).m(Material.KELP, 3).m(Material.WHEAT_SEEDS, 4).t(9, 15).e(WB, 0, 300).e(DOL, 0, 240).r(ChatColor.BLUE).a("Denizci menüsü."));
+        ekle(new Tarif("lazanya", "Lazanya", Material.BAKED_POTATO, 1, "İtalyan Mutfağı").m(Material.BEEF, 2).m(Material.WHEAT, 3).m(Material.BEETROOT, 2).m(Material.EGG, 1).t(12, 17).e(ABS, 1, 240).e(RES, 0, 150).r(ChatColor.GOLD).a("Katmanlı; dört kalp emilim."));
         // ---- USTA (rank 2)
-        ekle(new Tarif("sef_biftek", "Şefin Bifteği", Material.COOKED_BEEF, 2, "Ana").m(Material.BEEF, 4).m(Material.GOLD_NUGGET, 4).m(Material.SWEET_BERRIES, 3).t(14, 20).e(STR, 1, 240).e(RES, 0, 240).e(ABS, 1, 120).r(ChatColor.DARK_RED).a("Tam teşekküllü savaşçı yemeği."));
-        ekle(new Tarif("altin_cig", "Altın Elma Güveci", Material.GOLDEN_APPLE, 2, "Ana").m(Material.APPLE, 2).m(Material.GOLD_INGOT, 4).m(Material.HONEY_BOTTLE, 1).t(12, 20).e(REG, 1, 180).e(ABS, 2, 180).r(ChatColor.GOLD).a("Altın sarısı kalpler, yüksek yenilenme."));
-        ekle(new Tarif("madenci_yahnisi", "Madenci Yahnisi", Material.MUSHROOM_STEW, 2, "Çorba").m(Material.POTATO, 3).m(Material.BEEF, 2).m(Material.IRON_NUGGET, 4).m(Material.BOWL, 1).t(12, 18).e(HASTE, 2, 300).e(NV, 0, 300).r(ChatColor.GRAY).a("Kazma hızlı, gece görüşlü (kuvvetli acele)."));
-        ekle(new Tarif("gezgin_azigi", "Gezgin Azığı", Material.BREAD, 2, "Ana").m(Material.WHEAT, 4).m(Material.HONEY_BOTTLE, 1).m(Material.CARROT, 3).t(13, 20).e(SPEED, 1, 300).e(JUMP, 0, 300).r(ChatColor.AQUA).a("Uzun yol yemeği."));
-        ekle(new Tarif("deniz_sofrasi", "Deniz Sofrası", Material.COOKED_SALMON, 2, "Ana").m(Material.SALMON, 3).m(Material.COD, 3).m(Material.KELP, 4).t(12, 18).e(WB, 0, 300).e(DOL, 1, 300).e(ABS, 0, 180).r(ChatColor.BLUE).a("Dalgıç menüsü."));
-        ekle(new Tarif("ejder_corbasi", "Ejder Çorbası", Material.BEETROOT_SOUP, 2, "Çorba").m(Material.BEETROOT, 4).m(Material.BLAZE_POWDER, 1).m(Material.MAGMA_CREAM, 1).m(Material.BOWL, 1).t(11, 17).e(FIRE, 0, 300).e(STR, 0, 200).e(RES, 1, 150).r(ChatColor.RED).a("İçini ısıtır, ateşe karşı korur."));
-        ekle(new Tarif("sans_kurabiyesi", "Şans Kurabiyesi", Material.COOKIE, 2, "Tatlı").m(Material.COCOA_BEANS, 4).m(Material.GOLD_NUGGET, 3).m(Material.EGG, 2).t(5, 16).e(LUCK, 0, 300).e(HB, 0, 240).r(ChatColor.GREEN).a("Şans ve fazladan can."));
-        ekle(new Tarif("bayram_sofrasi", "Bayram Sofrası", Material.COOKED_CHICKEN, 2, "Ana").m(Material.CHICKEN, 3).m(Material.BREAD, 2).m(Material.APPLE, 2).m(Material.HONEY_BOTTLE, 1).t(20, 20).e(REG, 0, 240).e(SPEED, 0, 240).e(HASTE, 0, 240).e(STR, 0, 180).r(ChatColor.LIGHT_PURPLE).a("Her şeyden biraz; çok tok tutar."));
-        ekle(new Tarif("tatli_hamle", "Usta Baklavası", Material.PUMPKIN_PIE, 2, "Tatlı").m(Material.HONEY_BOTTLE, 2).m(Material.WHEAT, 4).m(Material.SUGAR, 3).m(Material.GOLD_NUGGET, 2).t(10, 20).e(ABS, 2, 240).e(HB, 1, 240).e(SF, 0, 240).r(ChatColor.YELLOW).a("Sarı kalpler ve tokluk."));
-        ekle(new Tarif("kral_kebabi", "Kral Kebabı", Material.COOKED_MUTTON, 2, "Ana").m(Material.MUTTON, 4).m(Material.BEEF, 2).m(Material.COAL, 2).m(Material.SWEET_BERRIES, 2).t(16, 20).e(STR, 1, 240).e(SPEED, 1, 240).e(REG, 0, 120).r(ChatColor.DARK_RED).a("Çok yüksek tokluk."));
+        ekle(new Tarif("pekin_ordegi", "Pekin Ördeği", Material.COOKED_CHICKEN, 2, "Çin Mutfağı").m(Material.CHICKEN, 4).m(Material.HONEY_BOTTLE, 1).m(Material.SUGAR, 2).t(14, 20).e(STR, 0, 240).e(SPEED, 1, 240).r(ChatColor.DARK_RED).a("Lake ördek; güç ve hız."));
+        ekle(new Tarif("baklava", "Fıstıklı Baklava", Material.PUMPKIN_PIE, 2, "Türk Mutfağı").m(Material.HONEY_BOTTLE, 2).m(Material.WHEAT, 4).m(Material.GOLD_NUGGET, 2).t(10, 20).e(ABS, 2, 240).e(HB, 1, 240).r(ChatColor.YELLOW).a("Altın sarısı kalpler ve ekstra can."));
+        ekle(new Tarif("wellington", "Beef Wellington", Material.COOKED_BEEF, 2, "İngiliz Mutfağı").m(Material.BEEF, 4).m(Material.WHEAT, 3).m(Material.BROWN_MUSHROOM, 2).m(Material.EGG, 1).t(15, 20).e(STR, 1, 240).e(RES, 0, 240).e(ABS, 1, 120).r(ChatColor.DARK_RED).a("Kraliyet sofrası."));
+        ekle(new Tarif("bigos", "Bigos (Avcı Güveci)", Material.RABBIT_STEW, 2, "Polonya Mutfağı").m(Material.PORKCHOP, 2).m(Material.BEEF, 2).m(Material.BEETROOT, 3).m(Material.BROWN_MUSHROOM, 2).m(Material.BOWL, 1).t(16, 20).e(RES, 1, 240).e(FIRE, 0, 240).e(REG, 0, 120).r(ChatColor.GRAY).a("Uzun pişen güveç; çok tok tutar."));
+        ekle(new Tarif("kimchi_jjigae", "Kimchi Jjigae", Material.BEETROOT_SOUP, 2, "Kore Mutfağı").m(Material.BEETROOT, 4).m(Material.PORKCHOP, 2).m(Material.BLAZE_POWDER, 1).m(Material.BOWL, 1).t(12, 18).e(FIRE, 0, 300).e(STR, 0, 200).e(HASTE, 1, 200).r(ChatColor.RED).a("Acılı kazan; güç ve acele."));
+        ekle(new Tarif("creme_brulee", "Crème Brûlée", Material.HONEY_BOTTLE, 2, "Fransız Mutfağı").m(Material.EGG, 3).m(Material.SUGAR, 3).m(Material.HONEY_BOTTLE, 1).m(Material.GOLD_NUGGET, 1).t(8, 20).e(LUCK, 0, 300).e(ABS, 1, 200).e(NV, 0, 200).r(ChatColor.GOLD).a("Karamel kabuk; şans ve kalp."));
     }
 
     // ------------------------------------------------------------------ yardımcılar
@@ -247,8 +239,63 @@ public class AsciManager implements Listener, CommandExecutor {
             p.sendMessage(ChatColor.RED + "Yemek tarifleri sadece Aşçıların sırrıdır. Meslek NPC'sinden Aşçı olabilirsin.");
             return true;
         }
-        menuAc(p);
+        if (a.length >= 1 && a[0].equalsIgnoreCase("menu")) { menuAc(p); return true; }
+        kitapVer(p);
         return true;
+    }
+
+    private boolean kitapMi(ItemStack it) {
+        return it != null && it.hasItemMeta() && it.getItemMeta().getPersistentDataContainer().has(kitapKey, PersistentDataType.BYTE);
+    }
+
+    private void kitapVer(Player p) {
+        for (ItemStack it : p.getInventory().getContents()) if (kitapMi(it)) { p.sendMessage(ChatColor.YELLOW + "Aşçı Tarif Kitabı zaten sende. Ocağa (fırın/kamp ateşi) kitapla sağ tıklayıp pişirebilirsin."); return; }
+        ItemStack k = new ItemStack(Material.WRITTEN_BOOK);
+        org.bukkit.inventory.meta.BookMeta bm = (org.bukkit.inventory.meta.BookMeta) k.getItemMeta();
+        bm.setTitle("Aşçının Tarif Kitabı");
+        bm.setAuthor("Koninski Mutfağı");
+        List<String> sayfa = new ArrayList<>();
+        sayfa.add(ChatColor.GOLD + "" + ChatColor.BOLD + "Aşçının Tarif Kitabı\n\n" + ChatColor.BLACK
+                + "Dünya mutfaklarından " + tarifler.size() + " tarif.\n\nPişirmek için kitabı elinde tutup bir ocağa (fırın, dumanlı ocak, kamp ateşi) SAĞ TIKLA.\n\nÇırak: ilk 7 tarif\nKalfa: " + plugin.getConfig().getInt("asci.kalfa-esik", 40) + " yemekten sonra\nUsta: " + plugin.getConfig().getInt("asci.usta-esik", 150) + " yemekten sonra");
+        for (Tarif t : tarifler.values()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(ChatColor.DARK_RED).append(ChatColor.BOLD).append(t.ad).append("\n").append(ChatColor.DARK_GRAY).append(t.tur).append(" • ").append(RANK_ADI[t.rank]).append("\n\n").append(ChatColor.BLACK);
+            sb.append("Malzeme:\n");
+            for (Map.Entry<Material, Integer> e : t.malzeme.entrySet()) if (e.getValue() > 0) sb.append("- ").append(e.getValue()).append(" ").append(malzemeAdi(e.getKey())).append("\n");
+            sb.append("\nEtki:\n");
+            for (Object[] x : t.etki) sb.append("- ").append(etkiAdi((PotionEffectType) x[0])).append(" ").append(roma((Integer) x[1] + 1)).append("\n");
+            sb.append("Tokluk ").append(t.tokluk).append(" / ").append(t.doygunluk);
+            sayfa.add(sb.toString());
+        }
+        bm.setPages(sayfa);
+        bm.getPersistentDataContainer().set(kitapKey, PersistentDataType.BYTE, (byte) 1);
+        k.setItemMeta(bm);
+        p.getInventory().addItem(k).values().forEach(x -> p.getWorld().dropItemNaturally(p.getLocation(), x));
+        p.sendMessage(ChatColor.GOLD + "Aşçı Tarif Kitabı envanterine eklendi. Elinde tutup bir ocağa sağ tıklayarak pişir.");
+    }
+
+    private static String malzemeAdi(Material m) {
+        switch (m) {
+            case EGG: return "yumurta"; case WHEAT: return "buğday"; case POTATO: return "patates"; case BEETROOT: return "pancar";
+            case BROWN_MUSHROOM: return "kahverengi mantar"; case RED_MUSHROOM: return "kırmızı mantar"; case COD: return "morina"; case SALMON: return "somon";
+            case COAL: return "kömür"; case KELP: return "yosun"; case BOWL: return "kase"; case GLOW_BERRIES: return "ışıklı meyve";
+            case SUGAR: return "şeker"; case SWEET_BERRIES: return "tatlı meyve"; case BEEF: return "sığır eti"; case CHICKEN: return "tavuk";
+            case PORKCHOP: return "domuz eti"; case MUTTON: return "koyun eti"; case CARROT: return "havuç"; case WHEAT_SEEDS: return "buğday tohumu";
+            case HONEY_BOTTLE: return "bal şişesi"; case GOLD_NUGGET: return "altın parçası"; case BLAZE_POWDER: return "alev tozu";
+            default: return m.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onOcakTik(org.bukkit.event.player.PlayerInteractEvent e) {
+        if (e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK || e.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
+        if (!kitapMi(e.getItem()) || e.getClickedBlock() == null) return;
+        Material m = e.getClickedBlock().getType();
+        if (m != Material.FURNACE && m != Material.SMOKER && m != Material.BLAST_FURNACE && m != Material.CAMPFIRE && m != Material.SOUL_CAMPFIRE) return;
+        e.setCancelled(true);
+        Player p = e.getPlayer();
+        if (!asciMi(p) && !p.hasPermission("meslek.admin")) { p.sendMessage(ChatColor.RED + "Bu kitap sadece Aşçılar için."); return; }
+        menuAc(p);
     }
 
     private void menuAc(Player p) {
