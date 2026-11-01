@@ -185,6 +185,7 @@ public class MeslekSistemi extends JavaPlugin {
         getServer().getPluginManager().registerEvents(this.menuManager, this);
         getServer().getPluginManager().registerEvents(new me.mesleksistemi.sistem.MenuKorumaListener(), this);
         getServer().getPluginManager().registerEvents(new KimlikListener(this), this);
+        getServer().getPluginManager().registerEvents(new me.mesleksistemi.kacak.KacakDepoKoruma(this), this);
         getServer().getPluginManager().registerEvents(new MeslekListener(this), this);
 
         // ENTEGRASYON 1: Sözleşme
