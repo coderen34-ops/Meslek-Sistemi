@@ -280,6 +280,15 @@ public class TicaretManager implements Listener, CommandExecutor {
             return true;
         }
 
+        // Bu eklentinin TÜM özel NPC'leri (görev panosu, çiftçi/balıkçı pazarı, kaçakçı, kurye, mezat, gazeteci, pazar standı...)
+        // PDC anahtarlarının adından otomatik tanınır; böylece yeni eklenen NPC'ler tüccar menüsüne düşmez.
+        for (org.bukkit.NamespacedKey k : data.getKeys()) {
+            String ks = k.getKey();
+            if (k.getNamespace().equalsIgnoreCase(plugin.getName().toLowerCase(java.util.Locale.ROOT))
+                    && (ks.endsWith("_npc") || ks.startsWith("pazar_stand") || ks.equals("gorev_id"))) return true;
+            if (ks.contains("kervan") || ks.contains("elci") || ks.contains("hanci")) return true; // Klan eklentisinin NPC'leri
+        }
+
         // YENİ: Eski kurulmuş hastane NPC'lerinde anahtar yoksa isimden de yakala (SaglikManager ile aynı kontrol)
         String ad = villager.getCustomName();
         return ad != null && ChatColor.stripColor(ad).contains("Acil Servis");
@@ -430,6 +439,7 @@ public class TicaretManager implements Listener, CommandExecutor {
     @EventHandler(priority = EventPriority.HIGH)
     public void onVillagerInteract(PlayerInteractEntityEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return; 
+        if (event.isCancelled()) return; // başka bir NPC yöneticisi (görev panosu, pazar...) etkileşimi zaten üstlendi
         
         // YENİ: Sadece köylü değil, gezgin tüccar (lamalı) da yakalanıyor
         if (event.getRightClicked() instanceof AbstractVillager) {
