@@ -10,6 +10,17 @@ libraries:
   - org.xerial:sqlite-jdbc:3.46.1.3
 
 commands:
+  dukkan:
+    description: Oyuncu dukkani kur, calisan teklifini kabul et.
+    usage: /dukkan [kur <ad> | kabul | ayril | menu]
+  isyeri:
+    description: Is Menusu (dukkan, ruhsat, calisanlar).
+    usage: /isyeri
+    aliases: [isverenmenu]
+  baskanmenu:
+    description: Baskan Menusu (vergi, maaslar, ruhsat onayi).
+    usage: /baskanmenu
+    aliases: [bmenu]
   kacakci:
     description: Kacakci tuccar ve kazan yonetimi (admin).
     usage: /kacakci nokta|saat|cagir|kaldir|kazanlar|ver

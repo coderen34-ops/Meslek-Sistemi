@@ -117,6 +117,7 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.haber.HaberManager haberManager;
     public me.mesleksistemi.mezat.MezatManager mezatManager;
     public me.mesleksistemi.asci.AsciManager asciManager;
+    public me.mesleksistemi.dukkan.DukkanManager dukkanManager;
     public KiraManager kiraManager;
     public PazarManager pazarManager;
     private SecimManager secimManager;
@@ -156,7 +157,7 @@ public class MeslekSistemi extends JavaPlugin {
         meslekFiyatlari.put("avukat", 300.0); meslekFiyatlari.put("polis", 600.0); 
         meslekFiyatlari.put("taseron", 150.0); meslekFiyatlari.put("hakim", 600.0); 
         meslekFiyatlari.put("belediyecalisani", 200.0); meslekFiyatlari.put("oduncu", 250.0);
-        meslekFiyatlari.put("ciftci", 200.0); meslekFiyatlari.put("balikci", 250.0); meslekFiyatlari.put("asci", 250.0);
+        meslekFiyatlari.put("ciftci", 200.0); meslekFiyatlari.put("balikci", 250.0); meslekFiyatlari.put("asci", 250.0); meslekFiyatlari.put("tamirci", 250.0);
 
         // MESLEK GÖRÜNÜM ADLARI
         meslekGorunumAdlari.put("madenci", "Madenci"); meslekGorunumAdlari.put("doktor", "Doktor");
@@ -165,7 +166,7 @@ public class MeslekSistemi extends JavaPlugin {
         meslekGorunumAdlari.put("belediyecalisani", "Belediye Calisani");
         meslekGorunumAdlari.put("belediyebaskani", "Belediye Baskani");
         meslekGorunumAdlari.put("amir", "Amir"); meslekGorunumAdlari.put("mahkum", "Mahkum"); meslekGorunumAdlari.put("oduncu", "Oduncu");
-        meslekGorunumAdlari.put("ciftci", "Ciftci"); meslekGorunumAdlari.put("balikci", "Balikci"); meslekGorunumAdlari.put("asci", "Asci");
+        meslekGorunumAdlari.put("ciftci", "Ciftci"); meslekGorunumAdlari.put("balikci", "Balikci"); meslekGorunumAdlari.put("asci", "Asci"); meslekGorunumAdlari.put("tamirci", "Tamirci");
 
         // MAAŞ MİKTARLARI
         maasMiktarlari.put("vatandas", 50.0); maasMiktarlari.put("taseron", 80.0);
@@ -173,7 +174,7 @@ public class MeslekSistemi extends JavaPlugin {
         maasMiktarlari.put("belediyecalisani", 150.0); maasMiktarlari.put("polis", 250.0); maasMiktarlari.put("amir", 350.0);
         maasMiktarlari.put("doktor", 300.0); maasMiktarlari.put("hakim", 400.0);
         maasMiktarlari.put("belediyebaskani", 500.0); maasMiktarlari.put("oduncu", 100.0);
-        maasMiktarlari.put("ciftci", 100.0); maasMiktarlari.put("balikci", 100.0); maasMiktarlari.put("asci", 100.0);
+        maasMiktarlari.put("ciftci", 100.0); maasMiktarlari.put("balikci", 100.0); maasMiktarlari.put("asci", 100.0); maasMiktarlari.put("tamirci", 100.0);
 
         ohalBar = Bukkit.createBossBar(
             ChatColor.DARK_RED + "" + ChatColor.BOLD + "DİKKAT: SOKAĞA ÇIKMA YASAĞI AKTİFTİR - HERKES EVLERİNE DÖNSÜN!", 
@@ -280,6 +281,11 @@ public class MeslekSistemi extends JavaPlugin {
         this.asciManager = new me.mesleksistemi.asci.AsciManager(this);
         getServer().getPluginManager().registerEvents(this.asciManager, this);
         if (getCommand("asci") != null) getCommand("asci").setExecutor(this.asciManager);
+        this.dukkanManager = new me.mesleksistemi.dukkan.DukkanManager(this);
+        getServer().getPluginManager().registerEvents(this.dukkanManager, this);
+        for (String dk : new String[]{"dukkan", "isyeri", "baskanmenu"}) {
+            if (getCommand(dk) != null) getCommand(dk).setExecutor(this.dukkanManager);
+        }
         this.mezatManager = new me.mesleksistemi.mezat.MezatManager(this);
         getServer().getPluginManager().registerEvents(this.mezatManager, this);
         if (getCommand("mezat") != null) getCommand("mezat").setExecutor(this.mezatManager);
@@ -375,6 +381,7 @@ public class MeslekSistemi extends JavaPlugin {
         if (kacakciManager != null) kacakciManager.kapat();
         if (mezatManager != null) mezatManager.kapat();
         if (asciManager != null) asciManager.kapat();
+        if (dukkanManager != null) dukkanManager.kapat();
         if (haberManager != null) haberManager.kapat();
         if (ohalBar != null) ohalBar.removeAll();
 
@@ -505,7 +512,7 @@ public class MeslekSistemi extends JavaPlugin {
                 {AYAR_BASVURU_PRIM, 30.0}, {AYAR_BASVURU_PRIM_GUNLUK, 20},
                 {AYAR_SOZLESME_UST_LIMIT, 10000.0}, {AYAR_SAHSI_SOZLESME_UST_LIMIT, 50000.0}, {AYAR_SOZLESME_BEKLEME, 60},
                 {AYAR_TOPTANCI_GUNLUK, 20000.0}, {"secim-bypass-cevrimdisi-dakika", 60},
-                {AYAR_PAZAR_KIRA, 20000.0}, {AYAR_PAZAR_VERGI, 10.0}};
+                {AYAR_PAZAR_KIRA, 20000.0}, {AYAR_PAZAR_VERGI, 10.0}, {"dukkan-vergi-yuzde", 10.0}};
         for (Object[] v : varsayilanlar) {
             if (!getConfig().contains((String) v[0])) { getConfig().set((String) v[0], v[1]); degisti = true; }
         }
