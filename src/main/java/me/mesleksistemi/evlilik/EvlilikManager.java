@@ -74,7 +74,7 @@ public class EvlilikManager implements Listener, CommandExecutor {
     private long esTpBeklemeMs() { return Math.max(0L, plugin.getConfig().getLong("evlilik.es-tp-bekleme-sn", 600L)) * 1000L; }
     private static final long TEKLIF_OMUR_MS = 30L * 60_000L;
     private long dugunSureMs() { return Math.max(1, plugin.getConfig().getInt("evlilik.dugun-dk", 3)) * 60_000L; }
-    private static final long EVET_SURE_MS = 90_000L;
+    private static final long EVET_SURE_MS = 45_000L;
 
     // ------------------------------------------------------------------ veri
     private static final class Evlilik {
@@ -625,7 +625,7 @@ public class EvlilikManager implements Listener, CommandExecutor {
         ev.t = t; ev.rahip = rahip.getUniqueId(); ev.bitis = System.currentTimeMillis() + EVET_SURE_MS;
         evetler.put(t.a, ev);
         String soru = ChatColor.GOLD + "Rahip " + rahip.getName() + ": " + ChatColor.WHITE + t.adA + ", " + t.adB + " ile evlenmek istiyor musun? "
-                + ChatColor.GREEN + "Sohbete \"evet\" yaz" + ChatColor.WHITE + " (reddetmek için \"hayır\"). 90 saniyen var.";
+                + ChatColor.GREEN + "Sohbete \"evet\" yaz" + ChatColor.WHITE + " (reddetmek için \"hayır\"). " + (EVET_SURE_MS / 1000) + " saniyen var.";
         for (Player o : Bukkit.getOnlinePlayers()) if (kilisedeMi(o) || o.equals(a) || o.equals(b)) o.sendMessage(soru);
         a.playSound(a.getLocation(), Sound.BLOCK_BELL_USE, 1f, 1f);
         b.playSound(b.getLocation(), Sound.BLOCK_BELL_USE, 1f, 1f);
