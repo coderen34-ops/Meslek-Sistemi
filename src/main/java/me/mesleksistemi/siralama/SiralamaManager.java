@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.bukkit.configuration.file.YamlConfiguration;
+
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.scheduler.BukkitTask;
@@ -163,15 +165,17 @@ public class SiralamaManager {
     private void yaz(String json) {
         try { Files.writeString(new File(plugin.getDataFolder(), "siralama.json").toPath(), json, StandardCharsets.UTF_8); }
         catch (Exception e) { plugin.getLogger().warning("siralama.json yazılamadı: " + e); }
-        String token = plugin.getConfig().getString("siralama.github.token", "");
+        // Ayarlar ayrı dosyada (siralama.yml): config.yml sunucu kapanırken yeniden yazıldığı için elle eklenen satırlar silinebiliyor.
+        YamlConfiguration ayar = YamlConfiguration.loadConfiguration(new File(plugin.getDataFolder(), "siralama.yml"));
+        String token = ayar.getString("github.token", plugin.getConfig().getString("siralama.github.token", ""));
         if (token == null || token.isBlank()) return;
         try {
             // Saat değiştikçe her seferinde commit atmamak için içerik (saat hariç) aynıysa yükleme.
             String hash = Integer.toHexString(json.replaceAll("\"guncelleme\": ?\"[^\"]*\"", "").hashCode());
             if (hash.equals(sonYuklenenHash)) return;
-            String repo = plugin.getConfig().getString("siralama.github.repo", "coderen34-ops/Meslek-Sistemi");
-            String dal = plugin.getConfig().getString("siralama.github.dal", "siralama-veri");
-            String yol = plugin.getConfig().getString("siralama.github.dosya", "siralama.json");
+            String repo = ayar.getString("github.repo", plugin.getConfig().getString("siralama.github.repo", "coderen34-ops/Meslek-Sistemi"));
+            String dal = ayar.getString("github.dal", plugin.getConfig().getString("siralama.github.dal", "siralama-veri"));
+            String yol = ayar.getString("github.dosya", plugin.getConfig().getString("siralama.github.dosya", "siralama.json"));
             HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
             String url = "https://api.github.com/repos/" + repo + "/contents/" + yol;
             HttpRequest get = HttpRequest.newBuilder(URI.create(url + "?ref=" + dal)).timeout(Duration.ofSeconds(15))
