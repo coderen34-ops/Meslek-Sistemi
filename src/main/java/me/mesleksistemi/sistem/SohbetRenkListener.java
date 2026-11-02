@@ -26,6 +26,39 @@ public class SohbetRenkListener implements Listener {
                 .decorationIfAbsent(TextDecoration.OBFUSCATED, TextDecoration.State.FALSE);
     }
 
+    private static final String ISARET = "\u0001KMSG\u0001";
+
+    /**
+     * TagPlugin satırı ön ek (tag/ek etiketler) + isim + mesaj olarak kurar; mesaj ön ekin son rengini/stilini
+     * miras alabilir (polis tag'i koyu mavi, vs.). Satır, mesaj yerine bir işaretle üretilir; sonra her parça kendi
+     * etkin stiliyle düz bir listeye açılır ve işaret yerine (beyaz, biçimsiz) gerçek mesaj konur. Böylece mesaj
+     * hiçbir tag/etiket rengini miras alamaz. İşaret bulunamazsa null döner (eski yol kullanılır).
+     */
+    private static Component mesajiSerbestBirak(Component kok, Component mesaj) {
+        java.util.List<Component> parcalar = new java.util.ArrayList<>();
+        boolean[] bulundu = {false};
+        acDuzlestir(kok, net.kyori.adventure.text.format.Style.empty(), parcalar, mesaj, bulundu);
+        if (!bulundu[0]) return null;
+        return Component.empty().children(parcalar);
+    }
+
+    private static void acDuzlestir(Component c, net.kyori.adventure.text.format.Style miras, java.util.List<Component> cikis,
+                                    Component mesaj, boolean[] bulundu) {
+        net.kyori.adventure.text.format.Style etkin = c.style().merge(miras, net.kyori.adventure.text.format.Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
+        if (c instanceof net.kyori.adventure.text.TextComponent tc && tc.content().contains(ISARET)) {
+            String icerik = tc.content();
+            int i = icerik.indexOf(ISARET);
+            String once = icerik.substring(0, i), sonra = icerik.substring(i + ISARET.length());
+            if (!once.isEmpty()) cikis.add(Component.text(once).style(etkin));
+            cikis.add(mesaj);
+            if (!sonra.isEmpty()) cikis.add(Component.text(sonra).style(etkin));
+            bulundu[0] = true;
+        } else {
+            cikis.add(c.children(java.util.Collections.emptyList()).style(etkin));
+        }
+        for (Component ch : c.children()) acDuzlestir(ch, etkin, cikis, mesaj, bulundu);
+    }
+
     /** TagPlugin (NORMAL) mesajı kendi yakalamadan önce stili sabitle. */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onSohbetErken(AsyncChatEvent e) {
@@ -46,7 +79,13 @@ public class SohbetRenkListener implements Listener {
                             .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(Component.text(es + " ile evli", NamedTextColor.GRAY))));
                 }
             } catch (Throwable ignored) { }
-            return eski.render(source, ad2, duzelt(mesaj), izleyen);
+            Component m = duzelt(mesaj);
+            try {
+                Component tam = eski.render(source, ad2, Component.text(ISARET), izleyen);
+                Component sonuc = mesajiSerbestBirak(tam, m);
+                if (sonuc != null) return sonuc;
+            } catch (Throwable ignored) { }
+            return eski.render(source, ad2, m, izleyen);
         });
     }
 }
