@@ -1199,6 +1199,51 @@ public class PolisManager implements Listener, CommandExecutor {
         }
     }
 
+    /** ARAMA / BASKIN: sandık, varil, shulker, fırın gibi kaplarda polis/amir SADECE İÇİNE BAKAR (salt-okunur kopya);
+     *  hiçbir eşya alınamaz/konamaz. Koşul: claim'de baskın aktif, claim'de aranan biri var ya da claim sahibi aranıyor. */
+    private static final class AramaGoruntu implements org.bukkit.inventory.InventoryHolder {
+        @Override public org.bukkit.inventory.Inventory getInventory() { return null; }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onAramaIzniKapKontrol(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
+        Block block = event.getClickedBlock();
+        if (block == null) return;
+        if (!(block.getState() instanceof org.bukkit.block.Container kap)) return;
+        Player player = event.getPlayer();
+        String meslek = plugin.oyuncuMeslekCache.getOrDefault(player.getUniqueId(), "vatandas");
+        if (!polisMi(meslek)) return;
+        try {
+            me.ryanhamshire.GriefPrevention.Claim claim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
+                    .dataStore.getClaimAt(block.getLocation(), false, null);
+            if (claim == null || claim.isAdminClaim()) return;
+            if (claim.allowContainers(player) == null) return; // polisin zaten erişimi var
+            String sahip = claim.getOwnerName();
+            boolean sahipAraniyor = sahip != null && arananOyuncular.contains(sahip.toLowerCase());
+            if (!(baskinAktifMi(claim) || claimdeArananVarMi(claim) || sahipAraniyor)) return;
+
+            event.setCancelled(true);
+            org.bukkit.inventory.Inventory kaynak = kap.getInventory();
+            org.bukkit.inventory.Inventory kopya = Bukkit.createInventory(new AramaGoruntu(), Math.max(9, kaynak.getSize() - kaynak.getSize() % 9),
+                    ChatColor.DARK_BLUE + "Arama (sadece bakış)");
+            ItemStack[] icerik = kaynak.getContents();
+            for (int i = 0; i < icerik.length && i < kopya.getSize(); i++) if (icerik[i] != null) kopya.setItem(i, icerik[i].clone());
+            player.openInventory(kopya);
+            player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.GRAY + "Arama izniyle içine baktın; eşya alamazsın.");
+        } catch (Exception ignored) { }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onAramaGoruntuTikla(org.bukkit.event.inventory.InventoryClickEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof AramaGoruntu) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onAramaGoruntuSurukle(org.bukkit.event.inventory.InventoryDragEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof AramaGoruntu) event.setCancelled(true);
+    }
+
     /** Vuruşu yapan oyuncu: doğrudan vuran ya da attığı ok/kartopu vb. mermisinin sahibi. */
     private Player saldiranOyuncuBul(Entity hasarVeren) {
         if (hasarVeren instanceof Player) return (Player) hasarVeren;
