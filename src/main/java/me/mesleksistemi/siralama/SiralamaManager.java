@@ -65,7 +65,8 @@ public class SiralamaManager {
         final File statKlasor = statKlasoru();
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             Map<UUID, long[]> stat = statOku(statKlasor);
-            Bukkit.getScheduler().runTask(plugin, () -> olustur(zengin, sabika, stat));
+            Map<String, double[]> ticaret = logOku();
+            Bukkit.getScheduler().runTask(plugin, () -> olustur(zengin, sabika, stat, ticaret));
         });
     }
 
@@ -109,6 +110,50 @@ public class SiralamaManager {
         return sonuc;
     }
 
+    // ekonomi log'larından (loglar/ekonomi-*.log): [0]=pazar satılan adet, [1]=pazar ciro, [2]=toptancı ciro, [3]=ticaret işlem sayısı
+    private static final java.util.regex.Pattern LOG = java.util.regex.Pattern.compile("^\\[[^\\]]+\\] \\[([a-z-]+)\\] (\\S+) \\| (.*)$");
+    private static final java.util.regex.Pattern PAZAR = java.util.regex.Pattern.compile("^(\\d+)x \\S+ \\| stand: .*? \\| sahip: (\\S+) \\| toplam: \\$([\\d.,]+)");
+    private static final java.util.regex.Pattern TRANSFER = java.util.regex.Pattern.compile("^-> (\\S+) \\$");
+    private static final java.util.regex.Pattern TOPTANCI = java.util.regex.Pattern.compile("toplam: \\$([\\d.,]+)");
+
+    private Map<String, double[]> logOku() {
+        Map<String, double[]> r = new HashMap<>();
+        File[] dosyalar = new File(plugin.getDataFolder(), "loglar").listFiles((d, n) -> n.startsWith("ekonomi-") && n.endsWith(".log"));
+        if (dosyalar == null) return r;
+        for (File f : dosyalar) {
+            try {
+                for (String satir : Files.readAllLines(f.toPath(), StandardCharsets.UTF_8)) {
+                    java.util.regex.Matcher m = LOG.matcher(satir);
+                    if (!m.matches()) continue;
+                    String tur = m.group(1), kim = m.group(2), ayrinti = m.group(3);
+                    if (tur.equals("pazar-satis")) {
+                        java.util.regex.Matcher pm = PAZAR.matcher(ayrinti);
+                        if (!pm.find()) continue;
+                        double tutar = para(pm.group(3));
+                        double[] sat = r.computeIfAbsent(pm.group(2), k -> new double[4]);
+                        sat[0] += Double.parseDouble(pm.group(1)); sat[1] += tutar; sat[3] += 1;
+                        r.computeIfAbsent(kim, k -> new double[4])[3] += 1;
+                    } else if (tur.equals("para-transfer")) {
+                        java.util.regex.Matcher tm = TRANSFER.matcher(ayrinti);
+                        if (!tm.find()) continue;
+                        r.computeIfAbsent(kim, k -> new double[4])[3] += 1;
+                        r.computeIfAbsent(tm.group(1), k -> new double[4])[3] += 1;
+                    } else if (tur.equals("toptanci-satis")) {
+                        java.util.regex.Matcher om = TOPTANCI.matcher(ayrinti);
+                        if (!om.find()) continue;
+                        double[] t = r.computeIfAbsent(kim, k -> new double[4]);
+                        t[2] += para(om.group(1)); t[3] += 1;
+                    }
+                }
+            } catch (Exception ignored) { }
+        }
+        return r;
+    }
+
+    private static double para(String s) {
+        try { return Double.parseDouble(s.replace(",", "")); } catch (Exception e) { return 0; }
+    }
+
     private static long sayi(JsonObject o, String k, long varsayilan) {
         try { return o.has(k) ? o.get(k).getAsLong() : varsayilan; } catch (Exception e) { return varsayilan; }
     }
@@ -121,17 +166,23 @@ public class SiralamaManager {
     private interface Deger { String bicim(double v); }
 
     private Map<String, Object> kategori(String id, String baslik, String aciklama, Map<UUID, ? extends Number> veri, Deger bicim) {
-        List<Map.Entry<UUID, ? extends Number>> liste = new ArrayList<>();
-        for (Map.Entry<UUID, ? extends Number> e : veri.entrySet()) if (e.getValue().doubleValue() > 0) liste.add(e);
-        liste.sort((a, b) -> Double.compare(b.getValue().doubleValue(), a.getValue().doubleValue()));
+        Map<String, Double> adli = new HashMap<>();
+        for (Map.Entry<UUID, ? extends Number> e : veri.entrySet()) adli.merge(ad(e.getKey()), e.getValue().doubleValue(), Double::sum);
+        return kategoriAd(id, baslik, aciklama, adli, bicim);
+    }
+
+    private Map<String, Object> kategoriAd(String id, String baslik, String aciklama, Map<String, Double> veri, Deger bicim) {
+        List<Map.Entry<String, Double>> liste = new ArrayList<>();
+        for (Map.Entry<String, Double> e : veri.entrySet()) if (e.getValue() > 0) liste.add(e);
+        liste.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
         List<Map<String, Object>> satirlar = new ArrayList<>();
         int sira = 1;
-        for (Map.Entry<UUID, ? extends Number> e : liste) {
+        for (Map.Entry<String, Double> e : liste) {
             if (sira > SATIR) break;
             Map<String, Object> s = new HashMap<>();
             s.put("sira", sira++);
-            s.put("ad", ad(e.getKey()));
-            s.put("deger", bicim.bicim(e.getValue().doubleValue()));
+            s.put("ad", e.getKey());
+            s.put("deger", bicim.bicim(e.getValue()));
             satirlar.add(s);
         }
         Map<String, Object> k = new java.util.LinkedHashMap<>();
@@ -146,7 +197,7 @@ public class SiralamaManager {
         return String.valueOf((long) v);
     }
 
-    private void olustur(Map<UUID, Double> zengin, Map<UUID, Integer> sabika, Map<UUID, long[]> stat) {
+    private void olustur(Map<UUID, Double> zengin, Map<UUID, Integer> sabika, Map<UUID, long[]> stat, Map<String, double[]> ticaret) {
         Map<UUID, Long> oyna = new HashMap<>(), oldur = new HashMap<>(), olum = new HashMap<>(), mob = new HashMap<>(), kir = new HashMap<>();
         for (Map.Entry<UUID, long[]> e : stat.entrySet()) {
             long[] v = e.getValue();
@@ -161,6 +212,15 @@ public class SiralamaManager {
         kat.add(kategori("olum", "En Çok Ölenler", "En çok ölen oyuncular.", olum, v -> sayiYaz(v) + " ölüm"));
         kat.add(kategori("mob", "En Çok Mob Avlayanlar", "Öldürülen canavar sayısı.", mob, v -> sayiYaz(v) + " mob"));
         kat.add(kategori("kirma", "En Çok Blok Kıranlar", "Kırılan toplam blok sayısı.", kir, v -> sayiYaz(v) + " blok"));
+        Map<String, Double> pAdet = new HashMap<>(), pCiro = new HashMap<>(), tCiro = new HashMap<>(), tIslem = new HashMap<>();
+        for (Map.Entry<String, double[]> e : ticaret.entrySet()) {
+            pAdet.put(e.getKey(), e.getValue()[0]); pCiro.put(e.getKey(), e.getValue()[1]);
+            tCiro.put(e.getKey(), e.getValue()[2]); tIslem.put(e.getKey(), e.getValue()[3]);
+        }
+        kat.add(kategoriAd("pazar", "En Çok Mal Satanlar", "Pazarda en çok ürün satan esnaflar.", pAdet, v -> sayiYaz(v) + " adet"));
+        kat.add(kategoriAd("pazarciro", "En Yüksek Pazar Cirosu", "Pazar satışlarından en çok kazananlar.", pCiro, v -> "$" + String.format(java.util.Locale.US, "%,.0f", v)));
+        kat.add(kategoriAd("devlet", "Devlete En Çok Mal Satanlar", "Madenci, oduncu ve çiftçilerden toptancıya en çok satış yapanlar.", tCiro, v -> "$" + String.format(java.util.Locale.US, "%,.0f", v)));
+        kat.add(kategoriAd("ticaret", "En Çok Ticaret Yapanlar", "Pazar, para transferi ve toptancı işlemleri toplamı.", tIslem, v -> sayiYaz(v) + " işlem"));
         Map<String, Object> kok = new java.util.LinkedHashMap<>();
         kok.put("guncelleme", ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).format(DateTimeFormatter.ofPattern("d.M.yyyy HH:mm")));
         kok.put("kategoriler", kat);

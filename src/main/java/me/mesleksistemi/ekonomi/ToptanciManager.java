@@ -429,6 +429,7 @@ public class ToptanciManager implements Listener, CommandExecutor {
             veriKaydetStok();
 
             String formatted = String.format(Locale.US, "%.2f", totalPrice);
+            plugin.ekonomiLog("toptanci-satis", player.getName(), satilacakMiktar + "x " + mat.name() + " | toplam: $" + formatted);
             player.sendMessage(ChatColor.GREEN + "Devlete " + satilacakMiktar + " adet " + mat.name().replace("_", " ") + " sattın! Hesabına " + ChatColor.YELLOW + "$" + formatted + ChatColor.GREEN + " yattı.");
             player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
             
