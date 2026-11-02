@@ -13,7 +13,6 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
-import org.bukkit.boss.BossBar;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -49,7 +48,6 @@ public class SusuzlukManager implements Listener, CommandExecutor {
     private final MeslekSistemi plugin;
     private final File dosya;
     private final Map<UUID, Double> seviye = new HashMap<>();
-    private final Map<UUID, BossBar> barlar = new HashMap<>();
     private final Map<UUID, Long> sonIcme = new HashMap<>();
     private final NamespacedKey yemekKey;
     /** Kuraklık gibi olaylar azalma hızını bu çarpanla büyütür. */
@@ -64,6 +62,7 @@ public class SusuzlukManager implements Listener, CommandExecutor {
         // 20 saniyede bir azalt, 5 saniyede bir ceza/ekran güncelle
         Bukkit.getScheduler().runTaskTimer(plugin, this::azalt, 20L * 20, 20L * 20);
         Bukkit.getScheduler().runTaskTimer(plugin, this::cezaVeBar, 20L * 5, 20L * 5);
+        Bukkit.getScheduler().runTaskTimer(plugin, () -> { if (aktif()) for (Player q : Bukkit.getOnlinePlayers()) guncelleBar(q); }, 30L, 30L);
     }
 
     public void setAzalmaCarpani(double c) { this.azalmaCarpani = Math.max(0.1, c); }
@@ -83,8 +82,6 @@ public class SusuzlukManager implements Listener, CommandExecutor {
         YamlConfiguration y = new YamlConfiguration();
         for (Map.Entry<UUID, Double> e : seviye.entrySet()) y.set(e.getKey().toString(), e.getValue());
         try { dosya.getParentFile().mkdirs(); y.save(dosya); } catch (Exception e) { plugin.getLogger().warning("[Susuzluk] kaydedilemedi: " + e.getMessage()); }
-        for (BossBar b : barlar.values()) b.removeAll();
-        barlar.clear();
     }
 
     private boolean muaf(Player p) {
@@ -118,7 +115,7 @@ public class SusuzlukManager implements Listener, CommandExecutor {
     }
 
     private void cezaVeBar() {
-        if (!aktif()) { for (BossBar b : barlar.values()) b.removeAll(); barlar.clear(); return; }
+        if (!aktif()) return;
         tur++;
         for (Player p : Bukkit.getOnlinePlayers()) {
             guncelleBar(p);
@@ -140,19 +137,17 @@ public class SusuzlukManager implements Listener, CommandExecutor {
 
     private void guncelleBar(Player p) {
         double s = seviye(p.getUniqueId());
-        BossBar bar = barlar.get(p.getUniqueId());
-        if (!aktif() || muaf(p) || s >= 14) {
-            if (bar != null) { bar.removePlayer(p); barlar.remove(p.getUniqueId()); }
-            return;
+        if (!aktif() || muaf(p) || s >= 14) return;
+        int dolu = (int) Math.round(s / 2.0);
+        StringBuilder sb = new StringBuilder();
+        sb.append(ChatColor.AQUA).append("Su ").append(ChatColor.DARK_AQUA).append("[");
+        sb.append(s < 6 ? ChatColor.RED : ChatColor.AQUA);
+        for (int i = 0; i < 10; i++) {
+            if (i == dolu) sb.append(ChatColor.DARK_GRAY);
+            sb.append("|");
         }
-        if (bar == null) {
-            bar = Bukkit.createBossBar("Susuzluk", BarColor.BLUE, BarStyle.SEGMENTED_10);
-            bar.addPlayer(p);
-            barlar.put(p.getUniqueId(), bar);
-        }
-        bar.setTitle(ChatColor.AQUA + "Susuzluk " + ChatColor.WHITE + (int) Math.round(s) + "/20");
-        bar.setProgress(Math.max(0.0, Math.min(1.0, s / TAM)));
-        bar.setColor(s < 6 ? BarColor.RED : BarColor.BLUE);
+        sb.append(ChatColor.DARK_AQUA).append("] ").append(ChatColor.WHITE).append((int) Math.round(s)).append("/20");
+        p.sendActionBar(net.kyori.adventure.text.Component.text(sb.toString()));
     }
 
     // ------------------------------------------------------------------ içme
@@ -207,8 +202,6 @@ public class SusuzlukManager implements Listener, CommandExecutor {
 
     @EventHandler
     public void onCikis(PlayerQuitEvent e) {
-        BossBar b = barlar.remove(e.getPlayer().getUniqueId());
-        if (b != null) b.removeAll();
     }
 
     @EventHandler
