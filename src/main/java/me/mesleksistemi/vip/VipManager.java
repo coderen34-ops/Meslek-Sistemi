@@ -127,7 +127,25 @@ public class VipManager implements Listener, CommandExecutor {
     public Component etiket(UUID id) {
         String p = paket(id);
         if (p == null) return null;
-        return Component.text("[" + ad(p) + "] ", renk(p));
+        int c1, c2;
+        String sembol, yazi;
+        switch (p) {
+            case "altin": c1 = 0xFFE259; c2 = 0xFF9A3C; sembol = "\u2605 "; yazi = "ALTIN"; break;
+            case "gumus": c1 = 0xF2F5F8; c2 = 0x8E9BAA; sembol = "\u2726 "; yazi = "GÜMÜŞ"; break;
+            default: c1 = 0xE8A15B; c2 = 0xA85A25; sembol = "\u2726 "; yazi = "BRONZ"; break;
+        }
+        String metin = sembol + yazi;
+        Component r = Component.text("[", TextColor.color(0x555555));
+        int n = metin.length();
+        for (int i = 0; i < n; i++) {
+            double t = n <= 1 ? 0 : (double) i / (n - 1);
+            int rr = (int) Math.round(((c1 >> 16) & 255) * (1 - t) + ((c2 >> 16) & 255) * t);
+            int gg = (int) Math.round(((c1 >> 8) & 255) * (1 - t) + ((c2 >> 8) & 255) * t);
+            int bb = (int) Math.round((c1 & 255) * (1 - t) + (c2 & 255) * t);
+            r = r.append(Component.text(String.valueOf(metin.charAt(i)), TextColor.color(rr, gg, bb))
+                    .decoration(net.kyori.adventure.text.format.TextDecoration.BOLD, true));
+        }
+        return r.append(Component.text("] ", TextColor.color(0x555555)));
     }
 
     // --------------------------------------------------------------- teslimat
