@@ -188,6 +188,7 @@ public class AsciManager implements Listener, CommandExecutor {
             meta.setFood(f);
         } catch (Throwable ignored) { }
         meta.getPersistentDataContainer().set(yemekKey, PersistentDataType.STRING, t.id);
+        try { meta.setItemModel(new NamespacedKey("koninski", "yemek/" + t.id)); } catch (Throwable ignored) { }
         meta.getPersistentDataContainer().set(kaliteKey, PersistentDataType.INTEGER, kalite);
         it.setItemMeta(meta);
         return it;

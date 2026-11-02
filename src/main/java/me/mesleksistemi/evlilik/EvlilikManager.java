@@ -268,6 +268,7 @@ public class EvlilikManager implements Listener, CommandExecutor {
                         ChatColor.GRAY + "nikah ışınlanma noktası olarak kaydedilir.");
                 ItemMeta m = asa.getItemMeta();
                 m.getPersistentDataContainer().set(asaKey, PersistentDataType.BYTE, (byte) 1);
+                try { m.setItemModel(new NamespacedKey("koninski", "esya/kilise_asa")); } catch (Throwable ignored) { }
                 asa.setItemMeta(m);
                 p.getInventory().addItem(asa);
                 p.sendMessage(ChatColor.GOLD + "Kilise Asası verildi.");
@@ -630,6 +631,7 @@ public class EvlilikManager implements Listener, CommandExecutor {
                 ChatColor.GRAY + "Eşim: " + esAd, ChatColor.DARK_GRAY + "Sonsuza dek...");
         ItemMeta m = y.getItemMeta();
         m.setEnchantmentGlintOverride(true);
+        try { m.setItemModel(new NamespacedKey("koninski", "esya/alyans")); } catch (Throwable ignored) { }
         m.getPersistentDataContainer().set(alyansKey, PersistentDataType.STRING, p.getName() + "+" + esAd);
         y.setItemMeta(m);
         ver(p, y);

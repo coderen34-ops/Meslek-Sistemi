@@ -59,10 +59,28 @@ public class SusuzlukManager implements Listener, CommandExecutor {
         this.dosya = new File(plugin.getDataFolder(), "susuzluk.yml");
         this.yemekKey = new NamespacedKey(plugin, "yemek_id");
         yukle();
+        Bukkit.getMessenger().registerOutgoingPluginChannel(plugin, KANAL);
         // 20 saniyede bir azalt, 5 saniyede bir ceza/ekran güncelle
         Bukkit.getScheduler().runTaskTimer(plugin, this::azalt, 20L * 20, 20L * 20);
         Bukkit.getScheduler().runTaskTimer(plugin, this::cezaVeBar, 20L * 5, 20L * 5);
         Bukkit.getScheduler().runTaskTimer(plugin, () -> { if (aktif()) for (Player q : Bukkit.getOnlinePlayers()) guncelleBar(q); }, 30L, 30L);
+    }
+
+    private static final String KANAL = "koninski:client";
+    private final Map<UUID, Integer> sonGonderilen = new HashMap<>();
+
+    private boolean modVar(Player p) {
+        try { return p.getListeningPluginChannels().contains(KANAL); } catch (Throwable t) { return false; }
+    }
+
+    /** Client modu olan oyuncuya susuzluk seviyesini (0-20) gönderir; değişmediyse göndermez. */
+    private void modaGonder(Player p, boolean zorla) {
+        if (!modVar(p)) { sonGonderilen.remove(p.getUniqueId()); return; }
+        int lv = (int) Math.max(0, Math.min(TAM, Math.round(seviye(p.getUniqueId()))));
+        Integer son = sonGonderilen.get(p.getUniqueId());
+        if (!zorla && son != null && son == lv) return;
+        sonGonderilen.put(p.getUniqueId(), lv);
+        try { p.sendPluginMessage(plugin, KANAL, new byte[]{0x20, (byte) lv}); } catch (Throwable ignored) { }
     }
 
     public void setAzalmaCarpani(double c) { this.azalmaCarpani = Math.max(0.1, c); }
@@ -94,6 +112,7 @@ public class SusuzlukManager implements Listener, CommandExecutor {
     public void ekle(Player p, double miktar) {
         double yeni = Math.max(0, Math.min(TAM, seviye(p.getUniqueId()) + miktar));
         seviye.put(p.getUniqueId(), yeni);
+        modaGonder(p, false);
         guncelleBar(p);
     }
 
@@ -137,6 +156,8 @@ public class SusuzlukManager implements Listener, CommandExecutor {
 
     private void guncelleBar(Player p) {
         double s = seviye(p.getUniqueId());
+        modaGonder(p, false);
+        if (modVar(p)) return; // modlu oyuncuda actionbar kapalı, HUD'ı mod çizer
         if (!aktif() || muaf(p) || s >= 14) return;
         int dolu = (int) Math.round(s / 2.0);
         StringBuilder sb = new StringBuilder();
@@ -197,16 +218,20 @@ public class SusuzlukManager implements Listener, CommandExecutor {
     @EventHandler
     public void onGiris(PlayerJoinEvent e) {
         seviye.putIfAbsent(e.getPlayer().getUniqueId(), TAM);
+        final Player oy = e.getPlayer();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> { if (oy.isOnline()) modaGonder(oy, true); }, 20L);
         guncelleBar(e.getPlayer());
     }
 
     @EventHandler
     public void onCikis(PlayerQuitEvent e) {
+        sonGonderilen.remove(e.getPlayer().getUniqueId());
     }
 
     @EventHandler
     public void onDogus(PlayerRespawnEvent e) {
         seviye.put(e.getPlayer().getUniqueId(), TAM);
+        modaGonder(e.getPlayer(), false);
     }
 
     // ------------------------------------------------------------------ komut
