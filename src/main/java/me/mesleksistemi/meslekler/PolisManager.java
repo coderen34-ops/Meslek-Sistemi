@@ -75,6 +75,8 @@ public class PolisManager implements Listener, CommandExecutor {
 
     // Mahkumların hapse girerken geçici olarak el konulan eşyaları (ceza bitince iade edilir)
     private final HashMap<UUID, ItemStack[]> elKonulanEsyalar = new HashMap<>();
+    // Envanter doluyken imleçte kalan, tabloya sığmayan eşyalar (bellekte tutulur, iade edilir)
+    private final HashMap<UUID, java.util.List<ItemStack>> elKonulanEk = new HashMap<>();
 
     private final HashMap<UUID, Long> dropConfirmations = new HashMap<>();
     
@@ -1650,6 +1652,14 @@ public class PolisManager implements Listener, CommandExecutor {
     private void esyalariAl(Player p) {
         UUID id = p.getUniqueId();
         if (elKonulanEsyalar.containsKey(id)) return;
+        // Fareyle tutulan (imleçteki) eşya ve crafting ızgarasındaki eşyalar da envantere döner, böylece el konulur
+        ItemStack imlec = p.getItemOnCursor();
+        p.setItemOnCursor(null);
+        p.closeInventory();
+        if (imlec != null && imlec.getType() != Material.AIR) {
+            java.util.Collection<ItemStack> sigmayan = p.getInventory().addItem(imlec).values();
+            if (!sigmayan.isEmpty()) elKonulanEk.computeIfAbsent(id, k -> new java.util.ArrayList<>()).addAll(sigmayan);
+        }
         ItemStack[] icerik = p.getInventory().getContents().clone();
         boolean bos = true;
         for (ItemStack it : icerik) if (it != null && it.getType() != Material.AIR) { bos = false; break; }
@@ -1658,7 +1668,7 @@ public class PolisManager implements Listener, CommandExecutor {
         for (ItemStack it : zirh) if (it != null && it.getType() != Material.AIR) { zirhBos = false; break; }
         ItemStack ofHand = p.getInventory().getItemInOffHand();
         boolean ofHandBos = ofHand == null || ofHand.getType() == Material.AIR;
-        if (bos && zirhBos && ofHandBos) return;
+        if (bos && zirhBos && ofHandBos && !elKonulanEk.containsKey(id)) return;
 
         // Zırh ve sol el de ana envanter dizisiyle birlikte tek parça olarak saklanır (36 slot + 4 zırh + 1 offhand)
         ItemStack[] tumu = new ItemStack[icerik.length + zirh.length + 1];
@@ -1692,6 +1702,9 @@ public class PolisManager implements Listener, CommandExecutor {
         p.getInventory().setArmorContents(zirh);
         p.getInventory().setItemInOffHand(ofHand);
         p.updateInventory();
+        java.util.List<ItemStack> ek = elKonulanEk.remove(p.getUniqueId());
+        if (ek != null) for (ItemStack it : ek)
+            for (ItemStack kalan : p.getInventory().addItem(it).values()) p.getWorld().dropItemNaturally(p.getLocation(), kalan);
         p.sendMessage(ChatColor.GREEN + "Eşyaların iade edildi.");
     }
 
