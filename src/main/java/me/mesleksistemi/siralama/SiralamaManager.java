@@ -62,11 +62,12 @@ public class SiralamaManager {
                 try { int v = sc.getInt(k); if (v > 0) sabika.put(UUID.fromString(k), v); } catch (Exception ignored) { }
             }
         }
+        final Map<UUID, int[]> begeni = plugin.etkilesimManager != null ? plugin.etkilesimManager.begeniOzeti() : new HashMap<>();
         final File statKlasor = statKlasoru();
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             Map<UUID, long[]> stat = statOku(statKlasor);
             Map<String, double[]> ticaret = logOku();
-            Bukkit.getScheduler().runTask(plugin, () -> olustur(zengin, sabika, stat, ticaret));
+            Bukkit.getScheduler().runTask(plugin, () -> olustur(zengin, sabika, stat, ticaret, begeni));
         });
     }
 
@@ -197,7 +198,7 @@ public class SiralamaManager {
         return String.valueOf((long) v);
     }
 
-    private void olustur(Map<UUID, Double> zengin, Map<UUID, Integer> sabika, Map<UUID, long[]> stat, Map<String, double[]> ticaret) {
+    private void olustur(Map<UUID, Double> zengin, Map<UUID, Integer> sabika, Map<UUID, long[]> stat, Map<String, double[]> ticaret, Map<UUID, int[]> begeni) {
         Map<UUID, Long> oyna = new HashMap<>(), oldur = new HashMap<>(), olum = new HashMap<>(), mob = new HashMap<>(), kir = new HashMap<>();
         for (Map.Entry<UUID, long[]> e : stat.entrySet()) {
             long[] v = e.getValue();
@@ -220,6 +221,10 @@ public class SiralamaManager {
         kat.add(kategoriAd("pazar", "En Çok Mal Satanlar", "Pazarda en çok ürün satan esnaflar.", pAdet, v -> sayiYaz(v) + " adet"));
         kat.add(kategoriAd("pazarciro", "En Yüksek Pazar Cirosu", "Pazar satışlarından en çok kazananlar.", pCiro, v -> "$" + String.format(java.util.Locale.US, "%,.0f", v)));
         kat.add(kategoriAd("devlet", "Devlete En Çok Mal Satanlar", "Madenci, oduncu ve çiftçilerden toptancıya en çok satış yapanlar.", tCiro, v -> "$" + String.format(java.util.Locale.US, "%,.0f", v)));
+        Map<UUID, Integer> bArti = new HashMap<>(), bEksi = new HashMap<>();
+        for (Map.Entry<UUID, int[]> e : begeni.entrySet()) { bArti.put(e.getKey(), e.getValue()[0]); bEksi.put(e.getKey(), e.getValue()[1]); }
+        kat.add(kategori("begeni", "En Beğenilenler", "Diğer oyunculardan en çok beğeni alanlar.", bArti, v -> (long) v + " beğeni"));
+        kat.add(kategori("begenilmeyen", "En Beğenilmeyenler", "En çok beğenmeme oyu alanlar.", bEksi, v -> (long) v + " beğenmeme"));
         kat.add(kategoriAd("ticaret", "En Çok Ticaret Yapanlar", "Pazar, para transferi ve toptancı işlemleri toplamı.", tIslem, v -> sayiYaz(v) + " işlem"));
         Map<String, Object> kok = new java.util.LinkedHashMap<>();
         kok.put("guncelleme", ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).format(DateTimeFormatter.ofPattern("d.M.yyyy HH:mm")));

@@ -284,6 +284,17 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
         if (eski == null || !eski.equals(p.getName())) kaydetPlanla();
     }
 
+    /** Sıralama sayfası için: oyuncu -> {beğeni, beğenmeme}. Ana thread'den çağrılmalı. */
+    public Map<UUID, int[]> begeniOzeti() {
+        Map<UUID, int[]> r = new HashMap<>();
+        for (Map.Entry<UUID, Map<UUID, Integer>> e : oylar.entrySet()) {
+            int b = 0, n = 0;
+            for (int v : e.getValue().values()) { if (v > 0) b++; else if (v < 0) n++; }
+            r.put(e.getKey(), new int[]{b, n});
+        }
+        return r;
+    }
+
     private int begeniSayisi(UUID hedef, int deger) {
         Map<UUID, Integer> m = oylar.get(hedef);
         if (m == null) return 0;
