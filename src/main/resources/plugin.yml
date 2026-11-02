@@ -19,6 +19,12 @@ commands:
   vipal:
     description: VIP kaldir (admin).
     usage: /vipal <oyuncu>
+  buyu:
+    description: Aktif suruli buyulerini goster.
+    usage: /buyu
+  buyuver:
+    description: Suruli buyu ver (admin / magaza).
+    usage: /buyuver <oyuncu> <gece|nefes|hiz|ziplama|doygunluk|haste|sans> <dakika> [seviye]
   xpboostver:
     description: XP boost ver (admin / magaza).
     usage: /xpboostver <oyuncu> <gun> [yuzde]
