@@ -48,6 +48,10 @@ public class VipManager implements Listener, CommandExecutor {
     private BukkitTask efektGorevi;
     /** Efekti kapatan oyuncular (bellek). */
     private final java.util.Set<UUID> efektKapali = new java.util.HashSet<>();
+    /** Altın VIP meşale ışığı: açık olanlar ve oyuncuya gönderilen son (sahte) ışık bloğu. */
+    private final java.util.Set<UUID> isikAcik = new java.util.HashSet<>();
+    private final Map<UUID, org.bukkit.Location> sonIsik = new HashMap<>();
+    private BukkitTask isikGorevi;
 
     public VipManager(MeslekSistemi plugin) {
         this.plugin = plugin;
@@ -55,11 +59,14 @@ public class VipManager implements Listener, CommandExecutor {
         this.veri = YamlConfiguration.loadConfiguration(dosya);
         this.zamanlayici = Bukkit.getScheduler().runTaskTimer(plugin, this::sureKontrol, 20L * 30, 20L * 60 * 5);
         this.efektGorevi = Bukkit.getScheduler().runTaskTimer(plugin, this::efektTick, 40L, 20L);
+        this.isikGorevi = Bukkit.getScheduler().runTaskTimer(plugin, this::isikTick, 20L, 3L);
     }
 
     public void kapat() {
         if (zamanlayici != null) zamanlayici.cancel();
         if (efektGorevi != null) efektGorevi.cancel();
+        if (isikGorevi != null) isikGorevi.cancel();
+        for (Player pl : Bukkit.getOnlinePlayers()) isikTemizle(pl);
         kaydet();
     }
 
@@ -286,6 +293,65 @@ public class VipManager implements Listener, CommandExecutor {
         }
     }
 
+    // ---------------------------------------------------------- meşale ışığı
+
+    /** Oyuncuya gönderilmiş sahte ışık bloğunu gerçek bloğuyla değiştirir. */
+    private void isikTemizle(Player p) {
+        org.bukkit.Location eski = sonIsik.remove(p.getUniqueId());
+        if (eski != null && eski.getWorld() != null && p.isOnline()) {
+            p.sendBlockChange(eski, eski.getBlock().getBlockData());
+        }
+    }
+
+    private void isikTick() {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            UUID id = p.getUniqueId();
+            if (!isikAcik.contains(id)) { if (sonIsik.containsKey(id)) isikTemizle(p); continue; }
+            if (paketSeviyesi(id) < 3 || p.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                isikAcik.remove(id); isikTemizle(p); continue;
+            }
+            org.bukkit.block.Block b = p.getEyeLocation().getBlock();
+            if (!b.getType().isAir()) b = p.getLocation().getBlock();
+            if (!b.getType().isAir()) { continue; }
+            org.bukkit.Location konum = b.getLocation();
+            org.bukkit.Location eski = sonIsik.get(id);
+            if (eski != null && eski.getWorld() == konum.getWorld() && eski.getBlockX() == konum.getBlockX()
+                    && eski.getBlockY() == konum.getBlockY() && eski.getBlockZ() == konum.getBlockZ()) continue;
+            isikTemizle(p);
+            org.bukkit.block.data.type.Light l = (org.bukkit.block.data.type.Light) Bukkit.createBlockData(org.bukkit.Material.LIGHT);
+            l.setLevel(14);
+            p.sendBlockChange(konum, l);
+            sonIsik.put(id, konum);
+        }
+    }
+
+    private void isikDegistir(Player p) {
+        UUID id = p.getUniqueId();
+        if (paketSeviyesi(id) < 3) { p.sendMessage(ChatColor.RED + "Meşale ışığı Altın VIP'e özel."); return; }
+        if (isikAcik.remove(id)) {
+            isikTemizle(p);
+            p.sendActionBar(Component.text("Işık: kapalı", net.kyori.adventure.text.format.NamedTextColor.GRAY));
+        } else {
+            isikAcik.add(id);
+            p.sendActionBar(Component.text("Işık: açık", net.kyori.adventure.text.format.NamedTextColor.GOLD));
+        }
+    }
+
+    /** Altın VIP: Shift + F (el değiştirme tuşu) meşale ışığını açar/kapatır. */
+    @EventHandler(ignoreCancelled = true)
+    public void onElDegistir(org.bukkit.event.player.PlayerSwapHandItemsEvent e) {
+        Player p = e.getPlayer();
+        if (!p.isSneaking() || paketSeviyesi(p.getUniqueId()) < 3) return;
+        e.setCancelled(true);
+        isikDegistir(p);
+    }
+
+    @EventHandler
+    public void onCik(org.bukkit.event.player.PlayerQuitEvent e) {
+        isikAcik.remove(e.getPlayer().getUniqueId());
+        sonIsik.remove(e.getPlayer().getUniqueId());
+    }
+
     // ------------------------------------------------------------- komutlar
 
     @Override
@@ -313,6 +379,7 @@ public class VipManager implements Listener, CommandExecutor {
             p.sendMessage(ChatColor.GOLD + "VIP efekti: " + (efektKapali.contains(id) ? ChatColor.RED + "kapalı" : ChatColor.GREEN + "açık"));
             return true;
         }
+        if (a.length > 0 && a[0].equalsIgnoreCase("isik")) { isikDegistir(p); return true; }
         String pk = paket(id);
         p.sendMessage(ChatColor.GOLD + "━━ VIP ━━");
         if (pk == null) {
@@ -324,7 +391,7 @@ public class VipManager implements Listener, CommandExecutor {
             int sv = seviye(pk);
             p.sendMessage(ChatColor.GRAY + "• Sohbet etiketi, " + claimBonus(pk) + " claim bloğu (tek seferlik, kalıcı)");
             if (sv >= 2) p.sendMessage(ChatColor.GRAY + "• Sunucu doluyken giriş önceliği, /hat, parçacık efekti (/vip efekt)");
-            if (sv >= 3) p.sendMessage(ChatColor.GRAY + "• Altın efekt, nikah paketi (yakında)");
+            if (sv >= 3) p.sendMessage(ChatColor.GRAY + "• Meşale ışığı: Shift+F veya /vip isik, altın efekt, nikah paketi (yakında)");
         }
         int y = boostYuzde(id);
         if (y > 0) {
