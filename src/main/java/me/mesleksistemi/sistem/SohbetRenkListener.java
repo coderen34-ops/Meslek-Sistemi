@@ -79,6 +79,11 @@ public class SohbetRenkListener implements Listener {
                             .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(Component.text(es + " ile evli", NamedTextColor.GRAY))));
                 }
             } catch (Throwable ignored) { }
+            try {
+                me.mesleksistemi.MeslekSistemi pl2 = me.mesleksistemi.MeslekSistemi.getPlugin(me.mesleksistemi.MeslekSistemi.class);
+                Component vt = pl2.vipManager == null ? null : pl2.vipManager.etiket(source.getUniqueId());
+                if (vt != null) ad2 = Component.empty().append(vt).append(ad2);
+            } catch (Throwable ignored) { }
             Component m = duzelt(mesaj);
             boolean dbg = new java.io.File(me.mesleksistemi.MeslekSistemi.getPlugin(me.mesleksistemi.MeslekSistemi.class).getDataFolder(), "sohbetdebug").exists();
             try {

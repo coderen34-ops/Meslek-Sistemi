@@ -120,6 +120,7 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.dukkan.DukkanManager dukkanManager;
     public me.mesleksistemi.susuzluk.SusuzlukManager susuzlukManager;
     public me.mesleksistemi.evlilik.EvlilikManager evlilikManager;
+    public me.mesleksistemi.vip.VipManager vipManager;
     public me.mesleksistemi.olay.DunyaOlayManager olayManager;
     public KiraManager kiraManager;
     public PazarManager pazarManager;
@@ -297,6 +298,11 @@ public class MeslekSistemi extends JavaPlugin {
         for (String ev : new String[]{"evlilik", "kilise", "nikahmuzik"}) {
             if (getCommand(ev) != null) getCommand(ev).setExecutor(this.evlilikManager);
         }
+        this.vipManager = new me.mesleksistemi.vip.VipManager(this);
+        getServer().getPluginManager().registerEvents(this.vipManager, this);
+        for (String vk : new String[]{"vip", "vipver", "vipal", "xpboostver"}) {
+            if (getCommand(vk) != null) getCommand(vk).setExecutor(this.vipManager);
+        }
         this.olayManager = new me.mesleksistemi.olay.DunyaOlayManager(this);
         getServer().getPluginManager().registerEvents(this.olayManager, this);
         if (getCommand("olay") != null) getCommand("olay").setExecutor(this.olayManager);
@@ -398,6 +404,7 @@ public class MeslekSistemi extends JavaPlugin {
         if (dukkanManager != null) dukkanManager.kapat();
         if (susuzlukManager != null) susuzlukManager.kapat();
         if (evlilikManager != null) evlilikManager.kapat();
+        if (vipManager != null) vipManager.kapat();
         if (olayManager != null) olayManager.kapat();
         if (haberManager != null) haberManager.kapat();
         if (ohalBar != null) ohalBar.removeAll();
