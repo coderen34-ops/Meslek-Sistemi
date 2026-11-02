@@ -80,11 +80,19 @@ public class SohbetRenkListener implements Listener {
                 }
             } catch (Throwable ignored) { }
             Component m = duzelt(mesaj);
+            boolean dbg = new java.io.File(me.mesleksistemi.MeslekSistemi.getPlugin(me.mesleksistemi.MeslekSistemi.class).getDataFolder(), "sohbetdebug").exists();
             try {
                 Component tam = eski.render(source, ad2, Component.text(ISARET), izleyen);
                 Component sonuc = mesajiSerbestBirak(tam, m);
+                if (dbg) {
+                    var g = net.kyori.adventure.text.serializer.gson.GsonComponentSerializer.gson();
+                    org.bukkit.Bukkit.getLogger().info("[SohbetDebug] renderer=" + eski.getClass().getName() + " marker=" + (sonuc != null)
+                            + " tam=" + g.serialize(tam) + " sonuc=" + (sonuc == null ? "null" : g.serialize(sonuc)));
+                }
                 if (sonuc != null) return sonuc;
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                if (dbg) org.bukkit.Bukkit.getLogger().info("[SohbetDebug] hata " + t);
+            }
             return eski.render(source, ad2, m, izleyen);
         });
     }
