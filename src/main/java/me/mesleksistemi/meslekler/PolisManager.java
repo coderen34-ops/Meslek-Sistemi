@@ -1273,9 +1273,13 @@ public class PolisManager implements Listener, CommandExecutor {
         if (event.isCancelled()) event.setCancelled(false);
         if (sivilinKendiClaimi) baskinaAktiviteKaydet(claim);
 
-        // Aranan sivil, baskında "kendini savunma" sayacını başlatır (5 dk dayanırsa aranmalık düşer).
-        if (sivilinKendiClaimi && arananOyuncular.contains(sivil.getName().toLowerCase())) {
-            savunmaDurumlari.putIfAbsent(sivil.getUniqueId(), new SavunmaDurumu(claim.getID(), System.currentTimeMillis()));
+        // Aranan sivil, polisle çatışma/kaçış sayacını başlatır (claim'de de dışarıda da; 5 dk yakalanmadan
+        // dayanırsa aranmalık düşer). Claim'i yoksa claimId -1.
+        if (arananOyuncular.contains(sivil.getName().toLowerCase())) {
+            long cid = claim != null ? claim.getID() : -1L;
+            if (savunmaDurumlari.putIfAbsent(sivil.getUniqueId(), new SavunmaDurumu(cid, System.currentTimeMillis())) == null) {
+                sivil.sendMessage(ChatColor.RED + "Polisle çatışma başladı! 5 dakika boyunca yakalanmazsan aranmalığın düşer.");
+            }
         }
     }
 
@@ -1409,20 +1413,13 @@ public class PolisManager implements Listener, CommandExecutor {
                 if (!arananOyuncular.contains(p.getName().toLowerCase())) { it.remove(); continue; }
                 if (plugin.saglikManager != null && plugin.saglikManager.agirYaraliMi(uuid)) { it.remove(); continue; }
 
-                boolean halaAyniClaimde;
-                try {
-                    me.ryanhamshire.GriefPrevention.Claim mevcutClaim = me.ryanhamshire.GriefPrevention.GriefPrevention.instance
-                            .dataStore.getClaimAt(p.getLocation(), false, null);
-                    halaAyniClaimde = mevcutClaim != null && mevcutClaim.getID() == sd.claimId;
-                } catch (Exception ex) {
-                    halaAyniClaimde = false;
-                }
-                if (!halaAyniClaimde) { it.remove(); continue; }
+                // Hapse düşmek/yakalanmak aranmalığı zaten kaldırır (yukarıdaki kontrol); hapistekiler sayılmaz.
+                if (jailedPlayers.containsKey(uuid)) { it.remove(); continue; }
 
                 long kalanMs = SAVUNMA_SURESI_MS - (simdi - sd.baslangic);
                 if (kalanMs > 0) {
                     p.sendActionBar(net.kyori.adventure.text.Component.text(
-                            "⚔ Kendini savun! Aranmalık düşmesine kalan süre: " + sureYaz(kalanMs))
+                            "⚔ Yakalanma! Aranmalık düşmesine kalan süre: " + sureYaz(kalanMs))
                             .color(net.kyori.adventure.text.format.NamedTextColor.RED));
                 }
 
@@ -1430,7 +1427,7 @@ public class PolisManager implements Listener, CommandExecutor {
                     arananOyuncular.remove(p.getName().toLowerCase());
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag removesuffix " + p.getName());
                     Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.GREEN + p.getName()
-                            + ChatColor.GREEN + ", polis baskınına karşı 5 dakika boyunca kendini savunmayı başardı! Arananlık durumu düşürüldü.");
+                            + ChatColor.GREEN + ", polise karşı 5 dakika boyunca yakalanmadı! Arananlık durumu düşürüldü, sabıka işlenmedi.");
                     it.remove();
                 }
             }
@@ -1744,7 +1741,8 @@ public class PolisManager implements Listener, CommandExecutor {
             else if (iadeEdilecekMeslek.equalsIgnoreCase("belediyecalisani")) tagAd = "Memur";
             else tagAd = iadeEdilecekMeslek.substring(0, 1).toUpperCase() + iadeEdilecekMeslek.substring(1).toLowerCase();
         }
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " " + tagAd);
+        // Tag komutu tag ANAHTARINI ister (belediyebaskani, doktor...). Görünüm adı ("Belediye Baskani") boşluk içerdiği için komutu bozuyordu.
+        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " " + iadeEdilecekMeslek.toLowerCase());
         
         esyalariIade(player);
         player.sendMessage(ChatColor.GREEN + "Cezanız doldu! Eski sivil hayatınıza ve [" + tagAd + "] unvanınıza geri döndünüz!");

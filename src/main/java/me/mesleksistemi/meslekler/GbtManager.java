@@ -40,6 +40,8 @@ public class GbtManager implements Listener {
 
     private static final int MESAFE = 6;                 // blok
     private static final long BEKLEME_MS = 3000L;        // polis başına GBT/arama bekleme
+    private static final long OTURUM_MS = 15000L;        // bir sağ tıktan sonra GBT/arama için tanınan süre
+    private static final long HEDEF_BEKLEME_MS = 60000L; // oturum bittikten sonra aynı oyuncu tekrar aranamaz
     private static final int HAPIS_SANIYE = 600;         // 10 dakika
     private static final double CEZA = 5000.0;
 
@@ -56,17 +58,35 @@ public class GbtManager implements Listener {
 
     /** GBT/üst arama süresince hareketsiz bırakılan hedef -> işlemi yapan polis. */
     private final Map<UUID, UUID> donuk = new HashMap<>();
+    /** hedef -> GBT oturumunun biteceği an (ms). */
+    private final Map<UUID, Long> oturumBitis = new HashMap<>();
+    /** hedef -> bu ana kadar yeniden kontrol edilemez (ms). */
+    private final Map<UUID, Long> hedefBekleme = new HashMap<>();
+
+    /** Oturumu bitirir: hedef serbest kalır, tekrar kontrol için bekleme başlar. */
+    private void oturumBitir(UUID hedef) {
+        donuk.remove(hedef);
+        oturumBitis.remove(hedef);
+        hedefBekleme.put(hedef, System.currentTimeMillis() + HEDEF_BEKLEME_MS);
+    }
 
     public GbtManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         // Emniyet: polis menüyü kapattıysa/çıktıysa/hedef için başka menü açık değilse çöz
         Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            for (java.util.Iterator<Map.Entry<UUID, UUID>> it = donuk.entrySet().iterator(); it.hasNext();) {
+            long simdi = System.currentTimeMillis();
+            for (java.util.Iterator<Map.Entry<UUID, UUID>> it = new ArrayList<>(donuk.entrySet()).iterator(); it.hasNext();) {
                 Map.Entry<UUID, UUID> en = it.next();
                 Player polis = Bukkit.getPlayer(en.getValue());
                 Player hedef = Bukkit.getPlayer(en.getKey());
-                if (polis == null || hedef == null || !menuAcikMi(polis, en.getKey())) {
-                    it.remove();
+                Long bitis = oturumBitis.get(en.getKey());
+                boolean sureDoldu = bitis != null && simdi >= bitis;
+                if (polis == null || hedef == null || sureDoldu || !menuAcikMi(polis, en.getKey())) {
+                    oturumBitir(en.getKey());
+                    if (sureDoldu && polis != null && menuAcikMi(polis, en.getKey())) {
+                        polis.closeInventory();
+                        polis.sendMessage(ChatColor.YELLOW + "Kontrol süresi (15 sn) doldu.");
+                    }
                     if (hedef != null) hedef.sendMessage(ChatColor.GRAY + "Kontrol bitti, hareket edebilirsin.");
                 }
             }
@@ -99,7 +119,8 @@ public class GbtManager implements Listener {
         // GBT <-> arama geçişinde yeniden açılacağı için bir tick sonra kontrol et
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (!menuAcikMi(polis, menu.hedef)) {
-                if (donuk.remove(menu.hedef) != null) {
+                if (donuk.containsKey(menu.hedef)) {
+                    oturumBitir(menu.hedef);
                     Player h = Bukkit.getPlayer(menu.hedef);
                     if (h != null) h.sendMessage(ChatColor.GRAY + "Kontrol bitti, hareket edebilirsin.");
                 }
@@ -108,7 +129,7 @@ public class GbtManager implements Listener {
     }
 
     @EventHandler
-    public void onCikis(PlayerQuitEvent e) { donuk.remove(e.getPlayer().getUniqueId()); }
+    public void onCikis(PlayerQuitEvent e) { donuk.remove(e.getPlayer().getUniqueId()); oturumBitis.remove(e.getPlayer().getUniqueId()); }
 
 
     private String meslekOf(Player p) { return plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas"); }
@@ -128,9 +149,19 @@ public class GbtManager implements Listener {
         if (polis.getUniqueId().equals(hedef.getUniqueId())) return;
         if (!yakin(polis, hedef)) { polis.sendMessage(ChatColor.RED + "Oyuncu çok uzakta."); return; }
         long simdi = System.currentTimeMillis();
-        Long son = sonIslem.get(polis.getUniqueId());
-        if (son != null && simdi - son < BEKLEME_MS) { polis.sendMessage(ChatColor.RED + "Biraz bekle, çok sık GBT yapıyorsun."); return; }
-        sonIslem.put(polis.getUniqueId(), simdi);
+        // Aynı polisin sürmekte olan oturumuna dönüş (Geri butonu) bekleme sayılmaz ve süreyi uzatmaz
+        boolean devam = polis.getUniqueId().equals(donuk.get(hedef.getUniqueId()));
+        if (!devam) {
+            Long hb = hedefBekleme.get(hedef.getUniqueId());
+            if (hb != null && simdi < hb) {
+                polis.sendMessage(ChatColor.RED + "Bu oyuncu az önce kontrol edildi, " + ((hb - simdi + 999) / 1000) + " sn sonra tekrar kontrol edebilirsin.");
+                return;
+            }
+            Long son = sonIslem.get(polis.getUniqueId());
+            if (son != null && simdi - son < BEKLEME_MS) { polis.sendMessage(ChatColor.RED + "Biraz bekle, çok sık GBT yapıyorsun."); return; }
+            sonIslem.put(polis.getUniqueId(), simdi);
+            oturumBitis.put(hedef.getUniqueId(), simdi + OTURUM_MS);
+        }
 
         Menu holder = new Menu(Tip.GBT, hedef.getUniqueId());
         Inventory inv = Bukkit.createInventory(holder, 27, ChatColor.DARK_BLUE + "GBT: " + hedef.getName());
@@ -165,6 +196,7 @@ public class GbtManager implements Listener {
 
         polis.openInventory(inv);
         dondur(polis, hedef);
+        if (!devam) polis.sendMessage(ChatColor.GRAY + "Kontrol için 15 saniyen var.");
         hedef.sendMessage(ChatColor.GRAY + "Bir polis üzerinde GBT kontrolü yapıyor.");
         plugin.ekonomiLog("gbt", polis.getName(), "GBT: " + hedef.getName());
     }
