@@ -73,15 +73,20 @@ public class SiralamaManager {
 
     private File statKlasoru() {
         if (Bukkit.getWorlds().isEmpty()) return null;
-        File w = Bukkit.getWorlds().get(0).getWorldFolder();
-        File[] adaylar = { new File(w, "players/stats"), new File(w, "stats"), new File(w, "players/statistics") };
+        // Yeni Paper sürümlerinde dünya klasörü world/dimensions/minecraft/overworld olabilir; istatistikler üst klasördeki
+        // world/players/stats içinde durur. Bu yüzden klasörden başlayıp üst klasörlere doğru bakılır.
         File enDolu = null; int enCok = 0;
-        for (File f : adaylar) {
-            if (!f.isDirectory()) continue;
-            String[] liste = f.list((d, n) -> n.endsWith(".json"));
-            int n = liste == null ? 0 : liste.length;
-            if (n > enCok) { enCok = n; enDolu = f; }   // boş klasörleri atla (Paper'da world/stats boş kalabiliyor)
+        File d = Bukkit.getWorlds().get(0).getWorldFolder();
+        for (int derinlik = 0; d != null && derinlik < 6; derinlik++, d = d.getParentFile()) {
+            File[] adaylar = { new File(d, "players/stats"), new File(d, "stats"), new File(d, "players/statistics") };
+            for (File f : adaylar) {
+                if (!f.isDirectory()) continue;
+                String[] liste = f.list((x, n) -> n.endsWith(".json"));
+                int n = liste == null ? 0 : liste.length;
+                if (n > enCok) { enCok = n; enDolu = f; }
+            }
         }
+        if (enDolu == null) plugin.getLogger().warning("Sıralama: istatistik klasörü bulunamadı (dünya: " + Bukkit.getWorlds().get(0).getWorldFolder() + ")");
         return enDolu;
     }
 
