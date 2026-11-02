@@ -21,12 +21,7 @@ public class SohbetRenkListener implements Listener {
     public void onSohbet(AsyncChatEvent e) {
         ChatRenderer eski = e.renderer();
         e.renderer((source, ad, mesaj, izleyen) -> {
-            Component duz = mesaj.colorIfAbsent(NamedTextColor.WHITE)
-                    .decorationIfAbsent(TextDecoration.BOLD, TextDecoration.State.FALSE)
-                    .decorationIfAbsent(TextDecoration.ITALIC, TextDecoration.State.FALSE)
-                    .decorationIfAbsent(TextDecoration.UNDERLINED, TextDecoration.State.FALSE)
-                    .decorationIfAbsent(TextDecoration.STRIKETHROUGH, TextDecoration.State.FALSE)
-                    .decorationIfAbsent(TextDecoration.OBFUSCATED, TextDecoration.State.FALSE);
+            Component duz = duzelt(mesaj);
             return eski.render(source, ad, duz, izleyen);
         });
     }
