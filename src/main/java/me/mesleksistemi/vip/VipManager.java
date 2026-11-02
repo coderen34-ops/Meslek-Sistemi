@@ -370,7 +370,10 @@ public class VipManager implements Listener, CommandExecutor {
             p.sendMessage(ChatColor.GOLD + "VIP efekti: " + (efektKapali.contains(id) ? ChatColor.RED + "kapalı" : ChatColor.GREEN + "açık"));
             return true;
         }
-        if (a.length > 0 && a[0].equalsIgnoreCase("isik")) { isikDegistir(p); return true; }
+        if (a.length > 0) {
+            String alt = a[0].toLowerCase(java.util.Locale.ROOT).replace('ı', 'i').replace('ş', 's').replace('İ', 'i');
+            if (alt.equals("isik") || alt.equals("isiksiz") || alt.equals("mesale") || alt.equals("light")) { isikDegistir(p); return true; }
+        }
         String pk = paket(id);
         p.sendMessage(ChatColor.GOLD + "━━ VIP ━━");
         if (pk == null) {
