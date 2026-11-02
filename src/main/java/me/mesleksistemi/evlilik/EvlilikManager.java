@@ -73,7 +73,8 @@ public class EvlilikManager implements Listener, CommandExecutor {
     private double bosanmaUcreti() { return Math.max(0, plugin.getConfig().getDouble("evlilik.bosanma-ucreti", 5000.0)); }
     private long esTpBeklemeMs() { return Math.max(0L, plugin.getConfig().getLong("evlilik.es-tp-bekleme-sn", 600L)) * 1000L; }
     private static final long TEKLIF_OMUR_MS = 30L * 60_000L;
-    private static final long BAGIS_SURE_MS = 15L * 60_000L;
+    private long dugunSureMs() { return Math.max(1, plugin.getConfig().getInt("evlilik.dugun-dk", 3)) * 60_000L; }
+    private static final long EVET_SURE_MS = 90_000L;
 
     // ------------------------------------------------------------------ veri
     private static final class Evlilik {
@@ -90,6 +91,10 @@ public class EvlilikManager implements Listener, CommandExecutor {
         UUID a, b; long bitis;
     }
 
+    private static final class Evet {
+        Teklif t; UUID rahip; boolean a, b; long bitis;
+    }
+
     private enum Tip { ANA, SEC_ES, ES_ONAY, RAHIP, EVLILIK, BOSANMA, BAGIS, BAGIS_ESYA }
 
     private static final class Menu implements InventoryHolder {
@@ -104,6 +109,7 @@ public class EvlilikManager implements Listener, CommandExecutor {
     private final Map<UUID, Evlilik> evlilikler = new HashMap<>();      // oyuncu -> evlilik (iki giriş)
     private final Map<UUID, Teklif> teklifler = new LinkedHashMap<>();  // teklif edenin id'si -> teklif
     private final Map<UUID, Dugun> dugunler = new HashMap<>();
+    private final Map<UUID, Evet> evetler = new HashMap<>();   // teklifin a id'si -> bekleyen "evet" oylaması
     private final Map<UUID, Long> esTpSon = new HashMap<>();
     private final Map<String, BukkitTask> muzikler = new HashMap<>();
     private final NamespacedKey asaKey, alyansKey;
@@ -369,7 +375,7 @@ public class EvlilikManager implements Listener, CommandExecutor {
                     (a != null ? ChatColor.GREEN : ChatColor.RED) + t.adA + (ak ? " (kilisede)" : a != null ? " (dışarıda)" : " (çevrimdışı)"),
                     (b != null ? ChatColor.GREEN : ChatColor.RED) + t.adB + (bk ? " (kilisede)" : b != null ? " (dışarıda)" : " (çevrimdışı)"),
                     ChatColor.YELLOW + "Sol tık: çifti kiliseye çağır",
-                    ChatColor.GREEN + "Sağ tık: nikahı kıy (" + para(ucret()) + ")",
+                    ChatColor.GREEN + "Sağ tık: nikahı kıy (" + para(ucret()) + ") - çiftin sohbette \"evet\" yazması gerekir",
                     ChatColor.RED + "Shift+tık: teklifi iptal et"));
             m.kisi[s] = t.a;
             s++;
@@ -415,7 +421,7 @@ public class EvlilikManager implements Listener, CommandExecutor {
     private void bagisMenu(Player p) {
         Dugun d = aktifDugun(p);
         if (d == null || !kilisedeMi(p)) {
-            p.sendMessage(ChatColor.RED + "Şu an bağış yapılabilecek bir nikah yok (kilisede olmalısın, nikahtan sonra 15 dk).");
+            p.sendMessage(ChatColor.RED + "Şu an bağış yapılabilecek bir nikah yok (kilisede olmalısın; düğün çağrısından itibaren " + (dugunSureMs() / 60000) + " dk).");
             return;
         }
         Menu m = new Menu(Tip.BAGIS);
@@ -472,7 +478,7 @@ public class EvlilikManager implements Listener, CommandExecutor {
                 Teklif t = id == null ? null : teklifOf(id);
                 if (t == null || t.asama != 1 || !t.rahip.equals(p.getUniqueId())) break;
                 if (e.isShiftClick()) { teklifler.remove(t.a); p.sendMessage(ChatColor.YELLOW + "Teklif iptal edildi."); rahipMenu(p); }
-                else if (e.isRightClick()) { p.closeInventory(); nikahKiy(p, t); }
+                else if (e.isRightClick()) { p.closeInventory(); evetBaslat(p, t); }
                 else { cagir(p, t); }
                 break;
             }
@@ -525,6 +531,17 @@ public class EvlilikManager implements Listener, CommandExecutor {
     public void onRahipTik(PlayerInteractEntityEvent e) {
         if (e.getHand() != EquipmentSlot.HAND) return;
         if (!(e.getRightClicked() instanceof Player rahip)) return;
+        Player tiklayan = e.getPlayer();
+        if (rahipMi(tiklayan.getUniqueId())) {
+            for (Teklif t : new ArrayList<>(teklifler.values())) {
+                if (t.asama != 1 || !t.rahip.equals(tiklayan.getUniqueId())) continue;
+                if (t.a.equals(rahip.getUniqueId()) || t.b.equals(rahip.getUniqueId())) {
+                    e.setCancelled(true);
+                    evetBaslat(tiklayan, t);
+                    return;
+                }
+            }
+        }
         if (!rahipMi(rahip.getUniqueId())) return;
         Player p = e.getPlayer();
         if (p.equals(rahip)) return;
@@ -572,6 +589,14 @@ public class EvlilikManager implements Listener, CommandExecutor {
         if (a != null) a.sendMessage(c);
         if (b != null) b.sendMessage(c);
         rahip.sendMessage(ChatColor.GREEN + "Çifte kiliseye çağrı gönderildi.");
+        Dugun d = new Dugun();
+        d.a = t.a; d.b = t.b; d.bitis = System.currentTimeMillis() + dugunSureMs();
+        dugunler.put(t.a, d);
+        Component duyuru = Component.text("♥ ", NamedTextColor.LIGHT_PURPLE)
+                .append(Component.text(t.adA + " ve " + t.adB + " dünyaevine giriyor! Rahip " + rahip.getName()
+                        + " kilisede bekliyor. Çifte bağış için " + (dugunSureMs() / 60000) + " dakikan var. ", NamedTextColor.WHITE))
+                .append(tikla("[Düğüne katıl]", "/evlilik gel"));
+        for (Player o : Bukkit.getOnlinePlayers()) o.sendMessage(duyuru);
         if (a == null || b == null) rahip.sendMessage(ChatColor.YELLOW + "Not: çiftten biri şu an çevrimdışı.");
     }
 
@@ -580,10 +605,65 @@ public class EvlilikManager implements Listener, CommandExecutor {
         if (mahkumMu(p.getUniqueId())) { p.sendMessage(ChatColor.RED + "Mahkûmken kiliseye gidemezsin."); return; }
         boolean izin = rahipMi(p.getUniqueId()) || p.hasPermission("meslek.admin");
         if (!izin) for (Teklif t : teklifler.values()) if (t.asama == 1 && (t.a.equals(p.getUniqueId()) || t.b.equals(p.getUniqueId()))) izin = true;
-        if (!izin) { p.sendMessage(ChatColor.RED + "Kiliseye ışınlanman için onaylı bir nikah teklifin olmalı."); return; }
+        if (!izin) {
+            long simdi = System.currentTimeMillis();
+            dugunler.values().removeIf(d -> d.bitis < simdi);
+            izin = !dugunler.isEmpty();
+        }
+        if (!izin) { p.sendMessage(ChatColor.RED + "Şu an katılabileceğin bir düğün yok."); return; }
         p.teleport(kiliseNokta());
         p.playSound(p.getLocation(), Sound.BLOCK_BELL_USE, 1f, 1f);
         p.sendMessage(ChatColor.GOLD + "Kiliseye ışınlandın.");
+    }
+
+    // ------------------------------------------------------------------ evet oylaması
+    private void evetBaslat(Player rahip, Teklif t) {
+        Player a = Bukkit.getPlayer(t.a), b = Bukkit.getPlayer(t.b);
+        if (a == null || b == null) { rahip.sendMessage(ChatColor.RED + "Çiftin ikisi de çevrimiçi olmalı."); return; }
+        if (!kilisedeMi(rahip) || !kilisedeMi(a) || !kilisedeMi(b)) { rahip.sendMessage(ChatColor.RED + "Rahip ve çift kilisede olmalı."); return; }
+        Evet ev = new Evet();
+        ev.t = t; ev.rahip = rahip.getUniqueId(); ev.bitis = System.currentTimeMillis() + EVET_SURE_MS;
+        evetler.put(t.a, ev);
+        String soru = ChatColor.GOLD + "Rahip " + rahip.getName() + ": " + ChatColor.WHITE + t.adA + ", " + t.adB + " ile evlenmek istiyor musun? "
+                + ChatColor.GREEN + "Sohbete \"evet\" yaz" + ChatColor.WHITE + " (reddetmek için \"hayır\"). 90 saniyen var.";
+        for (Player o : Bukkit.getOnlinePlayers()) if (kilisedeMi(o) || o.equals(a) || o.equals(b)) o.sendMessage(soru);
+        a.playSound(a.getLocation(), Sound.BLOCK_BELL_USE, 1f, 1f);
+        b.playSound(b.getLocation(), Sound.BLOCK_BELL_USE, 1f, 1f);
+    }
+
+    @EventHandler
+    public void onEvetSohbet(io.papermc.paper.event.player.AsyncChatEvent e) {
+        if (evetler.isEmpty()) return;
+        String yazi = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(e.message()).trim().toLowerCase(Locale.ROOT);
+        boolean evet = yazi.equals("evet"), hayir = yazi.equals("hayır") || yazi.equals("hayir");
+        if (!evet && !hayir) return;
+        UUID id = e.getPlayer().getUniqueId();
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            long simdi = System.currentTimeMillis();
+            evetler.values().removeIf(x -> x.bitis < simdi);
+            for (Evet x : new ArrayList<>(evetler.values())) {
+                boolean aMi = x.t.a.equals(id), bMi = x.t.b.equals(id);
+                if (!aMi && !bMi) continue;
+                Player rahip = Bukkit.getPlayer(x.rahip);
+                if (hayir) {
+                    evetler.remove(x.t.a);
+                    if (rahip != null) rahip.sendMessage(ChatColor.RED + e.getPlayer().getName() + " \"hayır\" dedi, nikah iptal.");
+                    e.getPlayer().sendMessage(ChatColor.YELLOW + "Nikahtan vazgeçtin.");
+                    return;
+                }
+                if (aMi) x.a = true; else x.b = true;
+                if (x.a && x.b) {
+                    evetler.remove(x.t.a);
+                    if (rahip == null || !rahip.isOnline()) { e.getPlayer().sendMessage(ChatColor.RED + "Rahip çevrimdışı."); return; }
+                    Teklif t = teklifler.get(x.t.a);
+                    if (t == null || t.asama != 1) { rahip.sendMessage(ChatColor.RED + "Teklif artık geçerli değil."); return; }
+                    nikahKiy(rahip, t);
+                } else {
+                    e.getPlayer().sendMessage(ChatColor.GREEN + "Evet dedin, eşinin cevabı bekleniyor.");
+                }
+                return;
+            }
+        });
     }
 
     // ------------------------------------------------------------------ nikah
@@ -611,9 +691,6 @@ public class EvlilikManager implements Listener, CommandExecutor {
         evlilikler.put(ev.a, ev); evlilikler.put(ev.b, ev);
         kaydet();
 
-        Dugun d = new Dugun();
-        d.a = ev.a; d.b = ev.b; d.bitis = System.currentTimeMillis() + BAGIS_SURE_MS;
-        dugunler.put(ev.a, d);
 
         yuzukVer(a, ev.adB); yuzukVer(b, ev.adA);
         belgeVer(a, ev); belgeVer(b, ev);
