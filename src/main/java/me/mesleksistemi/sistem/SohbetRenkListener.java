@@ -26,37 +26,65 @@ public class SohbetRenkListener implements Listener {
                 .decorationIfAbsent(TextDecoration.OBFUSCATED, TextDecoration.State.FALSE);
     }
 
-    private static final String ISARET = "\u0001KMSG\u0001";
+    private static final net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer DUZ =
+            net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText();
 
-    /**
-     * TagPlugin satırı ön ek (tag/ek etiketler) + isim + mesaj olarak kurar; mesaj ön ekin son rengini/stilini
-     * miras alabilir (polis tag'i koyu mavi, vs.). Satır, mesaj yerine bir işaretle üretilir; sonra her parça kendi
-     * etkin stiliyle düz bir listeye açılır ve işaret yerine (beyaz, biçimsiz) gerçek mesaj konur. Böylece mesaj
-     * hiçbir tag/etiket rengini miras alamaz. İşaret bulunamazsa null döner (eski yol kullanılır).
-     */
-    private static Component mesajiSerbestBirak(Component kok, Component mesaj) {
-        java.util.List<Component> parcalar = new java.util.ArrayList<>();
-        boolean[] bulundu = {false};
-        acDuzlestir(kok, net.kyori.adventure.text.format.Style.empty(), parcalar, mesaj, bulundu);
-        if (!bulundu[0]) return null;
-        return Component.empty().children(parcalar);
+    /** Bileşen ağacını, her parçası kendi etkin stiliyle (üst stiller birleştirilmiş) düz bir listeye açar. */
+    private static void duzles(Component c, net.kyori.adventure.text.format.Style miras, java.util.List<Component> cikis) {
+        net.kyori.adventure.text.format.Style etkin = c.style().merge(miras, net.kyori.adventure.text.format.Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
+        Component yaprak = c.children(java.util.Collections.emptyList()).style(etkin);
+        if (!(yaprak instanceof net.kyori.adventure.text.TextComponent tc) || !tc.content().isEmpty()) cikis.add(yaprak);
+        for (Component ch : c.children()) duzles(ch, etkin, cikis);
     }
 
-    private static void acDuzlestir(Component c, net.kyori.adventure.text.format.Style miras, java.util.List<Component> cikis,
-                                    Component mesaj, boolean[] bulundu) {
-        net.kyori.adventure.text.format.Style etkin = c.style().merge(miras, net.kyori.adventure.text.format.Style.Merge.Strategy.IF_ABSENT_ON_TARGET);
-        if (c instanceof net.kyori.adventure.text.TextComponent tc && tc.content().contains(ISARET)) {
-            String icerik = tc.content();
-            int i = icerik.indexOf(ISARET);
-            String once = icerik.substring(0, i), sonra = icerik.substring(i + ISARET.length());
-            if (!once.isEmpty()) cikis.add(Component.text(once).style(etkin));
-            cikis.add(mesaj);
-            if (!sonra.isEmpty()) cikis.add(Component.text(sonra).style(etkin));
-            bulundu[0] = true;
-        } else {
-            cikis.add(c.children(java.util.Collections.emptyList()).style(etkin));
+    /** Düz metin aralığı [a,b) için parçaları (gerekirse bölerek) döndürür. */
+    private static java.util.List<Component> dilim(java.util.List<Component> parcalar, int a, int b) {
+        java.util.List<Component> r = new java.util.ArrayList<>();
+        int pos = 0;
+        for (Component p : parcalar) {
+            String t = DUZ.serialize(p);
+            int bas = pos, son = pos + t.length();
+            pos = son;
+            if (son <= a || bas >= b) continue;
+            if (bas >= a && son <= b) { r.add(p); continue; }
+            if (p instanceof net.kyori.adventure.text.TextComponent tc) {
+                int x = Math.max(a, bas) - bas, y = Math.min(b, son) - bas;
+                r.add(Component.text(tc.content().substring(x, y)).style(tc.style()));
+            } else if (bas >= a) {
+                r.add(p);
+            }
         }
-        for (Component ch : c.children()) acDuzlestir(ch, etkin, cikis, mesaj, bulundu);
+        return r;
+    }
+
+    /**
+     * TagPlugin satırı mesaj/isim argümanlarını yok sayıp kendi yakaladığı metinle kurar; mesaj etiketin
+     * rengini miras alır. Satır düzleştirilir, sondaki mesaj metni bulunur ve (beyaz, biçimsiz) gerçek mesajla
+     * değiştirilir; isimden önce/sonra VIP etiketi ve kalp eklenir. Bulunamazsa null döner.
+     */
+    private static Component satiriYenidenKur(Component tam, String isim, String mesajDuz, Component m, Component onEk, Component sonEk) {
+        if (mesajDuz == null || mesajDuz.isEmpty()) return null;
+        java.util.List<Component> parcalar = new java.util.ArrayList<>();
+        duzles(tam, net.kyori.adventure.text.format.Style.empty(), parcalar);
+        StringBuilder sb = new StringBuilder();
+        for (Component p : parcalar) sb.append(DUZ.serialize(p));
+        String tum = sb.toString();
+        if (!tum.endsWith(mesajDuz)) return null;
+        int mBas = tum.length() - mesajDuz.length();
+        java.util.List<Component> cikis = new java.util.ArrayList<>();
+        String ek = isim + ": ";
+        if (isim != null && tum.substring(0, mBas).endsWith(ek)) {
+            int adBitis = mBas - 2, adBas = adBitis - isim.length();
+            cikis.addAll(dilim(parcalar, 0, adBas));
+            if (onEk != null) cikis.add(onEk);
+            cikis.addAll(dilim(parcalar, adBas, adBitis));
+            if (sonEk != null) cikis.add(sonEk);
+            cikis.addAll(dilim(parcalar, adBitis, mBas));
+        } else {
+            cikis.addAll(dilim(parcalar, 0, mBas));
+        }
+        cikis.add(m);
+        return Component.empty().children(cikis);
     }
 
     /** TagPlugin (NORMAL) mesajı kendi yakalamadan önce stili sabitle. */
@@ -65,40 +93,33 @@ public class SohbetRenkListener implements Listener {
         e.message(duzelt(e.message()));
     }
 
-    /** TagPlugin renderer'ını kurduktan sonra mesaj argümanını da sabitle. */
+    /** TagPlugin renderer'ını kurduktan sonra satırı yeniden kur. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onSohbet(AsyncChatEvent e) {
         ChatRenderer eski = e.renderer();
         e.renderer((source, ad, mesaj, izleyen) -> {
-            Component ad2 = ad;
+            Component m = duzelt(mesaj);
+            Component onEk = null, sonEk = null;
             try {
                 me.mesleksistemi.MeslekSistemi pl = me.mesleksistemi.MeslekSistemi.getPlugin(me.mesleksistemi.MeslekSistemi.class);
                 String es = pl.evlilikManager == null ? null : pl.evlilikManager.esAdi(source.getUniqueId());
                 if (es != null) {
-                    ad2 = ad.append(Component.text(" \u2665", NamedTextColor.RED)
-                            .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(Component.text(es + " ile evli", NamedTextColor.GRAY))));
+                    sonEk = Component.text(" \u2665", NamedTextColor.RED)
+                            .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(Component.text(es + " ile evli", NamedTextColor.GRAY)));
                 }
+                if (pl.vipManager != null) onEk = pl.vipManager.etiket(source.getUniqueId());
             } catch (Throwable ignored) { }
+            Component tam;
             try {
-                me.mesleksistemi.MeslekSistemi pl2 = me.mesleksistemi.MeslekSistemi.getPlugin(me.mesleksistemi.MeslekSistemi.class);
-                Component vt = pl2.vipManager == null ? null : pl2.vipManager.etiket(source.getUniqueId());
-                if (vt != null) ad2 = Component.empty().append(vt).append(ad2);
-            } catch (Throwable ignored) { }
-            Component m = duzelt(mesaj);
-            boolean dbg = new java.io.File(me.mesleksistemi.MeslekSistemi.getPlugin(me.mesleksistemi.MeslekSistemi.class).getDataFolder(), "sohbetdebug").exists();
-            try {
-                Component tam = eski.render(source, ad2, Component.text(ISARET), izleyen);
-                Component sonuc = mesajiSerbestBirak(tam, m);
-                if (dbg) {
-                    var g = net.kyori.adventure.text.serializer.gson.GsonComponentSerializer.gson();
-                    org.bukkit.Bukkit.getLogger().info("[SohbetDebug] renderer=" + eski.getClass().getName() + " marker=" + (sonuc != null)
-                            + " tam=" + g.serialize(tam) + " sonuc=" + (sonuc == null ? "null" : g.serialize(sonuc)));
-                }
-                if (sonuc != null) return sonuc;
+                tam = eski.render(source, ad, m, izleyen);
             } catch (Throwable t) {
-                if (dbg) org.bukkit.Bukkit.getLogger().info("[SohbetDebug] hata " + t);
+                return eski.render(source, ad, m, izleyen);
             }
-            return eski.render(source, ad2, m, izleyen);
+            try {
+                Component sonuc = satiriYenidenKur(tam, source.getName(), DUZ.serialize(mesaj), m, onEk, sonEk);
+                if (sonuc != null) return sonuc;
+            } catch (Throwable ignored) { }
+            return tam;
         });
     }
 }
