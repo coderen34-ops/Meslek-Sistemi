@@ -320,7 +320,13 @@ public class VipManager implements Listener, CommandExecutor {
         Player on = Bukkit.getPlayerExact(ad);
         if (on != null) return on;
         OfflinePlayer off = Bukkit.getOfflinePlayerIfCached(ad);
-        return off;
+        if (off != null) return off;
+        // Sunucu offline modda: UUID addan türetilir, oyuncu henüz girmemiş olsa da doğru UUID bulunur.
+        if (ad != null && ad.matches("[A-Za-z0-9_]{3,16}")) {
+            plugin.getLogger().warning("[VIP] '" + ad + "' sunucuya hiç girmemiş görünüyor; ad üzerinden UUID türetildi.");
+            return Bukkit.getOfflinePlayer(ad);
+        }
+        return null;
     }
 
     private boolean vipVerKomut(CommandSender s, String[] a) {
