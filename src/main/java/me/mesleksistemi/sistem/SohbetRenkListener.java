@@ -17,7 +17,7 @@ import org.bukkit.event.Listener;
  */
 public class SohbetRenkListener implements Listener {
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onSohbet(AsyncChatEvent e) {
         ChatRenderer eski = e.renderer();
         e.renderer((source, ad, mesaj, izleyen) -> {
