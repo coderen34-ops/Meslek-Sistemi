@@ -94,7 +94,7 @@ public class VipManager implements Listener, CommandExecutor {
     }
 
     private int claimBonus(String paket) {
-        return plugin.getConfig().getInt("vip.claim-blok." + paket, paket.equals("altin") ? 600 : 400);
+        return plugin.getConfig().getInt("vip.claim-blok." + paket, paket.equals("altin") ? 400 : paket.equals("gumus") ? 250 : 100);
     }
 
     private int boostVarsayilanYuzde() { return plugin.getConfig().getInt("vip.xp-boost-yuzde", 25); }
@@ -160,30 +160,27 @@ public class VipManager implements Listener, CommandExecutor {
 
     private void ayricalikUygula(UUID id, String isim, String paket) {
         int seviye = seviye(paket);
-        // Claim bloğu (VIP süresince)
-        int bonus = claimBonus(paket);
-        try {
-            var pd = me.ryanhamshire.GriefPrevention.GriefPrevention.instance.dataStore.getPlayerData(id);
-            pd.setBonusClaimBlocks(pd.getBonusClaimBlocks() + bonus);
-            veri.set("vip." + id + ".claim", bonus);
-        } catch (Throwable t) {
-            plugin.getLogger().warning("VIP claim bloğu verilemedi (" + isim + "): " + t);
+        // Claim bloğu: tek seferlik ve kalıcı. Yenilemede tekrar verilmez; üst pakete geçişte yalnızca fark verilir.
+        int hedef = claimBonus(paket);
+        int zatenVerilen = veri.getInt("claimlar." + id, 0);
+        int ek = Math.max(0, hedef - zatenVerilen);
+        if (ek > 0) {
+            try {
+                var pd = me.ryanhamshire.GriefPrevention.GriefPrevention.instance.dataStore.getPlayerData(id);
+                pd.setBonusClaimBlocks(pd.getBonusClaimBlocks() + ek);
+                veri.set("claimlar." + id, hedef);
+                Player oy = Bukkit.getPlayer(id);
+                if (oy != null) oy.sendMessage(ChatColor.GOLD + "+" + ek + " claim bloğu hesabına eklendi (kalıcı, tek seferlik).");
+            } catch (Throwable t) {
+                plugin.getLogger().warning("VIP claim bloğu verilemedi (" + isim + "): " + t);
+            }
         }
         // Gümüş+: /hat
         if (seviye >= 2) komut("lp user " + isim + " permission set essentials.hat true");
     }
 
     private void ayricalikGeriAl(UUID id, String isim, String paket) {
-        int verilen = veri.getInt("vip." + id + ".claim", 0);
-        if (verilen > 0) {
-            try {
-                var pd = me.ryanhamshire.GriefPrevention.GriefPrevention.instance.dataStore.getPlayerData(id);
-                pd.setBonusClaimBlocks(Math.max(0, pd.getBonusClaimBlocks() - verilen));
-            } catch (Throwable t) {
-                plugin.getLogger().warning("VIP claim bloğu geri alınamadı (" + isim + "): " + t);
-            }
-        }
-        veri.set("vip." + id + ".claim", null);
+        // Claim blokları kalıcıdır, geri alınmaz.
         if (seviye(paket) >= 2) komut("lp user " + isim + " permission unset essentials.hat");
     }
 
@@ -307,7 +304,7 @@ public class VipManager implements Listener, CommandExecutor {
             p.sendMessage(ChatColor.YELLOW + "Paket: " + ChatColor.WHITE + ad(pk) + ChatColor.YELLOW + "  Kalan: " + ChatColor.WHITE
                     + (ms / 86_400_000L) + " gün " + ((ms / 3_600_000L) % 24) + " saat");
             int sv = seviye(pk);
-            p.sendMessage(ChatColor.GRAY + "• Sohbet etiketi, +" + claimBonus(pk) + " claim bloğu");
+            p.sendMessage(ChatColor.GRAY + "• Sohbet etiketi, " + claimBonus(pk) + " claim bloğu (tek seferlik, kalıcı)");
             if (sv >= 2) p.sendMessage(ChatColor.GRAY + "• Sunucu doluyken giriş önceliği, /hat, parçacık efekti (/vip efekt)");
             if (sv >= 3) p.sendMessage(ChatColor.GRAY + "• Altın efekt, nikah paketi (yakında)");
         }
