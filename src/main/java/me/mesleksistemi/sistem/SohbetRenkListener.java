@@ -17,12 +17,25 @@ import org.bukkit.event.Listener;
  */
 public class SohbetRenkListener implements Listener {
 
+    private static Component duzelt(Component mesaj) {
+        return mesaj.colorIfAbsent(NamedTextColor.WHITE)
+                .decorationIfAbsent(TextDecoration.BOLD, TextDecoration.State.FALSE)
+                .decorationIfAbsent(TextDecoration.ITALIC, TextDecoration.State.FALSE)
+                .decorationIfAbsent(TextDecoration.UNDERLINED, TextDecoration.State.FALSE)
+                .decorationIfAbsent(TextDecoration.STRIKETHROUGH, TextDecoration.State.FALSE)
+                .decorationIfAbsent(TextDecoration.OBFUSCATED, TextDecoration.State.FALSE);
+    }
+
+    /** TagPlugin (NORMAL) mesajı kendi yakalamadan önce stili sabitle. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onSohbetErken(AsyncChatEvent e) {
+        e.message(duzelt(e.message()));
+    }
+
+    /** TagPlugin renderer'ını kurduktan sonra mesaj argümanını da sabitle. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onSohbet(AsyncChatEvent e) {
         ChatRenderer eski = e.renderer();
-        e.renderer((source, ad, mesaj, izleyen) -> {
-            Component duz = duzelt(mesaj);
-            return eski.render(source, ad, duz, izleyen);
-        });
+        e.renderer((source, ad, mesaj, izleyen) -> eski.render(source, ad, duzelt(mesaj), izleyen));
     }
 }
