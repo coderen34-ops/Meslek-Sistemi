@@ -72,9 +72,15 @@ public class SiralamaManager {
     private File statKlasoru() {
         if (Bukkit.getWorlds().isEmpty()) return null;
         File w = Bukkit.getWorlds().get(0).getWorldFolder();
-        File[] adaylar = { new File(w, "stats"), new File(w, "players/stats"), new File(w, "players/statistics") };
-        for (File f : adaylar) if (f.isDirectory()) return f;
-        return null;
+        File[] adaylar = { new File(w, "players/stats"), new File(w, "stats"), new File(w, "players/statistics") };
+        File enDolu = null; int enCok = 0;
+        for (File f : adaylar) {
+            if (!f.isDirectory()) continue;
+            String[] liste = f.list((d, n) -> n.endsWith(".json"));
+            int n = liste == null ? 0 : liste.length;
+            if (n > enCok) { enCok = n; enDolu = f; }   // boş klasörleri atla (Paper'da world/stats boş kalabiliyor)
+        }
+        return enDolu;
     }
 
     // [0]=oynama tick, [1]=oyuncu öldürme, [2]=ölüm, [3]=mob, [4]=kırılan blok
