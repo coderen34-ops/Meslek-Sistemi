@@ -491,10 +491,16 @@ public class SaglikManager implements Listener, CommandExecutor {
         }
     }
 
+    /** Citizens (ve Sentinel) NPC'leri Player gibi görünür ama "NPC" metadata'sı taşır. */
+    private static boolean npcMi(org.bukkit.entity.Entity e) {
+        return e != null && e.hasMetadata("NPC");
+    }
+
     @EventHandler(ignoreCancelled = true)
     public void onPlayerDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player)) return;
         Player player = (Player) event.getEntity();
+        if (npcMi(player)) return; // Citizens/Sentinel NPC'leri baygın olmaz, vanilla gibi ölür
         UUID uuid = player.getUniqueId();
         if (muafOyuncular.contains(uuid)) return; // Muaf oyuncu normal hasar alır ve ölebilir
 
@@ -663,6 +669,7 @@ public class SaglikManager implements Listener, CommandExecutor {
     /** Dışarıdan (ör. PolisManager'ın baskında-işi-olmayan cezası) bir oyuncuyu doğrudan,
      *  normal "ölümcül vuruş" akışından geçmeden ağır yaralı/baygın durumuna düşürür. */
     public void anindaAgirYaraliYap(Player player) {
+        if (npcMi(player)) return;
         if (downedPlayers.containsKey(player.getUniqueId())) return; // zaten ağır yaralı
         applyDownedState(player, 1200);
     }
