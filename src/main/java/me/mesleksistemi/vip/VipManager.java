@@ -385,7 +385,7 @@ public class VipManager implements Listener, CommandExecutor {
             int sv = seviye(pk);
             p.sendMessage(ChatColor.GRAY + "• Sohbet etiketi, " + claimBonus(pk) + " claim bloğu (tek seferlik, kalıcı)");
             if (sv >= 2) p.sendMessage(ChatColor.GRAY + "• Sunucu doluyken giriş önceliği, /hat, parçacık efekti (/vip efekt)");
-            if (sv >= 3) p.sendMessage(ChatColor.GRAY + "• Meşale ışığı: /vip isik (client modla ş tuşu), altın efekt, nikah paketi (yakında)");
+            if (sv >= 3) p.sendMessage(ChatColor.GRAY + "• Meşale ışığı: /vip isik (client modla ş tuşu), altın efekt, nikah paketi (yakında), ücretsiz Elytra uçuş ehliyeti");
         }
         int y = boostYuzde(id);
         if (y > 0) {

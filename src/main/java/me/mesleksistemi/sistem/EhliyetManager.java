@@ -83,7 +83,10 @@ public class EhliyetManager implements Listener, CommandExecutor {
         ItemStack ehliyet = new ItemStack(Material.ELYTRA);
         ItemMeta meta = ehliyet.getItemMeta();
         
-        if (plugin.elytraEhliyetleri.contains(player.getUniqueId())) {
+        if (vipEhliyet(player) && !plugin.elytraEhliyetleri.contains(player.getUniqueId())) {
+            meta.setDisplayName(ChatColor.GOLD + "" + ChatColor.BOLD + "Altın VIP Uçuş Ehliyeti");
+            meta.setLore(Arrays.asList(ChatColor.GRAY + "Altın VIP olduğun sürece ehliyetin geçerli.", ChatColor.GRAY + "Harç ödemene gerek yok."));
+        } else if (plugin.elytraEhliyetleri.contains(player.getUniqueId())) {
             meta.setDisplayName(ChatColor.GREEN + "" + ChatColor.BOLD + "Sivil Uçuş Ehliyetiniz Bulunuyor");
             meta.setLore(Arrays.asList(ChatColor.GRAY + "Gökyüzünün tadını çıkarın!"));
         } else {
@@ -118,6 +121,10 @@ public class EhliyetManager implements Listener, CommandExecutor {
                     player.sendMessage(ChatColor.RED + "Zaten uçuş ehliyetine sahipsiniz.");
                     return;
                 }
+                if (vipEhliyet(player)) {
+                    player.sendMessage(ChatColor.GOLD + "Altın VIP olduğun için ehliyetin zaten geçerli, harç ödemene gerek yok.");
+                    return;
+                }
                 
                 // Meslek sistemindeki aynı kasa güvenlik kontrolü
                 if (plugin.getKasa() == null) {
@@ -141,6 +148,11 @@ public class EhliyetManager implements Listener, CommandExecutor {
         }
     }
 
+    /** Altın VIP aktifken uçuş ehliyeti ücretsiz geçerlidir (süre bitince kalkar). */
+    private boolean vipEhliyet(Player p) {
+        return plugin.vipManager != null && plugin.vipManager.paketSeviyesi(p.getUniqueId()) >= 3;
+    }
+
     // İŞTE BÜYÜNÜN KOPTUĞU YER: UÇUŞU İPTAL ETME
     @EventHandler
     public void onGlide(EntityToggleGlideEvent event) {
@@ -148,7 +160,7 @@ public class EhliyetManager implements Listener, CommandExecutor {
             Player player = (Player) event.getEntity();
             
             if (event.isGliding()) { // Oyuncu süzülmeye başladığında
-                if (!plugin.elytraEhliyetleri.contains(player.getUniqueId())) {
+                if (!plugin.elytraEhliyetleri.contains(player.getUniqueId()) && !vipEhliyet(player)) {
                     // Adminlerin bypass (es geçme) yetkisi varsa düşmezler, RP içi herkes düşer
                     if (!player.hasPermission("ehliyet.bypass")) {
                         event.setCancelled(true);
