@@ -36,6 +36,17 @@ public class SohbetRenkListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onSohbet(AsyncChatEvent e) {
         ChatRenderer eski = e.renderer();
-        e.renderer((source, ad, mesaj, izleyen) -> eski.render(source, ad, duzelt(mesaj), izleyen));
+        e.renderer((source, ad, mesaj, izleyen) -> {
+            Component ad2 = ad;
+            try {
+                me.mesleksistemi.MeslekSistemi pl = me.mesleksistemi.MeslekSistemi.getPlugin(me.mesleksistemi.MeslekSistemi.class);
+                String es = pl.evlilikManager == null ? null : pl.evlilikManager.esAdi(source.getUniqueId());
+                if (es != null) {
+                    ad2 = ad.append(Component.text(" \u2665", NamedTextColor.RED)
+                            .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(Component.text(es + " ile evli", NamedTextColor.GRAY))));
+                }
+            } catch (Throwable ignored) { }
+            return eski.render(source, ad2, duzelt(mesaj), izleyen);
+        });
     }
 }

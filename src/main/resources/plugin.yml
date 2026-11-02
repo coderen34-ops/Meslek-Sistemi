@@ -10,6 +10,16 @@ libraries:
   - org.xerial:sqlite-jdbc:3.46.1.3
 
 commands:
+  evlilik:
+    description: Evlilik menusu (rahip paneli, evlilik, bagis).
+    usage: /evlilik
+    aliases: [nikah]
+  kilise:
+    description: Kilise ayari (admin).
+    usage: /kilise [ver | kaldir | bilgi]
+  nikahmuzik:
+    description: Dugun muzigini test et.
+    usage: /nikahmuzik [dur | herkes]
   susuzluk:
     description: Susuzluk seviyeni goster.
     usage: /susuzluk [ver <oyuncu> <deger>]

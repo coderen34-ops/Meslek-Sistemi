@@ -119,6 +119,7 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.asci.AsciManager asciManager;
     public me.mesleksistemi.dukkan.DukkanManager dukkanManager;
     public me.mesleksistemi.susuzluk.SusuzlukManager susuzlukManager;
+    public me.mesleksistemi.evlilik.EvlilikManager evlilikManager;
     public me.mesleksistemi.olay.DunyaOlayManager olayManager;
     public KiraManager kiraManager;
     public PazarManager pazarManager;
@@ -159,7 +160,7 @@ public class MeslekSistemi extends JavaPlugin {
         meslekFiyatlari.put("avukat", 300.0); meslekFiyatlari.put("polis", 600.0); 
         meslekFiyatlari.put("taseron", 150.0); meslekFiyatlari.put("hakim", 600.0); 
         meslekFiyatlari.put("belediyecalisani", 200.0); meslekFiyatlari.put("oduncu", 250.0);
-        meslekFiyatlari.put("ciftci", 200.0); meslekFiyatlari.put("balikci", 250.0); meslekFiyatlari.put("asci", 250.0); meslekFiyatlari.put("tamirci", 250.0);
+        meslekFiyatlari.put("ciftci", 200.0); meslekFiyatlari.put("balikci", 250.0); meslekFiyatlari.put("asci", 250.0); meslekFiyatlari.put("tamirci", 250.0); meslekFiyatlari.put("rahip", 300.0);
 
         // MESLEK GÖRÜNÜM ADLARI
         meslekGorunumAdlari.put("madenci", "Madenci"); meslekGorunumAdlari.put("doktor", "Doktor");
@@ -168,7 +169,7 @@ public class MeslekSistemi extends JavaPlugin {
         meslekGorunumAdlari.put("belediyecalisani", "Belediye Calisani");
         meslekGorunumAdlari.put("belediyebaskani", "Belediye Baskani");
         meslekGorunumAdlari.put("amir", "Amir"); meslekGorunumAdlari.put("mahkum", "Mahkum"); meslekGorunumAdlari.put("oduncu", "Oduncu");
-        meslekGorunumAdlari.put("ciftci", "Ciftci"); meslekGorunumAdlari.put("balikci", "Balikci"); meslekGorunumAdlari.put("asci", "Asci"); meslekGorunumAdlari.put("tamirci", "Tamirci");
+        meslekGorunumAdlari.put("ciftci", "Ciftci"); meslekGorunumAdlari.put("balikci", "Balikci"); meslekGorunumAdlari.put("asci", "Asci"); meslekGorunumAdlari.put("tamirci", "Tamirci"); meslekGorunumAdlari.put("rahip", "Rahip");
 
         // MAAŞ MİKTARLARI
         maasMiktarlari.put("vatandas", 50.0); maasMiktarlari.put("taseron", 80.0);
@@ -176,7 +177,7 @@ public class MeslekSistemi extends JavaPlugin {
         maasMiktarlari.put("belediyecalisani", 150.0); maasMiktarlari.put("polis", 250.0); maasMiktarlari.put("amir", 350.0);
         maasMiktarlari.put("doktor", 300.0); maasMiktarlari.put("hakim", 400.0);
         maasMiktarlari.put("belediyebaskani", 500.0); maasMiktarlari.put("oduncu", 100.0);
-        maasMiktarlari.put("ciftci", 100.0); maasMiktarlari.put("balikci", 100.0); maasMiktarlari.put("asci", 100.0); maasMiktarlari.put("tamirci", 100.0);
+        maasMiktarlari.put("ciftci", 100.0); maasMiktarlari.put("balikci", 100.0); maasMiktarlari.put("asci", 100.0); maasMiktarlari.put("tamirci", 100.0); maasMiktarlari.put("rahip", 100.0);
 
         ohalBar = Bukkit.createBossBar(
             ChatColor.DARK_RED + "" + ChatColor.BOLD + "DİKKAT: SOKAĞA ÇIKMA YASAĞI AKTİFTİR - HERKES EVLERİNE DÖNSÜN!", 
@@ -291,6 +292,11 @@ public class MeslekSistemi extends JavaPlugin {
         this.susuzlukManager = new me.mesleksistemi.susuzluk.SusuzlukManager(this);
         getServer().getPluginManager().registerEvents(this.susuzlukManager, this);
         if (getCommand("susuzluk") != null) getCommand("susuzluk").setExecutor(this.susuzlukManager);
+        this.evlilikManager = new me.mesleksistemi.evlilik.EvlilikManager(this);
+        getServer().getPluginManager().registerEvents(this.evlilikManager, this);
+        for (String ev : new String[]{"evlilik", "kilise", "nikahmuzik"}) {
+            if (getCommand(ev) != null) getCommand(ev).setExecutor(this.evlilikManager);
+        }
         this.olayManager = new me.mesleksistemi.olay.DunyaOlayManager(this);
         getServer().getPluginManager().registerEvents(this.olayManager, this);
         if (getCommand("olay") != null) getCommand("olay").setExecutor(this.olayManager);
@@ -391,6 +397,7 @@ public class MeslekSistemi extends JavaPlugin {
         if (asciManager != null) asciManager.kapat();
         if (dukkanManager != null) dukkanManager.kapat();
         if (susuzlukManager != null) susuzlukManager.kapat();
+        if (evlilikManager != null) evlilikManager.kapat();
         if (olayManager != null) olayManager.kapat();
         if (haberManager != null) haberManager.kapat();
         if (ohalBar != null) ohalBar.removeAll();
