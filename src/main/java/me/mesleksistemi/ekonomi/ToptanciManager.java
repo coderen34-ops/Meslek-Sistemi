@@ -101,7 +101,20 @@ public class ToptanciManager implements Listener, CommandExecutor {
         }
     }
 
+    private static boolean gidaMi(Material m) {
+        return m == Material.WHEAT || m == Material.BREAD || m == Material.APPLE || m == Material.CARROT || m == Material.POTATO
+                || m == Material.BEETROOT || m == Material.PUMPKIN || m == Material.MELON || m == Material.SUGAR_CANE
+                || m == Material.PUFFERFISH || m == Material.TROPICAL_FISH || m == Material.SALMON || m == Material.COD;
+    }
+
+    /** Kıtlık sırasında gıda fiyatları yükselir. */
     private double getAlisFiyati(Material mat) {
+        double taban = getAlisFiyatiTaban(mat);
+        if (plugin.olayManager != null && gidaMi(mat)) return Math.round(taban * plugin.olayManager.gidaCarpani() * 100.0) / 100.0;
+        return taban;
+    }
+
+    private double getAlisFiyatiTaban(Material mat) {
         String name = mat.name();
 
         // MADENCİ FİYATLARI (devlete satış bunun yarısı; en değersiz taş - parke taşı - devlete $1)

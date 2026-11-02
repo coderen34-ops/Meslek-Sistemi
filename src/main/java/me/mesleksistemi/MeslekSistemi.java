@@ -118,6 +118,8 @@ public class MeslekSistemi extends JavaPlugin {
     public me.mesleksistemi.mezat.MezatManager mezatManager;
     public me.mesleksistemi.asci.AsciManager asciManager;
     public me.mesleksistemi.dukkan.DukkanManager dukkanManager;
+    public me.mesleksistemi.susuzluk.SusuzlukManager susuzlukManager;
+    public me.mesleksistemi.olay.DunyaOlayManager olayManager;
     public KiraManager kiraManager;
     public PazarManager pazarManager;
     private SecimManager secimManager;
@@ -286,6 +288,12 @@ public class MeslekSistemi extends JavaPlugin {
         for (String dk : new String[]{"dukkan", "isyeri", "baskanmenu"}) {
             if (getCommand(dk) != null) getCommand(dk).setExecutor(this.dukkanManager);
         }
+        this.susuzlukManager = new me.mesleksistemi.susuzluk.SusuzlukManager(this);
+        getServer().getPluginManager().registerEvents(this.susuzlukManager, this);
+        if (getCommand("susuzluk") != null) getCommand("susuzluk").setExecutor(this.susuzlukManager);
+        this.olayManager = new me.mesleksistemi.olay.DunyaOlayManager(this);
+        getServer().getPluginManager().registerEvents(this.olayManager, this);
+        if (getCommand("olay") != null) getCommand("olay").setExecutor(this.olayManager);
         this.mezatManager = new me.mesleksistemi.mezat.MezatManager(this);
         getServer().getPluginManager().registerEvents(this.mezatManager, this);
         if (getCommand("mezat") != null) getCommand("mezat").setExecutor(this.mezatManager);
@@ -382,6 +390,8 @@ public class MeslekSistemi extends JavaPlugin {
         if (mezatManager != null) mezatManager.kapat();
         if (asciManager != null) asciManager.kapat();
         if (dukkanManager != null) dukkanManager.kapat();
+        if (susuzlukManager != null) susuzlukManager.kapat();
+        if (olayManager != null) olayManager.kapat();
         if (haberManager != null) haberManager.kapat();
         if (ohalBar != null) ohalBar.removeAll();
 
