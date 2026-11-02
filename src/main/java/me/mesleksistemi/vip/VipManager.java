@@ -337,15 +337,6 @@ public class VipManager implements Listener, CommandExecutor {
         }
     }
 
-    /** Altın VIP: Shift + F (el değiştirme tuşu) meşale ışığını açar/kapatır. */
-    @EventHandler(ignoreCancelled = true)
-    public void onElDegistir(org.bukkit.event.player.PlayerSwapHandItemsEvent e) {
-        Player p = e.getPlayer();
-        if (!p.isSneaking() || paketSeviyesi(p.getUniqueId()) < 3) return;
-        e.setCancelled(true);
-        isikDegistir(p);
-    }
-
     @EventHandler
     public void onCik(org.bukkit.event.player.PlayerQuitEvent e) {
         isikAcik.remove(e.getPlayer().getUniqueId());
@@ -391,7 +382,7 @@ public class VipManager implements Listener, CommandExecutor {
             int sv = seviye(pk);
             p.sendMessage(ChatColor.GRAY + "• Sohbet etiketi, " + claimBonus(pk) + " claim bloğu (tek seferlik, kalıcı)");
             if (sv >= 2) p.sendMessage(ChatColor.GRAY + "• Sunucu doluyken giriş önceliği, /hat, parçacık efekti (/vip efekt)");
-            if (sv >= 3) p.sendMessage(ChatColor.GRAY + "• Meşale ışığı: Shift+F veya /vip isik, altın efekt, nikah paketi (yakında)");
+            if (sv >= 3) p.sendMessage(ChatColor.GRAY + "• Meşale ışığı: /vip isik (client modla ş tuşu), altın efekt, nikah paketi (yakında)");
         }
         int y = boostYuzde(id);
         if (y > 0) {
