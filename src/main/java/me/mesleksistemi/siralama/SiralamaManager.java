@@ -249,8 +249,8 @@ public class SiralamaManager {
             // Saat değiştikçe her seferinde commit atmamak için içerik (saat hariç) aynıysa yükleme.
             String hash = Integer.toHexString(json.replaceAll("\"guncelleme\": ?\"[^\"]*\"", "").hashCode());
             if (hash.equals(sonYuklenenHash)) return;
-            String repo = ayar.getString("github.repo", plugin.getConfig().getString("siralama.github.repo", "coderen34-ops/Meslek-Sistemi"));
-            String dal = ayar.getString("github.dal", plugin.getConfig().getString("siralama.github.dal", "siralama-veri"));
+            String repo = ayar.getString("github.repo", plugin.getConfig().getString("siralama.github.repo", "coderen34-ops/Koninski-Site"));
+            String dal = ayar.getString("github.dal", plugin.getConfig().getString("siralama.github.dal", "main"));
             String yol = ayar.getString("github.dosya", plugin.getConfig().getString("siralama.github.dosya", "siralama.json"));
             HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
             String url = "https://api.github.com/repos/" + repo + "/contents/" + yol;
