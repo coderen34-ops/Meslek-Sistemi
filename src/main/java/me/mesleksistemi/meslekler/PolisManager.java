@@ -438,6 +438,27 @@ public class PolisManager implements Listener, CommandExecutor {
                 
                 Bukkit.broadcastMessage(ChatColor.DARK_RED + "[MERKEZ] " + ChatColor.YELLOW + "DİKKAT: " + ChatColor.RED + sikayet.sikayetEdilen + ChatColor.YELLOW + " hakkında soruşturma başlatılmıştır!");
                 player.sendMessage(ChatColor.GREEN + "Soruşturma başlatıldı. Dava dosyası envanterinize eklendi!");
+            } else if (karar.equalsIgnoreCase("adliye")) {
+                // Şikayet adliyeye yönlendirilir: müşteki = şikayet eden, sanık = şüpheli, tazminat talebi 0; dava avukat havuzuna düşer.
+                if (plugin.adliyeManager != null) {
+                    me.mesleksistemi.adliye.DavaDosyasi dava = new me.mesleksistemi.adliye.DavaDosyasi(
+                        UUID.randomUUID(), sikayet.sikayetEden, sikayet.sikayetEdilen, 0.0, sikayet.sebep);
+                    plugin.adliyeManager.aktifDavalar.put(dava.id, dava);
+                    plugin.adliyeManager.veriKaydetAdliye();
+                    plugin.adliyeManager.davaOlustuBildir(dava);
+                    for (Player p : Bukkit.getOnlinePlayers()) {
+                        if (plugin.oyuncuMeslekCache.getOrDefault(p.getUniqueId(), "vatandas").equalsIgnoreCase("avukat")) {
+                            p.sendMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.YELLOW + "Emniyetten yönlendirilen yeni bir dava dosyası düştü! NPC üzerinden kontrol edin.");
+                        }
+                    }
+                    Player m = Bukkit.getPlayer(sikayet.sikayetEden);
+                    if (m != null) m.sendMessage(ChatColor.DARK_RED + "[Emniyet] " + ChatColor.GREEN + "Şikayetin adliyeye yönlendirildi. Bir avukatın davanı üstlenmesini bekle.");
+                    player.sendMessage(ChatColor.GREEN + "Dosya adliyeye yönlendirildi (dava havuzuna düştü).");
+                } else {
+                    player.sendMessage(ChatColor.RED + "Adliye sistemi kapalı, dosya yönlendirilemedi.");
+                    aktifSikayetler.put(sikayetId, sikayet);
+                    plugin.veriKaydet();
+                }
             }
             player.closeInventory();
             return true;
@@ -899,7 +920,11 @@ public class PolisManager implements Listener, CommandExecutor {
         TextComponent kabulBtn = new TextComponent(ChatColor.DARK_RED + ChatColor.BOLD.toString() + "[SORUŞTURMA BAŞLAT]");
         kabulBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sikayetkarar " + sikayet.id.toString() + " sorusturma"));
         
+        TextComponent adliyeBtn = new TextComponent(ChatColor.DARK_BLUE + ChatColor.BOLD.toString() + "[ADLİYEYE YÖNLENDİR]");
+        adliyeBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sikayetkarar " + sikayet.id.toString() + " adliye"));
+
         sonSayfa.addExtra(redBtn); sonSayfa.addExtra(kabulBtn);
+        sonSayfa.addExtra(new TextComponent("\n\n\n")); sonSayfa.addExtra(adliyeBtn);
         pages.add(new BaseComponent[]{sonSayfa});
 
         for (BaseComponent[] page : pages) { meta.spigot().addPage(page); }
