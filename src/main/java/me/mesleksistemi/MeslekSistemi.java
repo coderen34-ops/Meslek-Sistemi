@@ -401,6 +401,14 @@ public class MeslekSistemi extends JavaPlugin {
         // Diğer eklentiler (Klan-Sistemi vb.) için bağlantı noktası
         getServer().getServicesManager().register(me.mesleksistemi.api.MeslekAPI.class,
                 new me.mesleksistemi.api.MeslekAPIImpl(this), this, org.bukkit.plugin.ServicePriority.Normal);
+        try {
+            java.io.File __mf = new java.io.File(getDataFolder(), "mobil.yml");
+            if (__mf.exists() && org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(__mf).getBoolean("olay-log", false)) {
+                getServer().getPluginManager().registerEvents(new me.mesleksistemi.olay.OlayGunlukcusu(this), this);
+                getLogger().info("Olay günlüğü AÇIK (mobil.yml: olay-log). Her olay konsola [OLAY] satırı olarak yazılır.");
+            }
+        } catch (Throwable __e) { getLogger().warning("mobil.yml okunamadı: " + __e); }
+
     }
 
     @Override
