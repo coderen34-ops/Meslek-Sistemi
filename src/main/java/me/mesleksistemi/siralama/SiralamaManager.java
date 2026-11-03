@@ -67,8 +67,42 @@ public class SiralamaManager {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             Map<UUID, long[]> stat = statOku(statKlasor);
             Map<String, double[]> ticaret = logOku();
-            Bukkit.getScheduler().runTask(plugin, () -> olustur(zengin, sabika, stat, ticaret, begeni));
+            Map<UUID, Integer> arena = arenaOku();
+            Bukkit.getScheduler().runTask(plugin, () -> olustur(zengin, sabika, stat, ticaret, begeni, arena));
         });
+    }
+
+    /** Arena Ligi (ayrı plugin) dövüşçü verisi: plugins/ArenaLigi/data.yml -> dovusculer.<uuid>.galibiyet */
+    private Map<UUID, Integer> arenaOku() {
+        Map<UUID, Integer> sonuc = new HashMap<>();
+        try {
+            File f = new File(plugin.getDataFolder().getParentFile(), "ArenaLigi/data.yml");
+            if (!f.isFile()) return sonuc;
+            org.bukkit.configuration.file.YamlConfiguration y = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(f);
+            ConfigurationSection b = y.getConfigurationSection("dovusculer");
+            if (b == null) return sonuc;
+            for (String k : b.getKeys(false)) {
+                try { int g = b.getInt(k + ".galibiyet"); if (g > 0) sonuc.put(UUID.fromString(k), g); } catch (Exception ignored) { }
+            }
+        } catch (Exception e) { plugin.getLogger().warning("Sıralama: Arena Ligi verisi okunamadı: " + e); }
+        return sonuc;
+    }
+
+    /** Sunucuya en son ilk kez giren oyuncular (en yeni başta). */
+    private List<Map<String, Object>> yeniKatilanlar() {
+        List<org.bukkit.OfflinePlayer> liste = new ArrayList<>();
+        for (org.bukkit.OfflinePlayer o : Bukkit.getOfflinePlayers()) {
+            if (o.getName() != null && o.getFirstPlayed() > 0) liste.add(o);
+        }
+        liste.sort((a, b) -> Long.compare(b.getFirstPlayed(), a.getFirstPlayed()));
+        List<Map<String, Object>> sonuc = new ArrayList<>();
+        for (org.bukkit.OfflinePlayer o : liste) {
+            if (sonuc.size() >= 12) break;
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("ad", o.getName());
+            sonuc.add(m);
+        }
+        return sonuc;
     }
 
     private File statKlasoru() {
@@ -203,7 +237,7 @@ public class SiralamaManager {
         return String.valueOf((long) v);
     }
 
-    private void olustur(Map<UUID, Double> zengin, Map<UUID, Integer> sabika, Map<UUID, long[]> stat, Map<String, double[]> ticaret, Map<UUID, int[]> begeni) {
+    private void olustur(Map<UUID, Double> zengin, Map<UUID, Integer> sabika, Map<UUID, long[]> stat, Map<String, double[]> ticaret, Map<UUID, int[]> begeni, Map<UUID, Integer> arena) {
         Map<UUID, Long> oyna = new HashMap<>(), oldur = new HashMap<>(), olum = new HashMap<>(), mob = new HashMap<>(), kir = new HashMap<>();
         for (Map.Entry<UUID, long[]> e : stat.entrySet()) {
             long[] v = e.getValue();
@@ -214,7 +248,7 @@ public class SiralamaManager {
         kat.add(kategori("zengin", "En Zenginler", "Banka bakiyesi en yüksek oyuncular.", zengin, v -> "$" + String.format(java.util.Locale.US, "%,.0f", v)));
         kat.add(kategori("sabika", "En Çok Sabıkası Olanlar", "Sabıka kaydı en kabarık oyuncular.", sabika, v -> (long) v + " sabıka"));
         kat.add(kategori("oynama", "En Çok Oynayanlar", "Toplam oynama süresi.", oyna, v -> { long s = (long) v; return (s / 86400) + " gün " + ((s % 86400) / 3600) + " saat"; }));
-        kat.add(kategori("oldurme", "En Çok Öldürenler", "Diğer oyuncuları en çok öldürenler.", oldur, v -> sayiYaz(v) + " kill"));
+        kat.add(kategori("arena", "Arena Ligi Şampiyonları", "Arena Ligi'nde en çok maç kazanan dövüşçüler.", arena, v -> (long) v + " galibiyet"));
         kat.add(kategori("olum", "En Çok Ölenler", "En çok ölen oyuncular.", olum, v -> sayiYaz(v) + " ölüm"));
         kat.add(kategori("mob", "En Çok Mob Avlayanlar", "Öldürülen canavar sayısı.", mob, v -> sayiYaz(v) + " mob"));
         kat.add(kategori("kirma", "En Çok Blok Kıranlar", "Kırılan toplam blok sayısı.", kir, v -> sayiYaz(v) + " blok"));
@@ -233,6 +267,7 @@ public class SiralamaManager {
         kat.add(kategoriAd("ticaret", "En Çok Ticaret Yapanlar", "Pazar, para transferi ve toptancı işlemleri toplamı.", tIslem, v -> sayiYaz(v) + " işlem"));
         Map<String, Object> kok = new java.util.LinkedHashMap<>();
         kok.put("guncelleme", ZonedDateTime.now(ZoneId.of("Europe/Istanbul")).format(DateTimeFormatter.ofPattern("d.M.yyyy HH:mm")));
+        kok.put("yeni", yeniKatilanlar());
         kok.put("kategoriler", kat);
         final String json = gson.toJson(kok);
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> yaz(json));
