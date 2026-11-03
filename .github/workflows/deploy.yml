@@ -1,0 +1,67 @@
+name: deploy
+# Elle calistirilir (Actions > deploy > Run workflow). Otomatik degildir:
+# calisan sunucunun altindaki jar'i habersiz degistirmemek icin.
+on:
+  workflow_dispatch:
+    inputs:
+      sadece_test:
+        description: 'true ise sadece panele baglanir, plugins klasorunu listeler, hicbir dosyayi degistirmez'
+        default: 'true'
+        required: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PANEL: https://balbazar.anksoft.net
+      SUNUCU: e697af01
+      ANAHTAR: ${{ secrets.PTERO_API_KEY }}
+      TEST: ${{ github.event.inputs.sadece_test }}
+    steps:
+      - name: Anahtar var mi
+        run: |
+          if [ -z "$ANAHTAR" ]; then echo "PTERO_API_KEY secret'i yok"; exit 1; fi
+      - name: Panele baglan, plugins klasorunu listele
+        run: |
+          code=$(curl -s -o /tmp/liste.json -w '%{http_code}' \
+            -H "Authorization: Bearer $ANAHTAR" -H 'Accept: application/vnd.wings.v1+json' \
+            "$PANEL/api/client/servers/$SUNUCU/files/list?directory=%2Fplugins")
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then head -c 300 /tmp/liste.json; echo; exit 1; fi
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/liste.json'))
+          for f in d['data']:
+              a=f['attributes']
+              if a['name'].startswith('MeslekSistemi') and a['name'].endswith('.jar') or a['name']=='MeslekSistemi-1.0.jar':
+                  print(a['name'], a['size'])
+          PY
+      - uses: actions/checkout@v4
+        if: ${{ github.event.inputs.sadece_test != 'true' }}
+        with:
+          ref: jar-claude
+      - name: Yedekle, yukle, boyutu dogrula
+        if: ${{ github.event.inputs.sadece_test != 'true' }}
+        run: |
+          set -e
+          JAR=$(ls MeslekSistemi*.jar | head -n1)
+          BOYUT=$(stat -c %s "$JAR")
+          echo "Yuklenecek: $JAR $BOYUT bayt"
+          GUN=$(date -u +%Y%m%d-%H%M)
+          # eski jar'i yedege al
+          curl -sf -X PUT -H "Authorization: Bearer $ANAHTAR" -H 'Accept: application/vnd.wings.v1+json' -H 'Content-Type: application/json' \
+            -d "{\"root\":\"/plugins\",\"files\":[{\"from\":\"MeslekSistemi-1.0.jar\",\"to\":\"MeslekSistemi-1.0.jar.bak-$GUN-ci\"}]}" \
+            "$PANEL/api/client/servers/$SUNUCU/files/rename"
+          # yeni jar'i yaz
+          code=$(curl -s -o /tmp/yaz.txt -w '%{http_code}' -X POST -H "Authorization: Bearer $ANAHTAR" -H 'Accept: application/vnd.wings.v1+json' \
+            --data-binary @"$JAR" "$PANEL/api/client/servers/$SUNUCU/files/write?file=%2Fplugins%2FMeslekSistemi-1.0.jar")
+          echo "yazma HTTP $code"
+          [ "$code" = "204" ] || [ "$code" = "200" ] || { cat /tmp/yaz.txt; exit 1; }
+          # boyut dogrulama
+          curl -sf -H "Authorization: Bearer $ANAHTAR" -H 'Accept: application/vnd.wings.v1+json' \
+            "$PANEL/api/client/servers/$SUNUCU/files/list?directory=%2Fplugins" > /tmp/liste2.json
+          PANELBOYUT=$(python3 -c "import json;d=json.load(open('/tmp/liste2.json'));print([f['attributes']['size'] for f in d['data'] if f['attributes']['name']=='MeslekSistemi-1.0.jar'][0])")
+          echo "panelde: $PANELBOYUT"
+          [ "$PANELBOYUT" = "$BOYUT" ] || { echo "BOYUT UYUSMUYOR"; exit 1; }
+          echo "Tamam. Sunucuyu yeniden baslatmayi unutma."
