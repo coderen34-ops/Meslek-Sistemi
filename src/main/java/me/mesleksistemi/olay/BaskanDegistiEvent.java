@@ -5,7 +5,7 @@ import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 
 /**
- * Belediye başkanı değiştiğinde ya da başkanlık düştüğünde (yeniUuid null olabilir). sebep: SECIM, DUSURME, ISTIFA.
+ * Belediye başkanı değiştiğinde ya da başkanlık düştüğünde (yeniUuid null olabilir). sebep: SECIM, DUSURME, ISTIFA, YONETICI (/meslekata ile başkanlık verildi ya da alındı).
  * Senkron (ana thread) yayınlanır; iptal edilemez. Yalnızca bildirim amaçlıdır, oyun mantığını değiştirmez.
  */
 public class BaskanDegistiEvent extends Event {

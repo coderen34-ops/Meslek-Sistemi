@@ -616,6 +616,13 @@ public class MeslekSistemi extends JavaPlugin {
             if (Bukkit.isPrimaryThread())
                 Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.MeslekDegistiEvent(uuid, eskiMeslek, yeniMeslek, s));
         } catch (Throwable t) { getLogger().warning("MeslekDegistiEvent: " + t); }
+        // Yönetici /meslekata ile başkanlık verdi/aldı: seçim, düşürme ve istifa kendi BaskanDegistiEvent'ini yayınlar,
+        // bu yol onlara uğramadığı için burada tamamlanır (çift yayın olmasın diye yalnızca YONETICI).
+        if ("YONETICI".equals(s)) {
+            UUID eskiB = "belediyebaskani".equalsIgnoreCase(eskiMeslek) ? uuid : null;
+            UUID yeniB = "belediyebaskani".equalsIgnoreCase(yeniMeslek) ? uuid : null;
+            if (eskiB != null || yeniB != null) baskanDegistiBildir(eskiB, yeniB, "YONETICI");
+        }
     }
 
     public void baskanDegistiBildir(UUID eski, UUID yeni, String sebep) {
