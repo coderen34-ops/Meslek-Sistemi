@@ -43,17 +43,71 @@ public class SiralamaManager {
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private BukkitTask gorev;
     private volatile String sonYuklenenHash = "";
+    // Baygın düşme sayacı (kalıcı: bayilma.yml). Sayım bu özelliğin eklendiği andan itibaren başlar.
+    private final Map<UUID, Integer> bayilma = new HashMap<>();
+    private boolean bayilmaDegisti = false;
+    // Bot/sahte hesap adları sıralamada ve yeni katılanlarda görünmez (siralama.yml: dislanan listesi + ...Bot ile biten adlar)
+    private volatile java.util.Set<String> dislanan = new java.util.HashSet<>(java.util.List.of("fishingbot"));
 
     public SiralamaManager(MeslekSistemi plugin) {
         this.plugin = plugin;
+        bayilmaYukle();
         long aralik = Math.max(1, plugin.getConfig().getLong("siralama.aralik-dk", 10)) * 60L * 20L;
         this.gorev = Bukkit.getScheduler().runTaskTimer(plugin, this::guncelle, 20L * 60, aralik);
     }
 
-    public void kapat() { if (gorev != null) gorev.cancel(); }
+    public void kapat() { if (gorev != null) gorev.cancel(); bayilmaKaydet(); }
+
+    /** Bir oyuncu baygın/ağır yaralı düştüğünde çağrılır (ana thread). */
+    public void bayilmaSay(UUID id) {
+        if (id == null) return;
+        bayilma.merge(id, 1, Integer::sum);
+        bayilmaDegisti = true;
+    }
+
+    private File bayilmaDosyasi() { return new File(plugin.getDataFolder(), "bayilma.yml"); }
+
+    private void bayilmaYukle() {
+        try {
+            File f = bayilmaDosyasi();
+            if (!f.isFile()) return;
+            ConfigurationSection b = YamlConfiguration.loadConfiguration(f).getConfigurationSection("bayilma");
+            if (b == null) return;
+            for (String k : b.getKeys(false)) {
+                try { int v = b.getInt(k); if (v > 0) bayilma.put(UUID.fromString(k), v); } catch (Exception ignored) { }
+            }
+        } catch (Exception e) { plugin.getLogger().warning("bayilma.yml okunamadı: " + e); }
+    }
+
+    private void bayilmaKaydet() {
+        if (!bayilmaDegisti) return;
+        try {
+            YamlConfiguration y = new YamlConfiguration();
+            for (Map.Entry<UUID, Integer> e : bayilma.entrySet()) y.set("bayilma." + e.getKey(), e.getValue());
+            y.save(bayilmaDosyasi());
+            bayilmaDegisti = false;
+        } catch (Exception e) { plugin.getLogger().warning("bayilma.yml yazılamadı: " + e); }
+    }
+
+    private boolean botMu(String ad) {
+        if (ad == null) return true;
+        return dislanan.contains(ad.toLowerCase()) || ad.matches(".*[a-z]Bot$");
+    }
+
+    private void dislananYukle() {
+        java.util.Set<String> k = new java.util.HashSet<>(java.util.List.of("fishingbot"));
+        try {
+            YamlConfiguration ayar = YamlConfiguration.loadConfiguration(new File(plugin.getDataFolder(), "siralama.yml"));
+            for (String a : ayar.getStringList("dislanan")) k.add(a.toLowerCase());
+        } catch (Exception ignored) { }
+        dislanan = k;
+    }
 
     /** Ana thread: bellekteki verileri al, dosya okumayı async yap. */
     public void guncelle() {
+        dislananYukle();
+        bayilmaKaydet();
+        final Map<UUID, Integer> bayilmaKopya = new HashMap<>(bayilma);
         final Map<UUID, Double> zengin = new HashMap<>(plugin.bankaHesaplari);
         final Map<UUID, Integer> sabika = new HashMap<>();
         ConfigurationSection sc = plugin.getConfig().getConfigurationSection("sabika");
@@ -68,7 +122,7 @@ public class SiralamaManager {
             Map<UUID, long[]> stat = statOku(statKlasor);
             Map<String, double[]> ticaret = logOku();
             Map<UUID, Integer> arena = arenaOku();
-            Bukkit.getScheduler().runTask(plugin, () -> olustur(zengin, sabika, stat, ticaret, begeni, arena));
+            Bukkit.getScheduler().runTask(plugin, () -> olustur(zengin, sabika, stat, ticaret, begeni, arena, bayilmaKopya));
         });
     }
 
@@ -92,7 +146,7 @@ public class SiralamaManager {
     private List<Map<String, Object>> yeniKatilanlar() {
         List<org.bukkit.OfflinePlayer> liste = new ArrayList<>();
         for (org.bukkit.OfflinePlayer o : Bukkit.getOfflinePlayers()) {
-            if (o.getName() != null && o.getFirstPlayed() > 0) liste.add(o);
+            if (o.getName() != null && o.getFirstPlayed() > 0 && !botMu(o.getName())) liste.add(o);
         }
         liste.sort((a, b) -> Long.compare(b.getFirstPlayed(), a.getFirstPlayed()));
         List<Map<String, Object>> sonuc = new ArrayList<>();
@@ -213,7 +267,7 @@ public class SiralamaManager {
 
     private Map<String, Object> kategoriAd(String id, String baslik, String aciklama, Map<String, Double> veri, Deger bicim) {
         List<Map.Entry<String, Double>> liste = new ArrayList<>();
-        for (Map.Entry<String, Double> e : veri.entrySet()) if (e.getValue() > 0) liste.add(e);
+        for (Map.Entry<String, Double> e : veri.entrySet()) if (e.getValue() > 0 && !botMu(e.getKey())) liste.add(e);
         liste.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
         List<Map<String, Object>> satirlar = new ArrayList<>();
         int sira = 1;
@@ -237,7 +291,7 @@ public class SiralamaManager {
         return String.valueOf((long) v);
     }
 
-    private void olustur(Map<UUID, Double> zengin, Map<UUID, Integer> sabika, Map<UUID, long[]> stat, Map<String, double[]> ticaret, Map<UUID, int[]> begeni, Map<UUID, Integer> arena) {
+    private void olustur(Map<UUID, Double> zengin, Map<UUID, Integer> sabika, Map<UUID, long[]> stat, Map<String, double[]> ticaret, Map<UUID, int[]> begeni, Map<UUID, Integer> arena, Map<UUID, Integer> bayilmaKopya) {
         Map<UUID, Long> oyna = new HashMap<>(), oldur = new HashMap<>(), olum = new HashMap<>(), mob = new HashMap<>(), kir = new HashMap<>();
         for (Map.Entry<UUID, long[]> e : stat.entrySet()) {
             long[] v = e.getValue();
@@ -249,7 +303,7 @@ public class SiralamaManager {
         kat.add(kategori("sabika", "En Çok Sabıkası Olanlar", "Sabıka kaydı en kabarık oyuncular.", sabika, v -> (long) v + " sabıka"));
         kat.add(kategori("oynama", "En Çok Oynayanlar", "Toplam oynama süresi.", oyna, v -> { long s = (long) v; return (s / 86400) + " gün " + ((s % 86400) / 3600) + " saat"; }));
         kat.add(kategori("arena", "Arena Ligi Şampiyonları", "Arena Ligi'nde en çok maç kazanan dövüşçüler.", arena, v -> (long) v + " galibiyet"));
-        kat.add(kategori("olum", "En Çok Ölenler", "En çok ölen oyuncular.", olum, v -> sayiYaz(v) + " ölüm"));
+        kat.add(kategori("bayilma", "En Çok Bayılanlar", "Baygın/ağır yaralı duruma en çok düşen oyuncular (sayım bu güncellemeyle başladı).", bayilmaKopya, v -> (long) v + " kez"));
         kat.add(kategori("mob", "En Çok Mob Avlayanlar", "Öldürülen canavar sayısı.", mob, v -> sayiYaz(v) + " mob"));
         kat.add(kategori("kirma", "En Çok Blok Kıranlar", "Kırılan toplam blok sayısı.", kir, v -> sayiYaz(v) + " blok"));
         Map<String, Double> pAdet = new HashMap<>(), pCiro = new HashMap<>(), tCiro = new HashMap<>(), tIslem = new HashMap<>();

@@ -550,6 +550,7 @@ public class SaglikManager implements Listener, CommandExecutor {
             UUID saldiran = saldiranOyuncu(event);
             if (saldiran != null) yaralayanlar.put(uuid, saldiran);
             applyDownedState(player, 1200); // 20 Dakika
+            if (plugin.siralamaManager != null) plugin.siralamaManager.bayilmaSay(uuid);
             player.sendMessage(ChatColor.DARK_RED + "Ağır yaralandın ve bilincini kaybettin!");
             player.sendMessage(ChatColor.RED + "Bir doktor gelmezse 20 dakika içinde öleceksin.");
             player.sendMessage(ChatColor.YELLOW + "Ambulans çağırmak için " + ChatColor.GOLD + "/ambulanscagir" + ChatColor.YELLOW + " yazabilirsin. (Ücret: $" + (long) cfg("ambulans-ucret-doktorsuz", 1000.0) + ", aktif doktor varsa $" + (long) cfg("ambulans-ucret-doktorlu", 1250.0) + ")");
@@ -672,6 +673,7 @@ public class SaglikManager implements Listener, CommandExecutor {
         if (npcMi(player)) return;
         if (downedPlayers.containsKey(player.getUniqueId())) return; // zaten ağır yaralı
         applyDownedState(player, 1200);
+        if (plugin.siralamaManager != null) plugin.siralamaManager.bayilmaSay(player.getUniqueId());
     }
 
     private void applyDownedState(Player player, int time) {
