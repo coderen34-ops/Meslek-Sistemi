@@ -220,6 +220,15 @@ public class VipManager implements Listener, CommandExecutor {
         kaydet();
     }
 
+    /** Süre dolumu: paketi bitirir ve VipBittiEvent yayınlar (admin ile alma yolu olay yayınlamaz). */
+    private void vipSuresiDoldu(UUID id, String isim) {
+        String paket = veri.getString("vip." + id + ".paket");
+        vipBitir(id, isim);
+        try {
+            Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.VipBittiEvent(id, paket));
+        } catch (Throwable t) { plugin.getLogger().warning("VipBittiEvent: " + t); }
+    }
+
     private void sureKontrol() {
         ConfigurationSection s = veri.getConfigurationSection("vip");
         if (s == null) return;
@@ -230,7 +239,7 @@ public class VipManager implements Listener, CommandExecutor {
             UUID id;
             try { id = UUID.fromString(k); } catch (Exception e) { veri.set("vip." + k, null); continue; }
             String isim = veri.getString("vip." + k + ".isim", "");
-            vipBitir(id, isim);
+            vipSuresiDoldu(id, isim);
             Player p = Bukkit.getPlayer(id);
             if (p != null) p.sendMessage(ChatColor.RED + "VIP süren bitti. Yenilemek için mağazaya bakabilirsin.");
         }
@@ -263,7 +272,7 @@ public class VipManager implements Listener, CommandExecutor {
         if (veri.contains("vip." + id)) {
             String pk = paket(id);
             if (pk == null) {
-                vipBitir(id, p.getName());
+                vipSuresiDoldu(id, p.getName());
                 p.sendMessage(ChatColor.RED + "VIP süren bitti. Yenilemek için mağazaya bakabilirsin.");
             } else {
                 veri.set("vip." + id + ".isim", p.getName());

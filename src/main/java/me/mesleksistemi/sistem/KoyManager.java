@@ -203,7 +203,7 @@ public class KoyManager implements CommandExecutor, TabCompleter, Listener {
             return;
         }
 
-        plugin.oyuncuMeslekCache.put(target.getUniqueId(), "gocmen");
+        String __eskiM = plugin.oyuncuMeslekCache.put(target.getUniqueId(), "gocmen"); plugin.meslekDegistiBildir(target.getUniqueId(), __eskiM, "gocmen", "GOCMEN");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + target.getName() + " parent set gocmen");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + target.getName() + " gocmen");
         plugin.veriKaydet();

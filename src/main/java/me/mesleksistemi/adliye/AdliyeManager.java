@@ -133,14 +133,39 @@ public class AdliyeManager {
 
     // Duruşmayı yöneten hakim oyundan çıkarsa taraflar salonda mahsur kalmasın:
     // duruşma ertelenir ve dava başka bir hakim tarafından yeniden başlatılabilir.
+    // ---- Olay yayını (Koninski-Mobil): hepsi ana thread, mantığı değiştirmez ----
+    /** Dava durumu değiştikten SONRA çağrılır; eski durumu verir, yeni durum dava.durum'dur. */
+    public void durumBildir(DavaDosyasi dava, DavaDurumu eski) {
+        yayinla(dava, eski == null ? null : eski.name(), dava.durum == null ? null : dava.durum.name());
+    }
+
+    /** Dava yeni oluşturulduğunda (eski durum null). */
+    public void davaOlustuBildir(DavaDosyasi dava) { durumBildir(dava, null); }
+
+    /** Hakim kararıyla dava kapanırken (aktifDavalar'dan silinmeden hemen önce) çağrılır. sonuc: SUCLU veya BERAAT. */
+    public void kapandiBildir(DavaDosyasi dava, String sonuc, double tazminat) {
+        yayinla(dava, dava.durum == null ? null : dava.durum.name(), "KAPANDI");
+        try {
+            Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.DavaKararEvent(dava.id, sonuc, tazminat));
+        } catch (Throwable t) { plugin.getLogger().warning("DavaKararEvent: " + t); }
+    }
+
+    private void yayinla(DavaDosyasi d, String eski, String yeni) {
+        try {
+            Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.DavaDurumEvent(d.id, eski, yeni, d.musteki, d.sanik, d.hakim));
+        } catch (Throwable t) { plugin.getLogger().warning("DavaDurumEvent: " + t); }
+    }
+
     public void hakimAyrildi(Player hakim) {
         hakimKararAsamasi.remove(hakim.getUniqueId());
         geciciHakimTazminat.remove(hakim.getUniqueId());
         for (DavaDosyasi dava : aktifDavalar.values()) {
             if (dava.durum == DavaDurumu.DURUSMADA && hakim.getName().equalsIgnoreCase(dava.hakim)) {
                 durusmayiBitir(dava);
+                DavaDurumu __eskiD = dava.durum;
                 dava.durum = DavaDurumu.HAKIM_BEKLIYOR;
                 dava.hakim = null;
+                durumBildir(dava, __eskiD);
                 Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.YELLOW + "Dava No: " + dava.id.toString().substring(0, 5)
                         + " duruşması hakimin ayrılması nedeniyle ertelendi. Yeni bir hakim bekleniyor.");
             }

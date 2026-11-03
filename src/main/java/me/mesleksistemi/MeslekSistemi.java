@@ -591,7 +591,39 @@ public class MeslekSistemi extends JavaPlugin {
     // EKONOMİ LOG'U: plugins/MeslekSistemi/loglar/ekonomi-YYYY-AA.log
     // Dosya arka plandaki kayıt thread'inde yazılır (sunucu donmaz).
     // ------------------------------------------------------------------
+    private boolean ekonomiLogOlayiYayinda = false;
+
+    // ------------------------------------------------------------------
+    // Olay yayın yardımcıları (Koninski-Mobil köprüsü için). Hepsi ana thread'de çalışır;
+    // oyun mantığını değiştirmez, yalnızca bildirim yayınlar.
+    // ------------------------------------------------------------------
+    /** Meslek değişimini tek noktadan bildirir. sebepIpucu doluysa (meslekata başka bir sistemden çağrıldıysa) o kullanılır. */
+    public String meslekDegisimSebebiIpucu = null;
+
+    public void meslekDegistiBildir(UUID uuid, String eskiMeslek, String yeniMeslek, String sebep) {
+        if (uuid == null) return;
+        if (eskiMeslek != null && eskiMeslek.equalsIgnoreCase(yeniMeslek)) return; // değişmediyse olay yok
+        String s = meslekDegisimSebebiIpucu != null ? meslekDegisimSebebiIpucu : sebep;
+        try {
+            if (Bukkit.isPrimaryThread())
+                Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.MeslekDegistiEvent(uuid, eskiMeslek, yeniMeslek, s));
+        } catch (Throwable t) { getLogger().warning("MeslekDegistiEvent: " + t); }
+    }
+
+    public void baskanDegistiBildir(UUID eski, UUID yeni, String sebep) {
+        try {
+            if (Bukkit.isPrimaryThread())
+                Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.BaskanDegistiEvent(eski, yeni, sebep));
+        } catch (Throwable t) { getLogger().warning("BaskanDegistiEvent: " + t); }
+    }
+
     public void ekonomiLog(String kategori, String kim, String detay) {
+        if (!ekonomiLogOlayiYayinda && Bukkit.isPrimaryThread()) {
+            ekonomiLogOlayiYayinda = true;
+            try { Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.EkonomiLogEvent(kategori, kim, detay)); }
+            catch (Throwable t) { getLogger().warning("EkonomiLogEvent: " + t); }
+            finally { ekonomiLogOlayiYayinda = false; }
+        }
         java.time.LocalDateTime simdi = java.time.LocalDateTime.now();
         String satir = "[" + simdi.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "] ["
                 + kategori + "] " + kim + " | " + detay + System.lineSeparator();

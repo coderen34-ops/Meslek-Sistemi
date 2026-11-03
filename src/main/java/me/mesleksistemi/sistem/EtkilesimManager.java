@@ -594,15 +594,10 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
         }
 
         int deger = slot == SLOT_BEGEN ? 1 : -1;
-        Map<UUID, Integer> m = oylar.computeIfAbsent(hedef, k -> new HashMap<>());
-        Integer eski = m.get(p.getUniqueId());
         String ad = adOf(hedef);
-        if (eski != null && eski == deger) {
-            m.remove(p.getUniqueId());
-            if (m.isEmpty()) oylar.remove(hedef);
+        if (oyVer(p.getUniqueId(), hedef, deger) == me.mesleksistemi.api.EtkilesimSonucu.GERI_ALINDI) {
             p.sendMessage(ChatColor.YELLOW + ad + " için verdiğin oy geri alındı.");
         } else {
-            m.put(p.getUniqueId(), deger);
             p.sendMessage(deger == 1
                     ? ChatColor.GREEN + ad + " oyuncusunu beğendin."
                     : ChatColor.RED + ad + " oyuncusunu beğenmedin.");
@@ -631,6 +626,122 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
         });
     }
 
+    // ------------------------------------------------------------------ ortak çekirdekler (menü + MeslekAPI)
+    // Hepsi ana thread'de çalışır. Menü ve API aynı kod yolundan geçer; kural farkı yoktur.
+
+    /** Para transferi çekirdeği: menü ve MeslekAPI.transfer ortak kullanır. Vergi yok, alt limit PARA_MIN, mahkum gönderemez. */
+    public me.mesleksistemi.api.TransferSonucu paraTasi(UUID gonderen, UUID alici, double miktar) {
+        double bak0 = plugin.bankaHesaplari.getOrDefault(gonderen, 0.0);
+        if (Double.isNaN(miktar) || Double.isInfinite(miktar))
+            return new me.mesleksistemi.api.TransferSonucu(me.mesleksistemi.api.TransferDurum.GECERSIZ_MIKTAR, miktar, bak0, false);
+        miktar = Math.round(miktar * 100.0) / 100.0;
+        if (miktar < PARA_MIN)
+            return new me.mesleksistemi.api.TransferSonucu(me.mesleksistemi.api.TransferDurum.MIN_ALTI, miktar, bak0, false);
+        if (plugin.oyuncuMeslekCache.getOrDefault(gonderen, "vatandas").equalsIgnoreCase("mahkum"))
+            return new me.mesleksistemi.api.TransferSonucu(me.mesleksistemi.api.TransferDurum.MAHKUM, miktar, bak0, false);
+        if (gonderen.equals(alici))
+            return new me.mesleksistemi.api.TransferSonucu(me.mesleksistemi.api.TransferDurum.KENDINE, miktar, bak0, false);
+        if (bak0 < miktar)
+            return new me.mesleksistemi.api.TransferSonucu(me.mesleksistemi.api.TransferDurum.YETERSIZ_BAKIYE, miktar, bak0, false);
+        plugin.bankaHesaplari.put(gonderen, bak0 - miktar);
+        plugin.bankaHesaplari.merge(alici, miktar, Double::sum);
+        plugin.veriKaydet();
+        try {
+            Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.ParaTransferEvent(gonderen, alici, miktar, 0.0));
+        } catch (Throwable t) { plugin.getLogger().warning("ParaTransferEvent: " + t); }
+        return new me.mesleksistemi.api.TransferSonucu(me.mesleksistemi.api.TransferDurum.BASARILI, miktar, bak0 - miktar, false);
+    }
+
+    /** Yorum/oy katılım koşulu (UUID ile; çevrimdışı oyuncu da olabilir). null = katılabilir. */
+    private String katilamazNedeniUuid(UUID id) {
+        String m = plugin.oyuncuMeslekCache.getOrDefault(id, "vatandas");
+        if (m.equalsIgnoreCase("gocmen") || m.equalsIgnoreCase("default")) return "Göçmenler oy veremez ve yorum bırakamaz.";
+        if (m.equalsIgnoreCase("mahkum")) return "Hapisteyken oy veremez ve yorum bırakamazsınız.";
+        int dakika = Bukkit.getOfflinePlayer(id).getStatistic(Statistic.PLAY_ONE_MINUTE) / 20 / 60;
+        if (dakika < minOyunDakika()) {
+            return "Oy vermek ve yorum bırakmak için en az " + minOyunDakika() + " dakika oynamış olmalısınız (şu an " + dakika + ").";
+        }
+        return null;
+    }
+
+    /** MeslekAPI için: oy/yorum katılım engeli nedeni (null = katılabilir). */
+    public String katilimNedeni(UUID id) { return katilamazNedeniUuid(id); }
+    public me.mesleksistemi.api.EtkilesimSonucu katilimSonucuDisari(String neden) { return katilimSonucu(neden); }
+
+    private me.mesleksistemi.api.EtkilesimSonucu katilimSonucu(String neden) {
+        if (neden == null) return null;
+        if (neden.startsWith("Göçmen")) return me.mesleksistemi.api.EtkilesimSonucu.GOCMEN;
+        if (neden.startsWith("Hapis")) return me.mesleksistemi.api.EtkilesimSonucu.MAHKUM;
+        return me.mesleksistemi.api.EtkilesimSonucu.YETERSIZ_SURE;
+    }
+
+    /** yorumKaydet sonucu: ayrinti = BEKLEME için kalan saniye, METIN_UZUN için yazılan uzunluk. */
+    public record YorumDurumu(me.mesleksistemi.api.EtkilesimSonucu sonuc, String metin, String neden, long ayrinti) { }
+
+    /** Profil yorumu çekirdeği: menü sohbet akışı ve MeslekAPI.profilYorumEkle ortak kullanır. */
+    public YorumDurumu yorumKaydet(UUID yazan, String yazanAd, UUID hedef, String ham) {
+        String neden = katilamazNedeniUuid(yazan);
+        if (neden != null) return new YorumDurumu(katilimSonucu(neden), null, neden, 0);
+        String metin = ChatColor.stripColor(ham.replace('§', ' ')).replaceAll("\\s+", " ").trim();
+        if (metin.length() < yorumMin())
+            return new YorumDurumu(me.mesleksistemi.api.EtkilesimSonucu.METIN_KISA, metin, null, metin.length());
+        if (metin.length() > yorumMax())
+            return new YorumDurumu(me.mesleksistemi.api.EtkilesimSonucu.METIN_UZUN, metin, null, metin.length());
+        String anahtar = yazan + ">" + hedef;
+        long simdi = System.currentTimeMillis();
+        Long son = sonYorum.get(anahtar);
+        if (son != null && simdi - son < yorumBekleme() * 1000L) {
+            long kalan = (yorumBekleme() * 1000L - (simdi - son)) / 1000L + 1;
+            return new YorumDurumu(me.mesleksistemi.api.EtkilesimSonucu.BEKLEME, metin, null, kalan);
+        }
+        sonYorum.put(anahtar, simdi);
+        List<Yorum> liste = yorumlar.computeIfAbsent(hedef, k -> new ArrayList<>());
+        liste.add(new Yorum(yazan, yazanAd, metin, simdi));
+        while (liste.size() > enFazlaYorum()) liste.remove(0);
+        kaydetPlanla();
+        try {
+            Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.ProfilYorumEvent(hedef, yazan, metin));
+        } catch (Throwable t) { plugin.getLogger().warning("ProfilYorumEvent: " + t); }
+        return new YorumDurumu(me.mesleksistemi.api.EtkilesimSonucu.BASARILI, metin, null, 0);
+    }
+
+    /** Oy çekirdeği: deger +1 beğeni, -1 beğenmeme. Aynı oy tekrar verilirse geri alınır. */
+    public me.mesleksistemi.api.EtkilesimSonucu oyVer(UUID yazan, UUID hedef, int deger) {
+        Map<UUID, Integer> m = oylar.computeIfAbsent(hedef, k -> new HashMap<>());
+        Integer eski = m.get(yazan);
+        me.mesleksistemi.api.EtkilesimSonucu sonuc;
+        String tip;
+        if (eski != null && eski == deger) {
+            m.remove(yazan);
+            if (m.isEmpty()) oylar.remove(hedef);
+            sonuc = me.mesleksistemi.api.EtkilesimSonucu.GERI_ALINDI;
+            tip = "GERI_ALINDI";
+        } else {
+            m.put(yazan, deger);
+            sonuc = me.mesleksistemi.api.EtkilesimSonucu.BASARILI;
+            tip = deger == 1 ? "BEGENI" : "BEGENMEME";
+        }
+        try {
+            Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.BegeniEvent(hedef, yazan, tip));
+        } catch (Throwable t) { plugin.getLogger().warning("BegeniEvent: " + t); }
+        return sonuc;
+    }
+
+    /** MeslekAPI.profilOzeti için. Hiç görülmemiş UUID için null. */
+    public me.mesleksistemi.api.ProfilOzeti profilOzetiUuid(UUID id) {
+        OfflinePlayer op = Bukkit.getOfflinePlayer(id);
+        if (!op.hasPlayedBefore() && !adlar.containsKey(id) && !plugin.bankaHesaplari.containsKey(id)) return null;
+        List<me.mesleksistemi.api.ProfilYorumu> yl = new ArrayList<>();
+        for (Yorum y : yorumlar.getOrDefault(id, List.of())) yl.add(new me.mesleksistemi.api.ProfilYorumu(y.yazar, y.yazarAd, y.metin, y.zaman));
+        return new me.mesleksistemi.api.ProfilOzeti(id, adOf(id), plugin.oyuncuMeslekCache.getOrDefault(id, "vatandas"),
+                plugin.bankaHesaplari.getOrDefault(id, 0.0), begeniSayisi(id, 1), begeniSayisi(id, -1), yl);
+    }
+
+    /** MeslekAPI için: kayıtlı bilinen oyuncu mu? (alıcı kontrolü) */
+    public boolean oyuncuBilinir(UUID id) {
+        return adlar.containsKey(id) || plugin.bankaHesaplari.containsKey(id) || Bukkit.getOfflinePlayer(id).hasPlayedBefore();
+    }
+
     private void paraIsle(Player p, String ham) {
         UUID hedef = paraBekleyen.remove(p.getUniqueId());
         if (hedef == null) return;
@@ -645,28 +756,28 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
             p.sendMessage(ChatColor.RED + "Geçerli bir miktar yazmalısın. Tekrar denemek için menüden yeniden seç.");
             return;
         }
-        if (Double.isNaN(miktar) || Double.isInfinite(miktar)) {
-            p.sendMessage(ChatColor.RED + "Geçersiz miktar.");
-            return;
+        me.mesleksistemi.api.TransferSonucu sonuc = paraTasi(p.getUniqueId(), hedef, miktar);
+        switch (sonuc.durum()) {
+            case GECERSIZ_MIKTAR -> {
+                p.sendMessage(ChatColor.RED + "Geçersiz miktar.");
+                return;
+            }
+            case MIN_ALTI -> {
+                p.sendMessage(ChatColor.RED + "En az $" + (int) PARA_MIN + " gönderebilirsin.");
+                return;
+            }
+            case MAHKUM -> {
+                p.sendMessage(ChatColor.RED + "Hapisteyken para gönderemezsin.");
+                return;
+            }
+            case KENDINE -> { return; }
+            case YETERSIZ_BAKIYE -> {
+                p.sendMessage(ChatColor.RED + "Banka hesabında yeterli bakiye yok! Bakiyen: $" + String.format(Locale.US, "%.2f", sonuc.gonderenBakiye()));
+                return;
+            }
+            default -> { }
         }
-        miktar = Math.round(miktar * 100.0) / 100.0;
-        if (miktar < PARA_MIN) {
-            p.sendMessage(ChatColor.RED + "En az $" + (int) PARA_MIN + " gönderebilirsin.");
-            return;
-        }
-        if (meslekOf(p).equalsIgnoreCase("mahkum")) {
-            p.sendMessage(ChatColor.RED + "Hapisteyken para gönderemezsin.");
-            return;
-        }
-        if (p.getUniqueId().equals(hedef)) return;
-        double bakiye = plugin.bankaHesaplari.getOrDefault(p.getUniqueId(), 0.0);
-        if (bakiye < miktar) {
-            p.sendMessage(ChatColor.RED + "Banka hesabında yeterli bakiye yok! Bakiyen: $" + String.format(Locale.US, "%.2f", bakiye));
-            return;
-        }
-        plugin.bankaHesaplari.put(p.getUniqueId(), bakiye - miktar);
-        plugin.bankaHesaplari.merge(hedef, miktar, Double::sum);
-        plugin.veriKaydet();
+        miktar = sonuc.miktar();
 
         String ad = adOf(hedef);
         String yazi = "$" + String.format(Locale.US, "%.2f", miktar);
@@ -687,34 +798,27 @@ public class EtkilesimManager implements Listener, CommandExecutor, TabCompleter
             p.sendMessage(ChatColor.YELLOW + "Yorum iptal edildi.");
             return;
         }
-        String neden = katilamazNedeni(p);
-        if (neden != null) {
-            p.sendMessage(ChatColor.RED + neden);
-            return;
+        YorumDurumu yd = yorumKaydet(p.getUniqueId(), p.getName(), hedef, ham);
+        String metin = yd.metin();
+        switch (yd.sonuc()) {
+            case GOCMEN, MAHKUM, YETERSIZ_SURE -> {
+                p.sendMessage(ChatColor.RED + yd.neden());
+                return;
+            }
+            case METIN_KISA -> {
+                p.sendMessage(ChatColor.RED + "Yorum en az " + yorumMin() + " karakter olmalı. Tekrar denemek için menüden yeniden seç.");
+                return;
+            }
+            case METIN_UZUN -> {
+                p.sendMessage(ChatColor.RED + "Yorum en fazla " + yorumMax() + " karakter olabilir (" + yd.ayrinti() + " yazdın). Tekrar denemek için menüden yeniden seç.");
+                return;
+            }
+            case BEKLEME -> {
+                p.sendMessage(ChatColor.RED + "Bu oyuncuya tekrar yorum bırakmak için " + yd.ayrinti() + " saniye beklemelisin.");
+                return;
+            }
+            default -> { }
         }
-        String metin = ChatColor.stripColor(ham.replace('§', ' ')).replaceAll("\\s+", " ").trim();
-        if (metin.length() < yorumMin()) {
-            p.sendMessage(ChatColor.RED + "Yorum en az " + yorumMin() + " karakter olmalı. Tekrar denemek için menüden yeniden seç.");
-            return;
-        }
-        if (metin.length() > yorumMax()) {
-            p.sendMessage(ChatColor.RED + "Yorum en fazla " + yorumMax() + " karakter olabilir (" + metin.length() + " yazdın). Tekrar denemek için menüden yeniden seç.");
-            return;
-        }
-        String anahtar = p.getUniqueId() + ">" + hedef;
-        long simdi = System.currentTimeMillis();
-        Long son = sonYorum.get(anahtar);
-        if (son != null && simdi - son < yorumBekleme() * 1000L) {
-            long kalan = (yorumBekleme() * 1000L - (simdi - son)) / 1000L + 1;
-            p.sendMessage(ChatColor.RED + "Bu oyuncuya tekrar yorum bırakmak için " + kalan + " saniye beklemelisin.");
-            return;
-        }
-        sonYorum.put(anahtar, simdi);
-
-        List<Yorum> liste = yorumlar.computeIfAbsent(hedef, k -> new ArrayList<>());
-        liste.add(new Yorum(p.getUniqueId(), p.getName(), metin, simdi));
-        while (liste.size() > enFazlaYorum()) liste.remove(0);
-        kaydetPlanla();
 
         String ad = adOf(hedef);
         p.sendMessage(ChatColor.GREEN + ad + " oyuncusuna yorumun kaydedildi: " + ChatColor.GRAY + "\"" + metin + "\"");

@@ -462,6 +462,7 @@ public class SecimManager implements Listener, CommandExecutor {
                 @Override
                 public void run() {
                     List<UUID> silinecekBaskanlar = new ArrayList<>();
+                    final boolean[] yenidenSecildi = {false};
                     
                     if (plugin.oyuncuMeslekCache != null) {
                         for (Map.Entry<UUID, String> entry : plugin.oyuncuMeslekCache.entrySet()) {
@@ -469,6 +470,8 @@ public class SecimManager implements Listener, CommandExecutor {
                                 org.bukkit.OfflinePlayer p = Bukkit.getOfflinePlayer(entry.getKey());
                                 if (p.getName() == null || !p.getName().equalsIgnoreCase(yeniBaskan)) {
                                     silinecekBaskanlar.add(entry.getKey());
+                                } else {
+                                    yenidenSecildi[0] = true; // kazanan zaten başkandı
                                 }
                             }
                         }
@@ -479,11 +482,11 @@ public class SecimManager implements Listener, CommandExecutor {
                         String eskiIsim = eskiPlayer.getName();
                         if (eskiIsim != null) {
                             if (eskiPlayer.isOnline()) {
-                                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + eskiIsim + " vatandas");
+                                meslekDegisimSebebiIpucu = "SECIM"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + eskiIsim + " vatandas"); } finally { meslekDegisimSebebiIpucu = null; }
                             } else {
                                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + eskiIsim + " parent set vatandas");
                                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + eskiIsim + " vatandas");
-                                plugin.oyuncuMeslekCache.put(eskiUUID, "vatandas");
+                                String __eskiM = plugin.oyuncuMeslekCache.put(eskiUUID, "vatandas"); plugin.meslekDegistiBildir(eskiUUID, __eskiM, "vatandas", "SECIM");
                             }
                         }
                     }
@@ -491,19 +494,27 @@ public class SecimManager implements Listener, CommandExecutor {
                     if (!yeniBaskan.contains("Yok")) {
                         Player yeniPlayer = Bukkit.getPlayerExact(yeniBaskan);
                         if (yeniPlayer != null && yeniPlayer.isOnline()) {
-                            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + yeniBaskan + " belediyebaskani");
+                            meslekDegisimSebebiIpucu = "SECIM"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + yeniBaskan + " belediyebaskani"); } finally { meslekDegisimSebebiIpucu = null; }
                         } else {
                             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + yeniBaskan + " parent set belediyebaskani");
                             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + yeniBaskan + " belediyebaskani");
                             org.bukkit.OfflinePlayer yp = Bukkit.getOfflinePlayer(yeniBaskan);
                             if (plugin.oyuncuMeslekCache != null) {
-                                plugin.oyuncuMeslekCache.put(yp.getUniqueId(), "belediyebaskani");
+                                String __eskiM = plugin.oyuncuMeslekCache.put(yp.getUniqueId(), "belediyebaskani"); plugin.meslekDegistiBildir(yp.getUniqueId(), __eskiM, "belediyebaskani", "SECIM");
                             }
                         }
                         
                         Bukkit.broadcastMessage(ChatColor.GOLD + "★ " + ChatColor.GREEN + yeniBaskan + ChatColor.YELLOW + " resmen Belediye Baskani gorevine baslamistir! ★");
                     }
                     
+                    // Tek bildirim: eski başkan(lar) kalktı ve/veya yeni başkan atandı (yeniden seçilme değişim sayılmaz)
+                    UUID __eskiB = silinecekBaskanlar.isEmpty() ? null : silinecekBaskanlar.get(0);
+                    UUID __yeniB = null;
+                    if (!yeniBaskan.contains("Yok") && !yenidenSecildi[0]) {
+                        Player __yp = Bukkit.getPlayerExact(yeniBaskan);
+                        __yeniB = __yp != null ? __yp.getUniqueId() : Bukkit.getOfflinePlayer(yeniBaskan).getUniqueId();
+                    }
+                    if (__eskiB != null || __yeniB != null) plugin.baskanDegistiBildir(__eskiB, __yeniB, "SECIM");
                     plugin.veriKaydet();
                 }
             }.runTaskLater(plugin, 1200L);

@@ -682,6 +682,21 @@ public class PazarManager implements Listener, CommandExecutor {
         acikGui.put(p.getUniqueId(), ctx);
     }
 
+    /** MeslekAPI için: stoğu olan tüm ilanlar. Ana thread. */
+    public List<me.mesleksistemi.api.PazarIlani> ilanListesi() {
+        List<me.mesleksistemi.api.PazarIlani> r = new ArrayList<>();
+        for (Stand st : standlar.values()) {
+            if (st.sahip == null) continue;
+            for (Map.Entry<String, Listing> e : st.listings.entrySet()) {
+                Listing l = e.getValue();
+                if (l.stok <= 0) continue;
+                r.add(new me.mesleksistemi.api.PazarIlani(st.id, st.sahip, e.getKey(), l.ornek.getType().name(),
+                        esyaGorunenIsim(l.ornek), l.fiyat, l.stok));
+            }
+        }
+        return r;
+    }
+
     private void satinAl(Player alici, Stand s, String listingId, int adet) {
         Listing l = s.listings.get(listingId);
         if (l == null || l.stok <= 0 || adet <= 0) {
@@ -720,6 +735,9 @@ public class PazarManager implements Listener, CommandExecutor {
         try { if (plugin.basarimManager != null && s.sahip != null) plugin.basarimManager.sayacArtir(s.sahip, "pazar_satis", adet); } catch (Exception ignored) { }
         plugin.ekonomiLog("pazar-satis", alici.getName(), adet + "x " + l.ornek.getType().name() + " | stand: " + s.id + " | sahip: " + adiniBul(s.sahip)
                 + " | toplam: $" + fmt(toplam) + " | vergi: $" + fmt(vergi));
+        try {
+            Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.PazarSatisEvent(s.sahip, alici.getUniqueId(), listingId, adet, toplam));
+        } catch (Throwable t) { plugin.getLogger().warning("PazarSatisEvent: " + t); }
 
         OfflinePlayer saticiOP = Bukkit.getOfflinePlayer(s.sahip);
         if (saticiOP.isOnline() && saticiOP.getPlayer() != null) {

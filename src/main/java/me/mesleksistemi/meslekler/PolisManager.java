@@ -582,7 +582,7 @@ public class PolisManager implements Listener, CommandExecutor {
             return;
         }
 
-        plugin.oyuncuMeslekCache.put(target.getUniqueId(), yeniMeslek);
+        String __eskiM = plugin.oyuncuMeslekCache.put(target.getUniqueId(), yeniMeslek); plugin.meslekDegistiBildir(target.getUniqueId(), __eskiM, yeniMeslek, "POLIS_ATAMA");
         // "amir" tag tanımı yoksa TagPlugin'e oluşturtur (varsa dokunmaz); aksi halde "tag set" sessizce başarısız olurdu
         if (amirYap) {
             String amirTag = plugin.getConfig().getString("amir.tag-format", "&o&1[Amir]");
@@ -987,7 +987,7 @@ public class PolisManager implements Listener, CommandExecutor {
                 }
                 
                 player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.RED + "İstifa ettiniz! Polislik yetkileriniz alındı.");
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + player.getName() + " vatandas");
+                meslekDegisimSebebiIpucu = "ISTIFA"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + player.getName() + " vatandas"); } finally { meslekDegisimSebebiIpucu = null; }
                 
             } else {
                 event.setCancelled(true); 
@@ -1635,7 +1635,7 @@ public class PolisManager implements Listener, CommandExecutor {
             String eskiMeslek = plugin.oyuncuMeslekCache.getOrDefault(uuid, "vatandas");
             if (!eskiMeslek.equalsIgnoreCase("mahkum")) preJailRoles.put(uuid, eskiMeslek);
             jailedPlayers.put(uuid, saniye);
-            plugin.oyuncuMeslekCache.put(uuid, "mahkum");
+            String __eskiM = plugin.oyuncuMeslekCache.put(uuid, "mahkum"); plugin.meslekDegistiBildir(uuid, __eskiM, "mahkum", "HAPIS");
             if (isim != null) {
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent set mahkum");
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag remove " + isim);
@@ -1765,7 +1765,7 @@ public class PolisManager implements Listener, CommandExecutor {
         Location cell = getBestCell();
         if (cell != null) player.teleport(cell);
 
-        plugin.oyuncuMeslekCache.put(player.getUniqueId(), "mahkum");
+        String __eskiM = plugin.oyuncuMeslekCache.put(player.getUniqueId(), "mahkum"); plugin.meslekDegistiBildir(player.getUniqueId(), __eskiM, "mahkum", "HAPIS");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent set mahkum");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag remove " + player.getName());
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " Mahkum");
@@ -1788,7 +1788,7 @@ public class PolisManager implements Listener, CommandExecutor {
         String iadeEdilecekMeslek = preJailRoles.getOrDefault(player.getUniqueId(), "vatandas");
         preJailRoles.remove(player.getUniqueId()); // İade ettikten sonra hafızadan siliyoruz
         
-        plugin.oyuncuMeslekCache.put(player.getUniqueId(), iadeEdilecekMeslek);
+        String __eskiM = plugin.oyuncuMeslekCache.put(player.getUniqueId(), iadeEdilecekMeslek); plugin.meslekDegistiBildir(player.getUniqueId(), __eskiM, iadeEdilecekMeslek, "TAHLIYE");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent set " + iadeEdilecekMeslek);
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag remove " + player.getName());
         

@@ -334,7 +334,9 @@ public class AdliyeListener implements Listener {
                     if (dava != null && dava.durum == DavaDurumu.SANIK_AVUKATI_BEKLIYOR) {
                         dava.sanikAvukati = player.getName();
                         dava.sanikAvukatiUcreti = 0.0;
+                        DavaDurumu __eskiD = dava.durum;
                         dava.durum = DavaDurumu.HAKIM_BEKLIYOR;
+                        am.durumBildir(dava, __eskiD);
                         player.closeInventory();
                         player.sendMessage(ChatColor.GREEN + "Bu davayı başarıyla üstlendiniz!");
                         Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.YELLOW + "Dava No: " + dava.id.toString().substring(0, 5) + " için tüm taraflar hazırdır. Duruşma için Hakim bekleniyor!");
@@ -359,8 +361,10 @@ public class AdliyeListener implements Listener {
                             player.sendMessage(ChatColor.RED + "Mahkeme salonu kordinatları ve sınırları (pos1/pos2) tam ayarlanmamış! Duruşma başlatılamıyor.");
                             return;
                         }
+                        DavaDurumu __eskiD = dava.durum;
                         dava.durum = DavaDurumu.DURUSMADA;
                         dava.hakim = player.getName();
+                        am.durumBildir(dava, __eskiD);
                         am.veriKaydetAdliye();
                         player.teleport(am.mahkemeSalonu);
                         am.durusmadakiOyuncular.add(player.getUniqueId());
@@ -393,6 +397,7 @@ public class AdliyeListener implements Listener {
                         avukatPrimiOde(dava, dava.sanikAvukati, 2500.0, "Zorlu bir savunmayı başardığınız için Devlet size $");
                         am.durusmayiBitir(dava); 
                         am.durusmadakiOyuncular.remove(player.getUniqueId()); 
+                        am.kapandiBildir(dava, "BERAAT", 0.0);
                         am.aktifDavalar.remove(davaId);
                         am.veriKaydetAdliye();
                     }
@@ -570,6 +575,7 @@ public class AdliyeListener implements Listener {
                     // Önce duruşma kapanır (taraflar salondan serbest kalır), sonra sanık hücreye gönderilir
                     am.durusmayiBitir(dava); 
                     am.durusmadakiOyuncular.remove(player.getUniqueId()); 
+                    am.kapandiBildir(dava, "SUCLU", tazminat);
                     am.aktifDavalar.remove(davaId);
                     am.veriKaydetAdliye();
 
@@ -628,6 +634,7 @@ public class AdliyeListener implements Listener {
                 DavaDosyasi yeniDava = new DavaDosyasi(UUID.randomUUID(), player.getName(), sanik, tazminat, sebep);
                 am.aktifDavalar.put(yeniDava.id, yeniDava);
                 am.veriKaydetAdliye();
+                am.davaOlustuBildir(yeniDava);
                 
                 am.geciciDavaHedefi.remove(pId);
                 am.geciciDavaMiktari.remove(pId);

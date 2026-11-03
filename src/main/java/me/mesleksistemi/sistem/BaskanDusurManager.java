@@ -105,15 +105,16 @@ public class BaskanDusurManager implements Listener {
         baslangic.remove(id);
         if (isim != null) {
             if (op.isOnline()) {
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + isim + " vatandas");
+                meslekDegisimSebebiIpucu = "DUSURME"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + isim + " vatandas"); } finally { meslekDegisimSebebiIpucu = null; }
             } else {
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent set vatandas");
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + isim + " vatandas");
             }
         }
-        plugin.oyuncuMeslekCache.put(id, "vatandas");
+        String __eskiM = plugin.oyuncuMeslekCache.put(id, "vatandas"); plugin.meslekDegistiBildir(id, __eskiM, "vatandas", "DUSURME");
         Bukkit.broadcastMessage(ChatColor.GOLD + "★ " + ChatColor.RED + (isim == null ? "Başkan" : isim)
                 + ChatColor.YELLOW + " " + sebep + "; Belediye Başkanlığı düştü ve vatandaşa döndü.");
+        plugin.baskanDegistiBildir(id, null, "DUSURME");
         plugin.ekonomiLog("baskan-dustu", isim == null ? id.toString() : isim, sebep);
         if (plugin.haberManager != null)
             plugin.haberManager.yaz("SİYASET", "Başkanlık düştü", (isim == null ? "Başkan" : isim) + " " + sebep + "; Belediye Başkanlığı düştü.");

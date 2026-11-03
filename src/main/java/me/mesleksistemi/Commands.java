@@ -48,7 +48,7 @@ public class Commands implements CommandExecutor {
             Player hedef = Bukkit.getPlayer(args[0]);
             String yeniMeslek = args[1].toLowerCase();
             if (hedef != null) {
-                plugin.oyuncuMeslekCache.put(hedef.getUniqueId(), yeniMeslek);
+                String __eskiM = plugin.oyuncuMeslekCache.put(hedef.getUniqueId(), yeniMeslek); plugin.meslekDegistiBildir(hedef.getUniqueId(), __eskiM, yeniMeslek, "YONETICI");
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + hedef.getName() + " parent set " + yeniMeslek);
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + hedef.getName() + " " + yeniMeslek);
                 sender.sendMessage(ChatColor.GREEN + hedef.getName() + " meslegi " + yeniMeslek + " yapildi!");
@@ -292,7 +292,7 @@ public class Commands implements CommandExecutor {
                 String eskiMeslek = plugin.oyuncuMeslekCache.getOrDefault(hid, "?");
                 String eskiKayit = plugin.getConfig().getString("kimlikler." + hid + ".kimlik_no", "kayıtsız");
                 plugin.getConfig().set("kimlikler." + hid, null);
-                plugin.oyuncuMeslekCache.put(hid, "gocmen");
+                String __eskiM = plugin.oyuncuMeslekCache.put(hid, "gocmen"); plugin.meslekDegistiBildir(hid, __eskiM, "gocmen", "GOCMEN");
                 plugin.kimlikAsama.remove(hid); plugin.geciciKimlikler.remove(hid);
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent set gocmen");
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + isim + " gocmen");
@@ -358,7 +358,7 @@ public class Commands implements CommandExecutor {
                 if (basvuranPlayer != null) basvuranPlayer.sendMessage(ChatColor.GREEN + "Basvurunuz kabul edildi.");
                 
                 String pName = Bukkit.getOfflinePlayer(basvuranUUID).getName();
-                plugin.oyuncuMeslekCache.put(basvuranUUID, basvuru.meslek);
+                String __eskiM = plugin.oyuncuMeslekCache.put(basvuranUUID, basvuru.meslek); plugin.meslekDegistiBildir(basvuranUUID, __eskiM, basvuru.meslek, "BASVURU_ONAY");
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + pName + " parent set " + basvuru.meslek);
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + pName + " " + basvuru.meslek);
             } else if (islem.equalsIgnoreCase("reddet")) {
@@ -596,7 +596,7 @@ public class Commands implements CommandExecutor {
         plugin.getConfig().set(kyol + ".yas", veri.yas);
         plugin.getConfig().set(kyol + ".kutuk", veri.kutuk);
         plugin.getConfig().set(kyol + ".kimlik_no", kimlikNo);
-        plugin.oyuncuMeslekCache.put(player.getUniqueId(), "vatandas");
+        String __eskiM = plugin.oyuncuMeslekCache.put(player.getUniqueId(), "vatandas"); plugin.meslekDegistiBildir(player.getUniqueId(), __eskiM, "vatandas", "KIMLIK_KAYIT");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent set vatandas");
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " vatandas");
         

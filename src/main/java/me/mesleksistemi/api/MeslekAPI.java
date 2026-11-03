@@ -51,4 +51,44 @@ public interface MeslekAPI {
 
     /** MeslekSistemi'nin ekonomi log'una satır yazar (plugins/MeslekSistemi/loglar/ekonomi-YYYY-AA.log). */
     void ekonomiLog(String kategori, String kim, String detay);
+
+    // ================================================================
+    // Koninski-Mobil köprüsü için eklenenler. TÜM çağrılar ana thread'den yapılmalıdır.
+    // Eski metotlar değişmemiştir.
+    // ================================================================
+
+    /** API sürümü; yeni metot eklendikçe artar. 1 = yalnızca ilk altı metot, 2 = bu genişleme. */
+    default int apiSurum() { return 2; }
+
+    /**
+     * Oyuncudan oyuncuya banka transferi. Kurallar menüdeki transferle birebir aynıdır:
+     * vergi yok, alt limit 1.0, üst limit ve bekleme yok, hapisteki (mahkum) oyuncu gönderemez, kendine gönderilemez.
+     * Tek adımda çalışır, alıcı çevrimdışı olabilir (UUID yeter).
+     * kimlikAnahtari: aynı anahtarla ikinci çağrı aynı sonucu döner ve para ikinci kez hareket etmez
+     * (son 1000 anahtar plugins/MeslekSistemi/mobil-kimlik.yml içinde kalıcıdır). Başarılı transferden sonra
+     * veri hemen diske yazılır; ekonomi log kategorisi "mobil-transfer".
+     */
+    TransferSonucu transfer(UUID gonderen, UUID alici, double miktar, String kimlikAnahtari);
+
+    /** Oyuncunun profil özeti (çevrimdışı olabilir). Hiç görülmemiş UUID için null. */
+    ProfilOzeti profilOzeti(UUID oyuncu);
+
+    /** Oyuncunun bekleyen meslek başvuruları (en fazla bir tane). */
+    java.util.List<BasvuruBilgisi> basvurular(UUID oyuncu);
+
+    /** Oyuncunun taraf olduğu aktif davalar. Taraflar adla eşleştirilir. */
+    java.util.List<DavaOzeti> davalar(UUID oyuncu, DavaRolu rol);
+
+    /** Tüm pazar standlarındaki ilanlar (stoğu olanlar). */
+    java.util.List<PazarIlani> pazarIlanlari();
+
+    GorevOzeti gorevOzeti(UUID oyuncu);
+
+    BasarimOzeti basarimOzeti(UUID oyuncu);
+
+    /** Profil yorumu ekler; menüdeki kurallar (göçmen/mahkum yok, oynama süresi, uzunluk, aynı kişiye bekleme). Küfür filtresi YOKTUR (oyunda da yok). */
+    EtkilesimSonucu profilYorumEkle(UUID hedef, UUID yazan, String metin);
+
+    /** Beğeni/beğenmeme verir; aynı türden tekrar verilirse oy geri alınır (GERI_ALINDI). */
+    EtkilesimSonucu begeniVer(UUID hedef, UUID yazan, BegeniTipi tip);
 }

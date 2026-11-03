@@ -269,13 +269,14 @@ public class MenuManager implements Listener {
                 if (mevcutMeslek.equals("vatandas") || mevcutMeslek.equals("gocmen")) {
                     player.sendMessage(ChatColor.RED + "Istifa edilecek durumda degilsiniz.");
                 } else {
-                    plugin.oyuncuMeslekCache.put(pId, "vatandas");
+                    String __eskiM = plugin.oyuncuMeslekCache.put(pId, "vatandas"); plugin.meslekDegistiBildir(pId, __eskiM, "vatandas", "ISTIFA");
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + player.getName() + " parent set vatandas");
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + player.getName() + " vatandas");
                     player.sendMessage(ChatColor.GREEN + "Istifa ettiniz."); 
                     plugin.veriKaydet();
 
                     if (mevcutMeslek.equals("belediyebaskani")) {
+                        plugin.baskanDegistiBildir(pId, null, "ISTIFA");
                         Bukkit.broadcastMessage("");
                         Bukkit.broadcastMessage(ChatColor.DARK_RED + "" + ChatColor.BOLD + "★★★ " + ChatColor.RED + "SON DAKİKA HABERİ " + ChatColor.DARK_RED + ChatColor.BOLD + "★★★");
                         Bukkit.broadcastMessage(ChatColor.GOLD + "Belediye Başkanı " + ChatColor.YELLOW + player.getName() + ChatColor.GOLD + " görevinden " + ChatColor.RED + "İSTİFA ETTİ!");

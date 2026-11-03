@@ -81,25 +81,30 @@ public class AlarmManager implements Listener {
 
     // ------------------------------------------------------------------ transfer izleme
     public void transfer(Player gonderen, UUID alici, String aliciAd, double miktar) {
+        transfer(gonderen.getUniqueId(), gonderen.getName(), alici, aliciAd, miktar, "para-transfer");
+    }
+
+    /** UUID tabanlı sürüm (MeslekAPI çevrimdışı gönderen için). logKategori: ekonomi log kategorisi. */
+    public void transfer(UUID gonderenId, String gonderenAd, UUID alici, String aliciAd, double miktar, String logKategori) {
         long simdi = System.currentTimeMillis();
         double buyuk = plugin.getConfig().getDouble("alarm.buyuk-transfer", 100000.0);
         if (buyuk > 0 && miktar >= buyuk) {
-            alarm("buyuk:" + gonderen.getUniqueId(), "Büyük transfer",
-                    gonderen.getName() + " -> " + aliciAd + " $" + String.format(Locale.US, "%.2f", miktar));
+            alarm("buyuk:" + gonderenId, "Büyük transfer",
+                    gonderenAd + " -> " + aliciAd + " $" + String.format(Locale.US, "%.2f", miktar));
         }
 
-        String cift = gonderen.getUniqueId() + ">" + alici;
+        String cift = gonderenId + ">" + alici;
         ArrayDeque<Long> q = ciftler.computeIfAbsent(cift, x -> new ArrayDeque<>());
         q.addLast(simdi);
         while (!q.isEmpty() && simdi - q.peekFirst() > PENCERE_MS) q.pollFirst();
         int tekrar = plugin.getConfig().getInt("alarm.tekrar-transfer-adedi", 5);
         if (tekrar > 0 && q.size() >= tekrar) {
             alarm("tekrar:" + cift, "Tekrarlı transfer",
-                    gonderen.getName() + " -> " + aliciAd + " son 1 saatte " + q.size() + " kez para gönderdi");
+                    gonderenAd + " -> " + aliciAd + " son 1 saatte " + q.size() + " kez para gönderdi");
         }
 
         ArrayDeque<Object[]> a = alicilar.computeIfAbsent(alici, x -> new ArrayDeque<>());
-        a.addLast(new Object[] {simdi, gonderen.getUniqueId()});
+        a.addLast(new Object[] {simdi, gonderenId});
         while (!a.isEmpty() && simdi - (Long) a.peekFirst()[0] > PENCERE_MS) a.pollFirst();
         Set<UUID> farkli = new HashSet<>();
         for (Object[] o : a) farkli.add((UUID) o[1]);
@@ -108,7 +113,7 @@ public class AlarmManager implements Listener {
             alarm("toplanma:" + alici, "Para toplanıyor",
                     aliciAd + " son 1 saatte " + farkli.size() + " farklı oyuncudan para aldı");
         }
-        plugin.ekonomiLog("para-transfer", gonderen.getName(), "-> " + aliciAd + " $" + String.format(Locale.US, "%.2f", miktar));
+        plugin.ekonomiLog(logKategori, gonderenAd, "-> " + aliciAd + " $" + String.format(Locale.US, "%.2f", miktar));
     }
 
     // ------------------------------------------------------------------ alarm

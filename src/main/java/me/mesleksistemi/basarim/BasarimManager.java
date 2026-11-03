@@ -303,8 +303,13 @@ public class BasarimManager implements Listener, CommandExecutor {
         } catch (Exception ignored) {
         }
         plugin.ekonomiLog("basarim-kazanildi", p.getName(), "Başarım kazanıldı: " + basarimId + " (" + ad + ", " + tier + ")");
+        final UUID __u = p.getUniqueId();
+        Runnable __ev = () -> { try { org.bukkit.Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.BasarimKazanildiEvent(__u, basarimId)); } catch (Throwable ignored) { } };
+        if (org.bukkit.Bukkit.isPrimaryThread()) __ev.run(); else org.bukkit.Bukkit.getScheduler().runTask(plugin, __ev);
         return true;
     }
+
+    public int toplamBasarim() { return TUM_BASARIMLAR.size(); }
 
     public Set<String> kazanilanlar(UUID uuid) {
         return kazanilan.getOrDefault(uuid, new HashSet<>());

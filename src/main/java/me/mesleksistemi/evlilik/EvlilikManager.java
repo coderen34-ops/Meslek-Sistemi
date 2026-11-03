@@ -701,6 +701,9 @@ public class EvlilikManager implements Listener, CommandExecutor {
                 + ChatColor.WHITE + " Rahip " + rahip.getName() + " huzurunda dünyaevine girdi! Mutluluklar dileriz. " + ChatColor.LIGHT_PURPLE + "♥");
         if (plugin.haberManager != null)
             plugin.haberManager.yaz("TOPLUM", "Kilisede nikah", ev.adA + " ve " + ev.adB + ", Rahip " + rahip.getName() + " huzurunda evlendi.");
+        try {
+            org.bukkit.Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.EvlilikEvent(ev.a, ev.b, ev.rahip));
+        } catch (Throwable t) { plugin.getLogger().warning("EvlilikEvent: " + t); }
     }
 
     private void yuzukVer(Player p, String esAd) {

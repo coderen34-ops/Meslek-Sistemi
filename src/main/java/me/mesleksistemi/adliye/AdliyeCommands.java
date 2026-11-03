@@ -111,7 +111,9 @@ public class AdliyeCommands implements CommandExecutor {
             if (teklif.isMusteki) {
                 dava.mustekiAvukati = teklif.avukatAdi;
                 dava.mustekiAvukatiUcreti = teklif.ucret;
+                DavaDurumu __eskiD = dava.durum;
                 dava.durum = DavaDurumu.SANIK_AVUKATI_BEKLIYOR;
+                am.durumBildir(dava, __eskiD);
                 Bukkit.broadcastMessage(ChatColor.DARK_RED + "[Adliye] " + ChatColor.YELLOW + "Dava No: " + dava.id.toString().substring(0, 5) + " için Şikayetçi Avukatı atanmıştır. Sıra Sanık Avukatında!");
             }
             

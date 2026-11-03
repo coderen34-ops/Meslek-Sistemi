@@ -192,6 +192,13 @@ public class GorevManager implements Listener, CommandExecutor {
     private final Map<UUID, Map<String, Ilerleme>> aktifGorevler = new HashMap<>();
     private final Map<UUID, Set<String>> tamamlananGorevler = new HashMap<>();
 
+    /** MeslekAPI için: oyuncunun görev özeti (tamamlananlar + aktif görev ilerleme sayaçları). Ana thread. */
+    public me.mesleksistemi.api.GorevOzeti ozet(UUID id) {
+        Map<String, Integer> aktif = new HashMap<>();
+        for (Map.Entry<String, Ilerleme> e : aktifGorevler.getOrDefault(id, Map.of()).entrySet()) aktif.put(e.getKey(), e.getValue().sayac);
+        return new me.mesleksistemi.api.GorevOzeti(id, new HashSet<>(tamamlananGorevler.getOrDefault(id, Set.of())), aktif);
+    }
+
     public GorevManager(MeslekSistemi plugin) {
         this.plugin = plugin;
         this.gorevNpcKey = new NamespacedKey(plugin, "gorev_npc");
@@ -492,6 +499,9 @@ public class GorevManager implements Listener, CommandExecutor {
         Map<String, Ilerleme> aktif = aktifGorevler.get(player.getUniqueId());
         if (aktif != null) aktif.remove(ornekId);
         tamamlananGorevler.computeIfAbsent(player.getUniqueId(), k -> new HashSet<>()).add(ornekId);
+        try {
+            org.bukkit.Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.GorevTamamlandiEvent(player.getUniqueId(), ornekId));
+        } catch (Throwable t) { plugin.getLogger().warning("GorevTamamlandiEvent: " + t); }
 
         double bakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
         plugin.bankaHesaplari.put(player.getUniqueId(), bakiye + g.odul);
