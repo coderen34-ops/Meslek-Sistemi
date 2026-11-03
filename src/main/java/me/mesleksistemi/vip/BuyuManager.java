@@ -83,7 +83,7 @@ public class BuyuManager implements CommandExecutor {
                     p.sendMessage(ChatColor.GRAY + "✦ " + t.ad + " büyün bitti.");
                     try {
             org.bukkit.Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.BuyuBittiEvent(p.getUniqueId(), t.ad));
-        } catch (Throwable t) { plugin.getLogger().warning("BuyuBittiEvent: " + t); }
+        } catch (Throwable __ex) { plugin.getLogger().warning("BuyuBittiEvent: " + __ex); }
                 } else {
                     veri.set(yol + ".kalan", kalan);
                 }

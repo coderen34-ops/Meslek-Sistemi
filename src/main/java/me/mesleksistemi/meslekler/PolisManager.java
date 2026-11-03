@@ -987,7 +987,7 @@ public class PolisManager implements Listener, CommandExecutor {
                 }
                 
                 player.sendMessage(ChatColor.BLUE + "[Polis] " + ChatColor.RED + "İstifa ettiniz! Polislik yetkileriniz alındı.");
-                meslekDegisimSebebiIpucu = "ISTIFA"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + player.getName() + " vatandas"); } finally { meslekDegisimSebebiIpucu = null; }
+                plugin.meslekDegisimSebebiIpucu = "ISTIFA"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + player.getName() + " vatandas"); } finally { plugin.meslekDegisimSebebiIpucu = null; }
                 
             } else {
                 event.setCancelled(true); 

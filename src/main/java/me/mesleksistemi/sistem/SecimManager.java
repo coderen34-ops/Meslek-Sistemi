@@ -482,7 +482,7 @@ public class SecimManager implements Listener, CommandExecutor {
                         String eskiIsim = eskiPlayer.getName();
                         if (eskiIsim != null) {
                             if (eskiPlayer.isOnline()) {
-                                meslekDegisimSebebiIpucu = "SECIM"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + eskiIsim + " vatandas"); } finally { meslekDegisimSebebiIpucu = null; }
+                                plugin.meslekDegisimSebebiIpucu = "SECIM"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + eskiIsim + " vatandas"); } finally { plugin.meslekDegisimSebebiIpucu = null; }
                             } else {
                                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + eskiIsim + " parent set vatandas");
                                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + eskiIsim + " vatandas");
@@ -494,7 +494,7 @@ public class SecimManager implements Listener, CommandExecutor {
                     if (!yeniBaskan.contains("Yok")) {
                         Player yeniPlayer = Bukkit.getPlayerExact(yeniBaskan);
                         if (yeniPlayer != null && yeniPlayer.isOnline()) {
-                            meslekDegisimSebebiIpucu = "SECIM"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + yeniBaskan + " belediyebaskani"); } finally { meslekDegisimSebebiIpucu = null; }
+                            plugin.meslekDegisimSebebiIpucu = "SECIM"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + yeniBaskan + " belediyebaskani"); } finally { plugin.meslekDegisimSebebiIpucu = null; }
                         } else {
                             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + yeniBaskan + " parent set belediyebaskani");
                             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + yeniBaskan + " belediyebaskani");

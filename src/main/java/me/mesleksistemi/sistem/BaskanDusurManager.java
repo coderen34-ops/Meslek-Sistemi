@@ -105,7 +105,7 @@ public class BaskanDusurManager implements Listener {
         baslangic.remove(id);
         if (isim != null) {
             if (op.isOnline()) {
-                meslekDegisimSebebiIpucu = "DUSURME"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + isim + " vatandas"); } finally { meslekDegisimSebebiIpucu = null; }
+                plugin.meslekDegisimSebebiIpucu = "DUSURME"; try { Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "meslekata " + isim + " vatandas"); } finally { plugin.meslekDegisimSebebiIpucu = null; }
             } else {
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "lp user " + isim + " parent set vatandas");
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "tag set " + isim + " vatandas");

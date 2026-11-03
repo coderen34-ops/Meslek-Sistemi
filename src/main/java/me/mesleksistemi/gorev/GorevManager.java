@@ -501,7 +501,7 @@ public class GorevManager implements Listener, CommandExecutor {
         tamamlananGorevler.computeIfAbsent(player.getUniqueId(), k -> new HashSet<>()).add(ornekId);
         try {
             org.bukkit.Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.GorevTamamlandiEvent(player.getUniqueId(), ornekId));
-        } catch (Throwable t) { plugin.getLogger().warning("GorevTamamlandiEvent: " + t); }
+        } catch (Throwable __ex) { plugin.getLogger().warning("GorevTamamlandiEvent: " + __ex); }
 
         double bakiye = plugin.bankaHesaplari.getOrDefault(player.getUniqueId(), 0.0);
         plugin.bankaHesaplari.put(player.getUniqueId(), bakiye + g.odul);
