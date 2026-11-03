@@ -355,6 +355,7 @@ public class Commands implements CommandExecutor {
             if (islem.equalsIgnoreCase("kabulet")) {
                 plugin.aktifBasvurular.remove(basvuranUUID);
                 player.sendMessage(ChatColor.GREEN + "Basvuru kabul edildi!");
+                try { Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.BasvuruSonucEvent(basvuranUUID, basvuru.meslek, "ONAY")); } catch (Throwable __ex) { plugin.getLogger().warning("BasvuruSonucEvent: " + __ex); }
                 if (basvuranPlayer != null) basvuranPlayer.sendMessage(ChatColor.GREEN + "Basvurunuz kabul edildi.");
                 
                 String pName = Bukkit.getOfflinePlayer(basvuranUUID).getName();
@@ -364,6 +365,7 @@ public class Commands implements CommandExecutor {
             } else if (islem.equalsIgnoreCase("reddet")) {
                 plugin.aktifBasvurular.remove(basvuranUUID);
                 player.sendMessage(ChatColor.RED + "Basvuru reddedildi!");
+                try { Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.BasvuruSonucEvent(basvuranUUID, basvuru.meslek, "RET")); } catch (Throwable __ex) { plugin.getLogger().warning("BasvuruSonucEvent: " + __ex); }
                 if (basvuranPlayer != null) basvuranPlayer.sendMessage(ChatColor.RED + "Basvurunuz reddedildi.");
             }
             if (islem.equalsIgnoreCase("kabulet") || islem.equalsIgnoreCase("reddet")) {

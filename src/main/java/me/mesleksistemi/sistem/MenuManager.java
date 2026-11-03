@@ -258,7 +258,8 @@ public class MenuManager implements Listener {
 
             if (clicked.getType() == Material.REDSTONE_TORCH && tiklananIsim.equals("Basvuruyu Iptal Et")) {
                 if (plugin.aktifBasvurular.containsKey(pId) || plugin.basvuruBekleyenler.containsKey(pId)) {
-                    plugin.aktifBasvurular.remove(pId); plugin.basvuruBekleyenler.remove(pId); plugin.veriKaydet();
+                    MeslekSistemi.Basvuru __iptalB = plugin.aktifBasvurular.remove(pId); String __iptalM = plugin.basvuruBekleyenler.remove(pId); plugin.veriKaydet();
+                    try { Bukkit.getPluginManager().callEvent(new me.mesleksistemi.olay.BasvuruSonucEvent(pId, __iptalB != null ? __iptalB.meslek : __iptalM, "IPTAL")); } catch (Throwable __ex) { plugin.getLogger().warning("BasvuruSonucEvent: " + __ex); }
                     player.sendMessage(ChatColor.GREEN + "Basvurunuz iptal edildi.");
                 }
                 player.closeInventory(); return;
