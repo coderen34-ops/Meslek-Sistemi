@@ -387,7 +387,7 @@ public class MeslekSistemi extends JavaPlugin {
 
         Commands cmdExecutor = new Commands(this);
         String[] cmds = {
-            "meslekata", "primver", "kasaayarla", "kasadurum", "kursuayarla", "mesleknpc", "bankanpc",
+            "meslekata", "primver", "paragor", "kasaayarla", "kasadurum", "kursuayarla", "mesleknpc", "bankanpc",
             "nufusnpc", "tapunpc", "kimlikbiyomsec", "kimlik", "meslekler", "basvurular", 
             "basvurucevapla", "tapumenusu", "ohal", "maaslar", "yasayayinla", "yasakursuayarla", "yasalar", "rehber",
             "zenginler", "bakiyegor"
@@ -781,6 +781,18 @@ public class MeslekSistemi extends JavaPlugin {
 
     public void mergeKasaMoney(Chest kasa) {
         kasaNotunuAyarla(kasa, kasaBakiyesi(kasa));
+    }
+
+    // Kick (EreanorKick) takipçi/abone indirim oranı: 0.02 = %2. EreanorKick oyuncuya "ereanorkick_tier" metadata'sı koyar.
+    public double kickOran(Player p) {
+        try {
+            for (org.bukkit.metadata.MetadataValue m : p.getMetadata("ereanorkick_tier")) {
+                String t = m.asString();
+                if ("abone".equals(t)) return Math.max(0, getConfig().getDouble("kick-indirim.abone", 4.0)) / 100.0;
+            }
+        } catch (Exception ignored) {
+        }
+        return 0.0;
     }
 
     // Oyuncunun üstündeki kağıt paradan tahsil edip kasaya aktarır.
